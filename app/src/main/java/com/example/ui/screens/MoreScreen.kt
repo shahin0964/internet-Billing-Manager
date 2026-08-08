@@ -114,6 +114,7 @@ fun MoreScreen(
     var authUser by remember {
         mutableStateOf(
             try {
+                com.example.IspApplication.ensureFirebaseInitialized(context)
                 com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
             } catch (e: Throwable) {
                 null
@@ -1107,6 +1108,7 @@ tonalElevation = 2.dp,
                     onClick = {
                         showSignOutDialog = false
                         try {
+                            com.example.IspApplication.ensureFirebaseInitialized(context)
                             com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
                             authUser = null
                             onShowToast("Logged out successfully")

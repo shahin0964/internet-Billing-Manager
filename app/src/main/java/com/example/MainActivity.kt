@@ -150,6 +150,7 @@ fun MainAppContent(viewModel: IspViewModel) {
     var showAboutScreen by remember { mutableStateOf(false) }
     val initialAuthUser = remember {
         try {
+            com.example.IspApplication.ensureFirebaseInitialized(context)
             com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
         } catch (e: Throwable) {
             null
@@ -222,6 +223,7 @@ fun MainAppContent(viewModel: IspViewModel) {
             com.example.ui.screens.SignUpScreen(
                 onSignUpClick = { name, email, phone, pass, onError, onSuccess ->
                     try {
+                        com.example.IspApplication.ensureFirebaseInitialized(context)
                         val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
                         auth.createUserWithEmailAndPassword(email.trim(), pass)
                             .addOnSuccessListener { result ->
@@ -252,6 +254,7 @@ fun MainAppContent(viewModel: IspViewModel) {
             com.example.ui.screens.LoginScreen(
                 onLoginClick = { identifier, pass, rememberMe, onError, onSuccess ->
                     try {
+                        com.example.IspApplication.ensureFirebaseInitialized(context)
                         val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
                         val trimmedId = identifier.trim()
                         if (trimmedId.contains("@")) {
@@ -281,6 +284,7 @@ fun MainAppContent(viewModel: IspViewModel) {
                 },
                 onForgotPasswordClick = { identifier, onError, onSuccess ->
                     try {
+                        com.example.IspApplication.ensureFirebaseInitialized(context)
                         val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
                         val email = identifier.trim()
                         if (!email.contains("@")) {

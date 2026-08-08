@@ -537,9 +537,11 @@ fun PinRecoveryDialog(
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var emailInput by remember {
         mutableStateOf(
             try {
+                com.example.IspApplication.ensureFirebaseInitialized(context)
                 FirebaseAuth.getInstance().currentUser?.email ?: ""
             } catch (e: Throwable) {
                 ""
@@ -553,6 +555,7 @@ fun PinRecoveryDialog(
 
     val currentUser = remember {
         try {
+            com.example.IspApplication.ensureFirebaseInitialized(context)
             FirebaseAuth.getInstance().currentUser
         } catch (e: Throwable) {
             null
@@ -649,6 +652,7 @@ fun PinRecoveryDialog(
                     isLoading = true
                     errorMessage = null
                     try {
+                        com.example.IspApplication.ensureFirebaseInitialized(context)
                         val auth = FirebaseAuth.getInstance()
                         auth.signInWithEmailAndPassword(email, passwordInput)
                             .addOnSuccessListener {

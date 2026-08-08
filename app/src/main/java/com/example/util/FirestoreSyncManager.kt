@@ -38,8 +38,9 @@ object FirestoreSyncManager {
      * Returns the Firebase Authentication UID if the user is authenticated.
      * Returns null for unauthenticated or guest users.
      */
-    fun getCurrentUid(): String? {
+    fun getCurrentUid(context: Context? = null): String? {
         return try {
+            context?.let { com.example.IspApplication.ensureFirebaseInitialized(it) }
             val currentUser = FirebaseAuth.getInstance().currentUser
             currentUser?.uid
         } catch (e: Throwable) {
@@ -100,7 +101,8 @@ object FirestoreSyncManager {
      * Safely deletes a document from user's Firestore collection when deleted locally.
      */
     suspend fun deleteDocumentFromCloud(context: Context, collectionName: String, docId: String) = withContext(Dispatchers.IO) {
-        val uid = getCurrentUid() ?: return@withContext
+        com.example.IspApplication.ensureFirebaseInitialized(context)
+        val uid = getCurrentUid(context) ?: return@withContext
         try {
             val firestore = FirebaseFirestore.getInstance()
             firestore.collection("users").document(uid)
@@ -124,7 +126,8 @@ object FirestoreSyncManager {
      * Path structure: users/{uid}/{collection}/{id}
      */
     suspend fun syncLocalToCloud(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val uid = getCurrentUid()
+        com.example.IspApplication.ensureFirebaseInitialized(context)
+        val uid = getCurrentUid(context)
         if (uid.isNullOrBlank()) {
             Log.d(TAG, "Sync skipped: User is guest or unauthenticated.")
             return@withContext true
@@ -294,7 +297,8 @@ object FirestoreSyncManager {
      * Restores cloud data from Firestore for the current authenticated user into local Room DB.
      */
     suspend fun restoreCloudToLocal(context: Context): Boolean = withContext(Dispatchers.IO) {
-        val uid = getCurrentUid()
+        com.example.IspApplication.ensureFirebaseInitialized(context)
+        val uid = getCurrentUid(context)
         if (uid.isNullOrBlank()) {
             Log.d(TAG, "Restore skipped: User is guest or unauthenticated.")
             return@withContext false
