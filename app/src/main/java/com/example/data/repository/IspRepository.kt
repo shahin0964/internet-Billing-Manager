@@ -356,7 +356,7 @@ class IspRepository(
             val pInfo = try {
                 context.packageManager.getPackageInfo(context.packageName, 0)
             } catch (e: Exception) { null }
-            val verName = pInfo?.versionName ?: "1.0.16"
+            val verName = pInfo?.versionName ?: "1.0.17"
             val timestamp = System.currentTimeMillis()
 
             val backupDir = File(context.filesDir, "backups")

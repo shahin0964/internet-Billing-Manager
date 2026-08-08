@@ -120,11 +120,11 @@ jobs:
             NOTES="• Improved app performance"$'\n'"• Fixed billing-related issues"$'\n'"• Improved backup and sync"$'\n'"• Improved app stability"
           fi
 
-          cat <<EOF > release_notes.md
-What's New in ${VERSION_NAME}
-
-${NOTES}
-EOF
+          {
+            echo "What's New in ${VERSION_NAME}"
+            echo ""
+            echo "${NOTES}"
+          } > release_notes.md
 
           echo "=== Generated Release Notes ==="
           cat release_notes.md
