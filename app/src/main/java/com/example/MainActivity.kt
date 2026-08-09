@@ -251,6 +251,9 @@ fun MainAppContent(viewModel: IspViewModel) {
                                         "Password should be at least 6 characters."
                                     rawMsg.contains("INVALID_EMAIL", ignoreCase = true) ->
                                         "Please enter a valid email address."
+                                    rawMsg.contains("API keys are not supported", ignoreCase = true) ||
+                                    rawMsg.contains("internal error", ignoreCase = true) ->
+                                        "Unable to connect to authentication server. Please try again or continue as guest."
                                     else -> rawMsg.ifBlank { "Sign up failed. Please try again." }
                                 }
                                 onError(friendlyMsg)
@@ -294,6 +297,9 @@ fun MainAppContent(viewModel: IspViewModel) {
                                             "Too many failed login attempts. Please try again later."
                                         rawMsg.contains("USER_DISABLED", ignoreCase = true) ->
                                             "This user account has been disabled."
+                                        rawMsg.contains("API keys are not supported", ignoreCase = true) ||
+                                        rawMsg.contains("internal error", ignoreCase = true) ->
+                                            "Unable to connect to authentication server. Please try again or continue as guest."
                                         else -> rawMsg.ifBlank { "Login failed. Please check your credentials." }
                                     }
                                     onError(friendlyMsg)

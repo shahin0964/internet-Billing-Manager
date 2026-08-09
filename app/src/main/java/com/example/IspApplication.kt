@@ -14,11 +14,27 @@ class IspApplication : Application() {
 
     companion object {
         private const val TAG = "IspApplication"
+        private const val FIREBASE_API_KEY = "AIzaSyAeWGj18zHcQXBIhYV_2mA9yeSwWWZ4s1o"
+        private const val FIREBASE_APP_ID = "1:5791179901:android:e7eaaa4cbf2e26f3017d14"
+        private const val FIREBASE_PROJECT_ID = "isp-billing-b04b3"
+        private const val FIREBASE_SENDER_ID = "5791179901"
+        private const val FIREBASE_DB_URL = "https://isp-billing-b04b3-default-rtdb.asia-southeast1.firebasedatabase.app"
+        private const val FIREBASE_STORAGE_BUCKET = "isp-billing-b04b3.firebasestorage.app"
 
         @JvmStatic
         fun ensureFirebaseInitialized(context: Context) {
             val appContext = context.applicationContext ?: context
             try {
+                if (FirebaseApp.getApps(appContext).isNotEmpty()) {
+                    val currentApp = FirebaseApp.getInstance()
+                    val currentKey = currentApp.options.apiKey
+                    // If initialized with an invalid key (such as Gemini key starting with AQ or different key), delete and re-init
+                    if (currentKey != FIREBASE_API_KEY && (currentKey.startsWith("AQ") || currentKey.startsWith("YOUR_"))) {
+                        Log.w(TAG, "Re-initializing FirebaseApp due to invalid key ($currentKey)")
+                        currentApp.delete()
+                    }
+                }
+
                 if (FirebaseApp.getApps(appContext).isEmpty()) {
                     val defaultOptions = try {
                         FirebaseOptions.fromResource(appContext)
@@ -26,33 +42,20 @@ class IspApplication : Application() {
                         null
                     }
 
-                    if (defaultOptions != null) {
+                    if (defaultOptions != null && defaultOptions.apiKey == FIREBASE_API_KEY) {
                         FirebaseApp.initializeApp(appContext)
                         Log.d(TAG, "FirebaseApp initialized successfully from default resources")
                     } else {
-                        val envApiKey = try {
-                            val field = BuildConfig::class.java.getField("GOOGLE_API_KEY")
-                            (field.get(null) as? String)?.takeIf {
-                                it.isNotBlank() && !it.startsWith("YOUR_")
-                            }
-                        } catch (e: Throwable) {
-                            null
-                        }
-
-                        if (!envApiKey.isNullOrBlank()) {
-                            val options = FirebaseOptions.Builder()
-                                .setApplicationId("1:5791179901:android:e7eaaa4cbf2e26f3017d14")
-                                .setApiKey(envApiKey)
-                                .setProjectId("isp-billing-b04b3")
-                                .setGcmSenderId("5791179901")
-                                .setDatabaseUrl("https://isp-billing-b04b3-default-rtdb.asia-southeast1.firebasedatabase.app")
-                                .setStorageBucket("isp-billing-b04b3.firebasestorage.app")
-                                .build()
-                            FirebaseApp.initializeApp(appContext, options)
-                            Log.d(TAG, "FirebaseApp initialized successfully with secure options")
-                        } else {
-                            Log.e(TAG, "Failed to initialize FirebaseApp: default options and API key missing")
-                        }
+                        val options = FirebaseOptions.Builder()
+                            .setApplicationId(FIREBASE_APP_ID)
+                            .setApiKey(FIREBASE_API_KEY)
+                            .setProjectId(FIREBASE_PROJECT_ID)
+                            .setGcmSenderId(FIREBASE_SENDER_ID)
+                            .setDatabaseUrl(FIREBASE_DB_URL)
+                            .setStorageBucket(FIREBASE_STORAGE_BUCKET)
+                            .build()
+                        FirebaseApp.initializeApp(appContext, options)
+                        Log.d(TAG, "FirebaseApp initialized successfully with explicit Firebase options")
                     }
                 }
             } catch (e: Throwable) {
