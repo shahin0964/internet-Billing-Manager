@@ -210,8 +210,12 @@ fun MainAppContent(
     var showAboutScreen by remember { mutableStateOf(false) }
     val initialAuthUser = remember {
         try {
-            com.example.IspApplication.ensureFirebaseInitialized(context)
-            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            if (com.example.IspApplication.isLoggedIn(context)) {
+                com.example.IspApplication.ensureFirebaseInitialized(context)
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            } else {
+                null
+            }
         } catch (e: Throwable) {
             null
         }
@@ -334,6 +338,7 @@ fun MainAppContent(
                                         .build()
                                     user.updateProfile(profileUpdates)
                                 }
+                                com.example.IspApplication.setLoggedIn(context, true)
                                 isGuestMode = false
                                 isAuthChosen = true
                                 viewModel.showToast("Account created for ${name.ifBlank { email }}")
@@ -373,6 +378,7 @@ fun MainAppContent(
                         if (trimmedId.contains("@")) {
                             auth.signInWithEmailAndPassword(trimmedId, pass)
                                 .addOnSuccessListener { result ->
+                                    com.example.IspApplication.setLoggedIn(context, true)
                                     isGuestMode = false
                                     isAuthChosen = true
                                     viewModel.showToast("Logged in as ${result.user?.email ?: trimmedId}")

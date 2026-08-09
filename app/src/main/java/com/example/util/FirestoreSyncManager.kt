@@ -39,6 +39,9 @@ object FirestoreSyncManager {
      * Returns null for unauthenticated or guest users.
      */
     fun getCurrentUid(context: Context? = null): String? {
+        if (context != null && !com.example.IspApplication.isLoggedIn(context)) {
+            return null
+        }
         return try {
             context?.let { com.example.IspApplication.ensureFirebaseInitialized(it) }
             val currentUser = FirebaseAuth.getInstance().currentUser

@@ -24,7 +24,9 @@ class IspApplication : Application() {
             }
         }
 
-        ensureFirebaseInitialized(this)
+        if (isLoggedIn(this)) {
+            ensureFirebaseInitialized(this)
+        }
         com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
     }
 
@@ -36,6 +38,18 @@ class IspApplication : Application() {
         private const val FIREBASE_SENDER_ID = "5791179901"
         private const val FIREBASE_DB_URL = "https://isp-billing-b04b3-default-rtdb.asia-southeast1.firebasedatabase.app"
         private const val FIREBASE_STORAGE_BUCKET = "isp-billing-b04b3.firebasestorage.app"
+
+        @JvmStatic
+        fun isLoggedIn(context: Context): Boolean {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            return prefs.getBoolean("is_logged_in", false)
+        }
+
+        @JvmStatic
+        fun setLoggedIn(context: Context, value: Boolean) {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("is_logged_in", value).apply()
+        }
 
         @JvmStatic
         fun ensureFirebaseInitialized(context: Context) {

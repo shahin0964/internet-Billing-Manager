@@ -50,8 +50,12 @@ fun ProfileScreen(
     var privacyModeEnabled by remember { mutableStateOf(prefs.getBoolean("privacy_mode", false)) }
     
     val authUser = try {
-        IspApplication.ensureFirebaseInitialized(context)
-        FirebaseAuth.getInstance().currentUser
+        if (IspApplication.isLoggedIn(context)) {
+            IspApplication.ensureFirebaseInitialized(context)
+            FirebaseAuth.getInstance().currentUser
+        } else {
+            null
+        }
     } catch (e: Throwable) { null }
 
     val userEmail = authUser?.email ?: "Unknown"
@@ -315,6 +319,7 @@ fun ProfileScreen(
             Button(
                 onClick = {
                     try {
+                        IspApplication.setLoggedIn(context, false)
                         FirebaseAuth.getInstance().signOut()
                         onSignOut()
                     } catch (e: Exception) {
