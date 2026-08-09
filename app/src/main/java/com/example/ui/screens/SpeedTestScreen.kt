@@ -261,6 +261,19 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
         historyList = emptyList()
     }
 
+    fun stopTest() {
+        testJob?.cancel()
+        testJob = null
+        isTesting = false
+        testPhase = TestPhase.IDLE
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            stopTest()
+        }
+    }
+
     LaunchedEffect(Unit) {
         loadHistory()
         // Discover verified servers online
@@ -383,13 +396,6 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
         }
     }
 
-    fun stopTest() {
-        testJob?.cancel()
-        testJob = null
-        isTesting = false
-        testPhase = TestPhase.IDLE
-    }
-
     fun startTest() {
         stopTest()
         errorMessage = null
@@ -494,50 +500,60 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
 
                 // Phase 3: Testing Download
                 testPhase = TestPhase.TESTING_DOWNLOAD
-                val dlDurationMs = 5000L
-                val dlStartTime = System.currentTimeMillis()
+                val dlDurationMs = 6000L
                 var totalDlBytes = 0L
 
-                val dlUrls = listOf(
-                    targetServer.downloadUrl,
-                    "http://${targetServer.host}/speedtest/random1000x1000.jpg",
-                    "https://speed.cloudflare.com/__down?bytes=10000000"
-                )
+                val dlUrls = mutableListOf<String>()
+                if (targetServer.downloadUrl.isNotBlank() && targetServer.downloadUrl != "auto") {
+                    dlUrls.add(targetServer.downloadUrl)
+                    if (targetServer.isHttpsSupported && targetServer.downloadUrl.startsWith("http://")) {
+                        dlUrls.add(targetServer.downloadUrl.replace("http://", "https://"))
+                    }
+                }
+                // High performance HTTPS fallback endpoints
+                dlUrls.add("https://speed.cloudflare.com/__down?bytes=25000000")
 
                 var connectedDl = false
+                var dlStartTime = 0L
+
                 for (dUrl in dlUrls) {
                     if (connectedDl) break
                     try {
                         withContext(Dispatchers.IO) {
                             val url = URL(dUrl)
                             val conn = url.openConnection() as HttpURLConnection
-                            conn.connectTimeout = 3000
-                            conn.readTimeout = 3000
+                            conn.connectTimeout = 4000
+                            conn.readTimeout = 4000
                             conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                            conn.setRequestProperty("Accept-Encoding", "identity") // Disable GZIP compression for accurate byte count
+                            conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+                            conn.setRequestProperty("Pragma", "no-cache")
                             conn.connect()
 
                             if (conn.responseCode == 200) {
                                 connectedDl = true
                                 val input: InputStream = conn.inputStream
-                                val buffer = ByteArray(8192)
+                                val buffer = ByteArray(16384)
                                 var bytesRead: Int
+                                dlStartTime = System.currentTimeMillis()
+
                                 while (isActive && (System.currentTimeMillis() - dlStartTime) < dlDurationMs) {
                                     bytesRead = input.read(buffer)
-                                    if (bytesRead == -1) break
+                                    if (bytesRead <= 0) break
                                     totalDlBytes += bytesRead
 
                                     val now = System.currentTimeMillis()
                                     val elapsedSec = (now - dlStartTime) / 1000.0
-                                    if (elapsedSec > 0.2) {
-                                        val mbps = ((totalDlBytes * 8) / (elapsedSec * 1_000_000)).toFloat()
+                                    if (elapsedSec > 0.1) {
+                                        val mbps = ((totalDlBytes * 8.0) / (elapsedSec * 1_000_000.0)).toFloat()
                                         withContext(Dispatchers.Main) {
                                             downloadMbps = mbps
-                                            testProgress = 0.30f + ((elapsedSec / 5.0) * 0.35f).toFloat()
+                                            testProgress = 0.30f + ((elapsedSec / 6.0) * 0.35f).toFloat()
                                         }
                                     }
                                 }
-                                input.close()
-                                conn.disconnect()
+                                try { input.close() } catch (_: Exception) {}
+                                try { conn.disconnect() } catch (_: Exception) {}
                             }
                         }
                     } catch (e: Exception) {
@@ -545,25 +561,30 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                     }
                 }
 
-                if (downloadMbps == 0f && totalDlBytes > 0) {
-                    val dt = (System.currentTimeMillis() - dlStartTime) / 1000.0
-                    downloadMbps = ((totalDlBytes * 8) / (dt * 1_000_000)).toFloat()
+                if (dlStartTime > 0 && totalDlBytes > 0) {
+                    val finalDlTime = (System.currentTimeMillis() - dlStartTime) / 1000.0
+                    if (finalDlTime > 0.1) {
+                        downloadMbps = ((totalDlBytes * 8.0) / (finalDlTime * 1_000_000.0)).toFloat()
+                    }
                 }
 
                 // Phase 4: Testing Upload
                 testPhase = TestPhase.TESTING_UPLOAD
-                val ulDurationMs = 4000L
-                val ulStartTime = System.currentTimeMillis()
+                val ulDurationMs = 5000L
                 var totalUlBytes = 0L
 
-                val ulUrls = listOf(
-                    targetServer.uploadUrl,
-                    "http://${targetServer.host}/speedtest/upload.php",
-                    "https://speed.cloudflare.com/__up"
-                )
+                val ulUrls = mutableListOf<String>()
+                if (targetServer.uploadUrl.isNotBlank() && targetServer.uploadUrl != "auto") {
+                    ulUrls.add(targetServer.uploadUrl)
+                    if (targetServer.isHttpsSupported && targetServer.uploadUrl.startsWith("http://")) {
+                        ulUrls.add(targetServer.uploadUrl.replace("http://", "https://"))
+                    }
+                }
+                ulUrls.add("https://speed.cloudflare.com/__up")
 
                 val payloadChunk = ByteArray(16384) { 0x55 }
                 var connectedUl = false
+                var ulStartTime = 0L
 
                 for (uUrl in ulUrls) {
                     if (connectedUl) break
@@ -571,15 +592,19 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                         withContext(Dispatchers.IO) {
                             val url = URL(uUrl)
                             val conn = url.openConnection() as HttpURLConnection
-                            conn.connectTimeout = 2500
-                            conn.readTimeout = 2500
+                            conn.connectTimeout = 3500
+                            conn.readTimeout = 3500
                             conn.doOutput = true
                             conn.requestMethod = "POST"
+                            // CRITICAL: Chunked streaming mode prevents in-memory byte buffering
+                            conn.setChunkedStreamingMode(16384)
                             conn.setRequestProperty("User-Agent", "Mozilla/5.0")
                             conn.setRequestProperty("Content-Type", "application/octet-stream")
+                            conn.setRequestProperty("Cache-Control", "no-cache")
 
                             val output: OutputStream = conn.outputStream
                             connectedUl = true
+                            ulStartTime = System.currentTimeMillis()
 
                             while (isActive && (System.currentTimeMillis() - ulStartTime) < ulDurationMs) {
                                 output.write(payloadChunk)
@@ -587,26 +612,28 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
 
                                 val now = System.currentTimeMillis()
                                 val elapsedSec = (now - ulStartTime) / 1000.0
-                                if (elapsedSec > 0.2) {
-                                    val mbps = ((totalUlBytes * 8) / (elapsedSec * 1_000_000)).toFloat()
+                                if (elapsedSec > 0.1) {
+                                    val mbps = ((totalUlBytes * 8.0) / (elapsedSec * 1_000_000.0)).toFloat()
                                     withContext(Dispatchers.Main) {
                                         uploadMbps = mbps
-                                        testProgress = 0.65f + ((elapsedSec / 4.0) * 0.35f).toFloat()
+                                        testProgress = 0.65f + ((elapsedSec / 5.0) * 0.35f).toFloat()
                                     }
                                 }
                             }
-                            output.flush()
-                            output.close()
-                            conn.disconnect()
+                            try { output.flush() } catch (_: Exception) {}
+                            try { output.close() } catch (_: Exception) {}
+                            try { conn.disconnect() } catch (_: Exception) {}
                         }
                     } catch (e: Exception) {
                         Log.w("SpeedTest", "UL url $uUrl failed: ${e.message}")
                     }
                 }
 
-                if (uploadMbps == 0f && totalUlBytes > 0) {
-                    val dt = (System.currentTimeMillis() - ulStartTime) / 1000.0
-                    uploadMbps = ((totalUlBytes * 8) / (dt * 1_000_000)).toFloat()
+                if (ulStartTime > 0 && totalUlBytes > 0) {
+                    val finalUlTime = (System.currentTimeMillis() - ulStartTime) / 1000.0
+                    if (finalUlTime > 0.1) {
+                        uploadMbps = ((totalUlBytes * 8.0) / (finalUlTime * 1_000_000.0)).toFloat()
+                    }
                 }
 
                 // Finish
@@ -627,9 +654,11 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                 )
 
             } catch (e: Exception) {
-                if (e !is kotlinx.coroutines.CancellationException) {
+                if (e is kotlinx.coroutines.CancellationException) {
+                    throw e
+                } else {
                     Log.e("SpeedTest", "Test failed: ${e.message}", e)
-                    errorMessage = e.localizedMessage ?: "Network connection error"
+                    errorMessage = "Speed test could not be completed. Please check your internet connection and try again."
                     testPhase = TestPhase.FAILED
                 }
             } finally {
