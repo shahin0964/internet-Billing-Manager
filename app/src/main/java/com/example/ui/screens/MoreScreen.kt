@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -1262,22 +1263,31 @@ fun ThemeItemCard(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val isLiquidGlass = themeItem.key.equals("LIQUID_GLASS", ignoreCase = true)
+    val isSupported = !isLiquidGlass || com.example.ui.theme.isLiquidGlassSupported()
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .then(
+                if (isSupported) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
         shape = RoundedCornerShape(14.dp),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
         } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isSupported) 0.35f else 0.12f)
         },
         border = androidx.compose.foundation.BorderStroke(
             width = if (isSelected) 2.dp else 1.dp,
             color = if (isSelected) {
                 MaterialTheme.colorScheme.primary
             } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                MaterialTheme.colorScheme.outline.copy(alpha = if (isSupported) 0.15f else 0.05f)
             }
         )
     ) {
@@ -1296,7 +1306,7 @@ fun ThemeItemCard(
                 Surface(
                     modifier = Modifier.size(width = 48.dp, height = 34.dp),
                     shape = RoundedCornerShape(8.dp),
-                    color = themeItem.previewBackground,
+                    color = if (isSupported) themeItem.previewBackground else themeItem.previewBackground.copy(alpha = 0.4f),
                     border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.2f))
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -1305,7 +1315,7 @@ fun ThemeItemCard(
                                 .padding(3.dp)
                                 .size(width = 22.dp, height = 26.dp),
                             shape = RoundedCornerShape(4.dp),
-                            color = themeItem.previewSurface
+                            color = if (isSupported) themeItem.previewSurface else themeItem.previewSurface.copy(alpha = 0.4f)
                         ) {}
                         Box(
                             modifier = Modifier
@@ -1313,7 +1323,7 @@ fun ThemeItemCard(
                                 .padding(5.dp)
                                 .size(12.dp)
                                 .clip(CircleShape)
-                                .background(themeItem.previewPrimary)
+                                .background(if (isSupported) themeItem.previewPrimary else themeItem.previewPrimary.copy(alpha = 0.4f))
                         )
                     }
                 }
@@ -1329,37 +1339,54 @@ fun ThemeItemCard(
                         color = if (isSelected) {
                             MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.onSurface
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = if (isSupported) 1f else 0.4f)
                         }
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = themeItem.getDescription(context),
+                        text = if (isSupported) {
+                            themeItem.getDescription(context)
+                        } else {
+                            androidx.compose.ui.res.stringResource(com.example.R.string.theme_unsupported_version)
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (isSupported) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                        }
                     )
                 }
             }
 
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Selected",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onPrimary
+            if (isSupported) {
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Selected",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                } else {
+                    RadioButton(
+                        selected = false,
+                        onClick = onClick
                     )
                 }
             } else {
-                RadioButton(
-                    selected = false,
-                    onClick = onClick
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Unsupported",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
                 )
             }
         }

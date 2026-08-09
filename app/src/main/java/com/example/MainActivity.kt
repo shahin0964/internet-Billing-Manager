@@ -46,12 +46,40 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import android.os.Build
 import com.example.data.model.BillEntity
 import com.example.data.model.CustomerEntity
 import com.example.data.model.IspPackageEntity
 import com.example.ui.components.AppUpdateDialog
 import com.example.util.AppUpdateManager
 import com.example.ui.components.BillGenerateDialog
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import com.example.ui.components.CustomerDialog
 import com.example.ui.components.PackageDialog
 import com.example.ui.components.PaymentDialog
@@ -127,6 +155,20 @@ fun MainAppContent(
 ) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(NavTab.DASHBOARD) }
+    val pagerState = rememberPagerState(initialPage = currentTab.ordinal) { NavTab.entries.size }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(currentTab) {
+        if (pagerState.currentPage != currentTab.ordinal) {
+            pagerState.animateScrollToPage(currentTab.ordinal)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage) {
+        if (currentTab.ordinal != pagerState.currentPage) {
+            currentTab = NavTab.entries[pagerState.currentPage]
+        }
+    }
 
     val customers by viewModel.customers.collectAsStateWithLifecycle()
     val packages by viewModel.packages.collectAsStateWithLifecycle()
@@ -406,44 +448,174 @@ fun MainAppContent(
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                NavigationBar(
-                modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ) {
-                NavTab.entries.forEach { tab ->
-                    val isSelected = currentTab == tab
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { currentTab = tab },
-                        icon = {
-                            Icon(
-                                imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = androidx.compose.ui.res.stringResource(tab.titleRes)
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = androidx.compose.ui.res.stringResource(tab.titleRes),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                val isLiquidGlassTheme = settings.themeMode.uppercase() == "LIQUID_GLASS" && com.example.ui.theme.isLiquidGlassSupported()
+                if (isLiquidGlassTheme) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 4.dp)
+                    ) {
+                        // Blurred background glass layer (bright white frosted glass look)
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .shadow(6.dp, shape = RoundedCornerShape(32.dp))
+                                .clip(RoundedCornerShape(32.dp))
+                                .background(Color.White.copy(alpha = 0.65f))
+                                .blur(12.dp)
                         )
-                    )
+                        
+                        // Glass border & content layer (Unblurred)
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.Transparent)
+                                .border(
+                                    width = 1.dp,
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    shape = RoundedCornerShape(32.dp)
+                                )
+                        ) {
+                            val containerWidth = maxWidth
+                            val totalTabs = NavTab.entries.size
+                            val tabWidth = containerWidth / totalTabs
+                            
+                            val currentFloatPage = pagerState.currentPage + pagerState.currentPageOffsetFraction
+                            val offsetAbs = kotlin.math.abs(pagerState.currentPageOffsetFraction)
+                            val stretchFactor = kotlin.math.sin(offsetAbs * kotlin.math.PI).toFloat()
+                            
+                            val basePillWidth = tabWidth - 8.dp
+                            val pillWidth = basePillWidth * (1f + stretchFactor * 0.22f)
+                            
+                            val pillCenter = tabWidth * (currentFloatPage + 0.5f)
+                            val pillLeft = (pillCenter - (pillWidth / 2f)).coerceIn(4.dp, containerWidth - pillWidth - 4.dp)
+                            
+                            // 1. Sliding glass highlight indicator (extremely premium 3D white glass pill)
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .offset(x = pillLeft)
+                                    .width(pillWidth)
+                                    .height(46.dp)
+                                    .shadow(
+                                        elevation = 8.dp,
+                                        shape = RoundedCornerShape(24.dp),
+                                        ambientColor = Color.Black.copy(alpha = 0.12f),
+                                        spotColor = Color.Black.copy(alpha = 0.2f)
+                                    )
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(Color.White.copy(alpha = 0.92f))
+                                    .border(
+                                        width = 1.dp,
+                                        color = Color.White.copy(alpha = 0.95f),
+                                        shape = RoundedCornerShape(24.dp)
+                                    )
+                            )
+                            
+                            // 2. Interactive Menu Icons & Text
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                NavTab.entries.forEachIndexed { index, tab ->
+                                    val distance = kotlin.math.abs(currentFloatPage - index)
+                                    val selectionFraction = (1f - distance).coerceIn(0f, 1f)
+                                    
+                                    val activeColor = Color(0xFF0F172A) // Rich slate black
+                                    val inactiveColor = Color(0x730F172A) // Semi-transparent slate black
+                                    val tabColor = lerp(inactiveColor, activeColor, selectionFraction)
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(24.dp))
+                                            .clickable {
+                                                coroutineScope.launch {
+                                                    pagerState.animateScrollToPage(tab.ordinal)
+                                                }
+                                            }
+                                            .padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            val scale = 1f + (selectionFraction * 0.10f)
+                                            Icon(
+                                                imageVector = if (selectionFraction > 0.5f) tab.selectedIcon else tab.unselectedIcon,
+                                                contentDescription = androidx.compose.ui.res.stringResource(tab.titleRes),
+                                                tint = tabColor,
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .graphicsLayer {
+                                                        scaleX = scale
+                                                        scaleY = scale
+                                                    }
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = androidx.compose.ui.res.stringResource(tab.titleRes),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = if (selectionFraction > 0.5f) FontWeight.Bold else FontWeight.Normal
+                                                ),
+                                                color = tabColor
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    NavigationBar(
+                        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ) {
+                        NavTab.entries.forEach { tab ->
+                            val isSelected = currentTab == tab
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = { currentTab = tab },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = androidx.compose.ui.res.stringResource(tab.titleRes)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = androidx.compose.ui.res.stringResource(tab.titleRes),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            )
+                        }
+                    }
                 }
             }
-        }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (currentTab) {
+            val isLiquidGlassTheme = settings.themeMode.uppercase() == "LIQUID_GLASS" && com.example.ui.theme.isLiquidGlassSupported()
+            if (isLiquidGlassTheme) {
+                com.example.ui.theme.GlassmorphismBackground()
+            }
+            val RenderScreen = @Composable { tab: NavTab ->
+                when (tab) {
                 NavTab.DASHBOARD -> {
                     DashboardScreen(
                         customers = customers,
@@ -617,6 +789,19 @@ fun MainAppContent(
                         }
                     )
                 }
+            }
+            }
+
+            if (isLiquidGlassTheme) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = true
+                ) { page ->
+                    RenderScreen(NavTab.entries[page])
+                }
+            } else {
+                RenderScreen(currentTab)
             }
         }
     }

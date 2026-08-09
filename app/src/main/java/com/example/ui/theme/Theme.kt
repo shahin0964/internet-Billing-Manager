@@ -18,6 +18,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.example.R
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
 
 // 1. Dark Default
 val DarkColorScheme = darkColorScheme(
@@ -189,6 +199,44 @@ val AquaColorScheme = darkColorScheme(
     errorContainer = CrimsonDangerContainer
 )
 
+// 10. Liquid Glass Light
+val LiquidGlassLightColorScheme = lightColorScheme(
+    primary = Color(0xFF0284C7),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFE0F2FE),
+    onPrimaryContainer = Color(0xFF0369A1),
+    secondary = Color(0xFF0EA5E9),
+    onSecondary = Color.White,
+    background = Color(0x59F1F5F9),
+    onBackground = Color(0xFF0F172A),
+    surface = Color(0x99FFFFFF),
+    onSurface = Color(0xFF0F172A),
+    surfaceVariant = Color(0x33E2E8F0),
+    onSurfaceVariant = Color(0xFF334155),
+    outline = Color(0x80FFFFFF),
+    error = CrimsonDanger,
+    errorContainer = CrimsonDangerContainer
+)
+
+// 11. Liquid Glass Dark
+val LiquidGlassDarkColorScheme = darkColorScheme(
+    primary = Color(0xFF38BDF8),
+    onPrimary = Color(0xFF030712),
+    primaryContainer = Color(0xFF1E3A8A),
+    onPrimaryContainer = Color(0xFFE0F2FE),
+    secondary = Color(0xFF0EA5E9),
+    onSecondary = Color(0xFF030712),
+    background = Color(0xB30B0F19),
+    onBackground = Color(0xFFF8FAFC),
+    surface = Color(0x80111827),
+    onSurface = Color(0xFFF8FAFC),
+    surfaceVariant = Color(0x4D1F2937),
+    onSurfaceVariant = Color(0xFF9CA3AF),
+    outline = Color(0x4DFFFFFF),
+    error = CrimsonDanger,
+    errorContainer = CrimsonDangerContainer
+)
+
 data class AppThemeItem(
     val key: String,
     val nameRes: Int,
@@ -327,8 +375,23 @@ val ALL_THEME_ITEMS = listOf(
         previewBackground = AquaBackground,
         previewSurface = AquaSurface,
         isDarkScheme = true
+    ),
+    AppThemeItem(
+        key = "LIQUID_GLASS",
+        nameRes = R.string.theme_liquid_glass,
+        defaultName = "✨ Liquid Glass",
+        descRes = R.string.theme_liquid_glass_desc,
+        defaultDesc = "Frosted translucent theme with rounded curves and depth (Android 12+)",
+        previewPrimary = Color(0xFF38BDF8),
+        previewBackground = Color(0xFF0B0F19),
+        previewSurface = Color(0x99111827),
+        isDarkScheme = true
     )
 )
+
+fun isLiquidGlassSupported(): Boolean {
+    return true
+}
 
 fun getThemeItem(key: String): AppThemeItem {
     return ALL_THEME_ITEMS.find { it.key.equals(key, ignoreCase = true) }
@@ -346,6 +409,7 @@ fun getThemeColorScheme(themeMode: String, isSystemDark: Boolean): Pair<ColorSch
         "MIDNIGHT" -> Pair(MidnightColorScheme, true)
         "SLATE" -> Pair(SlateColorScheme, false)
         "AQUA" -> Pair(AquaColorScheme, true)
+        "LIQUID_GLASS" -> Pair(LiquidGlassLightColorScheme, false)
         else -> Pair(if (isSystemDark) DarkColorScheme else LightColorScheme, isSystemDark)
     }
 }
@@ -363,8 +427,13 @@ fun IspControlTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            window.navigationBarColor = colorScheme.background.toArgb()
+            if (themeMode.uppercase() == "LIQUID_GLASS") {
+                window.statusBarColor = Color.Transparent.toArgb()
+                window.navigationBarColor = Color.Transparent.toArgb()
+            } else {
+                window.statusBarColor = colorScheme.background.toArgb()
+                window.navigationBarColor = colorScheme.background.toArgb()
+            }
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDarkStatusBar
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !isDarkStatusBar
         }
@@ -375,4 +444,189 @@ fun IspControlTheme(
         typography = Typography,
         content = content
     )
+}
+
+@Composable
+fun GlassmorphismBackground() {
+    val isDark = isSystemInDarkTheme()
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+            
+            // 1. Draw base gorgeous gradient from top-left (light sky blue/cyan) to bottom-right (vibrant pink/magenta)
+            val baseGradient = Brush.linearGradient(
+                colors = if (isDark) {
+                    listOf(
+                        Color(0xFF0D1B2A), // Dark blue
+                        Color(0xFF1B263B), // Indigo dark
+                        Color(0xFF415A77), // Steel blue
+                        Color(0xFF2C1B47)  // Deep magenta-purple
+                    )
+                } else {
+                    listOf(
+                        Color(0xFF38BDF8), // Bright Sky Blue / Cyan (from user image)
+                        Color(0xFF6366F1), // Vibrant Indigo
+                        Color(0xFFC084FC), // Lavender / Light Purple
+                        Color(0xFFF472B6)  // Coral Pink
+                    )
+                },
+                start = Offset(0f, 0f),
+                end = Offset(width, height)
+            )
+            drawRect(brush = baseGradient)
+            
+            // 2. Draw Wave 1 (Upper Wave - flowing from top-left diagonal sweeping down)
+            val wave1Path = Path().apply {
+                moveTo(0f, height * 0.15f)
+                cubicTo(
+                    width * 0.35f, height * 0.05f,
+                    width * 0.65f, height * 0.35f,
+                    width, height * 0.22f
+                )
+                lineTo(width, 0f)
+                lineTo(0f, 0f)
+                close()
+            }
+            val wave1Brush = Brush.verticalGradient(
+                colors = if (isDark) {
+                    listOf(
+                        Color.White.copy(alpha = 0.12f),
+                        Color(0xFF38BDF8).copy(alpha = 0.02f)
+                    )
+                } else {
+                    listOf(
+                        Color.White.copy(alpha = 0.35f),
+                        Color(0xFF38BDF8).copy(alpha = 0.1f)
+                    )
+                }
+            )
+            drawPath(path = wave1Path, brush = wave1Brush)
+            
+            // Wave 1 Edge Highlight stroke (creates shiny liquid glass reflection)
+            val wave1Edge = Path().apply {
+                moveTo(0f, height * 0.15f)
+                cubicTo(
+                    width * 0.35f, height * 0.05f,
+                    width * 0.65f, height * 0.35f,
+                    width, height * 0.22f
+                )
+            }
+            drawPath(
+                path = wave1Edge,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0.8f),
+                        Color.White.copy(alpha = 0.15f)
+                    )
+                ),
+                style = Stroke(width = 2.dp.toPx())
+            )
+            
+            // 3. Draw Wave 2 (Middle/Main sweeping wave curving downwards)
+            val wave2Path = Path().apply {
+                moveTo(0f, height * 0.45f)
+                cubicTo(
+                    width * 0.3f, height * 0.3f,
+                    width * 0.7f, height * 0.7f,
+                    width, height * 0.55f
+                )
+                lineTo(width, height)
+                lineTo(0f, height)
+                close()
+            }
+            val wave2Brush = Brush.linearGradient(
+                colors = if (isDark) {
+                    listOf(
+                        Color(0x2238BDF8),
+                        Color(0x0A0F172A)
+                    )
+                } else {
+                    listOf(
+                        Color(0xFF60A5FA).copy(alpha = 0.45f), // Rich Sky Blue
+                        Color(0xFF818CF8).copy(alpha = 0.25f)  // Semi-transparent indigo
+                    )
+                },
+                start = Offset(0f, height * 0.45f),
+                end = Offset(width, height)
+            )
+            drawPath(path = wave2Path, brush = wave2Brush)
+            
+            // Wave 2 Edge Highlight
+            val wave2Edge = Path().apply {
+                moveTo(0f, height * 0.45f)
+                cubicTo(
+                    width * 0.3f, height * 0.3f,
+                    width * 0.7f, height * 0.7f,
+                    width, height * 0.55f
+                )
+            }
+            drawPath(
+                path = wave2Edge,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.1f),
+                        Color.White.copy(alpha = 0.75f),
+                        Color.White.copy(alpha = 0.1f)
+                    )
+                ),
+                style = Stroke(width = 2.5.dp.toPx())
+            )
+            
+            // 4. Draw Wave 3 (Lower Wave with rich magenta/pink flow at the bottom)
+            val wave3Path = Path().apply {
+                moveTo(0f, height * 0.78f)
+                cubicTo(
+                    width * 0.4f, height * 0.62f,
+                    width * 0.65f, height * 0.95f,
+                    width, height * 0.72f
+                )
+                lineTo(width, height)
+                lineTo(0f, height)
+                close()
+            }
+            val wave3Brush = Brush.linearGradient(
+                colors = if (isDark) {
+                    listOf(
+                        Color(0x33EC4899),
+                        Color(0x051E1B4B)
+                    )
+                } else {
+                    listOf(
+                        Color(0xFFF472B6).copy(alpha = 0.55f), // Vibrant Pink
+                        Color(0xFFC084FC).copy(alpha = 0.3f)   // Soft purple
+                    )
+                },
+                start = Offset(0f, height * 0.78f),
+                end = Offset(width, height)
+            )
+            drawPath(path = wave3Path, brush = wave3Brush)
+            
+            // Wave 3 Edge Highlight
+            val wave3Edge = Path().apply {
+                moveTo(0f, height * 0.78f)
+                cubicTo(
+                    width * 0.4f, height * 0.62f,
+                    width * 0.65f, height * 0.95f,
+                    width, height * 0.72f
+                )
+            }
+            drawPath(
+                path = wave3Edge,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.2f),
+                        Color.White.copy(alpha = 0.85f),
+                        Color.White.copy(alpha = 0.2f)
+                    )
+                ),
+                style = Stroke(width = 3.dp.toPx())
+            )
+        }
+    }
 }

@@ -9,6 +9,21 @@ import com.google.firebase.FirebaseOptions
 class IspApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        
+        // Handle GMS and Firebase related background thread crashes gracefully
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val isGmsSecurityException = throwable is SecurityException && 
+                (throwable.message?.contains("com.google.android.gms") == true || 
+                 throwable.message?.contains("GoogleApiManager") == true)
+                 
+            if (isGmsSecurityException) {
+                Log.e(TAG, "Caught background GMS SecurityException gracefully in thread ${thread.name}: ${throwable.message}")
+            } else {
+                defaultHandler?.uncaughtException(thread, throwable)
+            }
+        }
+
         ensureFirebaseInitialized(this)
         com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
     }
