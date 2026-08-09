@@ -35,9 +35,11 @@ android {
     buildConfigField("String", "GITHUB_OWNER", "\"$defaultOwner\"")
     buildConfigField("String", "GITHUB_REPO", "\"$defaultRepo\"")
 
-    val googleApiKey = providers.gradleProperty("GOOGLE_API_KEY")
-      .orElse("")
-      .get()
+    val googleApiKey = (System.getenv("GOOGLE_API_KEY")?.takeIf { it.isNotBlank() }
+      ?: providers.gradleProperty("GOOGLE_API_KEY").orNull?.takeIf { it.isNotBlank() }
+      ?: project.findProperty("GOOGLE_API_KEY")?.toString()?.takeIf { it.isNotBlank() }
+      ?: System.getProperty("GOOGLE_API_KEY")?.takeIf { it.isNotBlank() }
+      ?: "").trim()
 
     buildConfigField(
       "String",

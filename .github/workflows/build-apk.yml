@@ -143,6 +143,7 @@ jobs:
         env:
           VERSION_NAME: ${{ env.VERSION_NAME }}
           VERSION_CODE: ${{ env.VERSION_CODE }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             export KEYSTORE_PATH="${{ github.workspace }}/release.keystore"
