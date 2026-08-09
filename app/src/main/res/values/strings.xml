@@ -209,10 +209,10 @@
     <string name="update">Update</string>
     <string name="latest_version_message">You are using the latest version.</string>
     <string name="unable_to_check_updates">Unable to check for updates. Please check your internet connection.</string>
-    <string name="update_error_no_internet">No active internet connection. Please check your network.</string>
-    <string name="update_error_server">Unable to contact update server (%1$s).</string>
-    <string name="update_error_no_release">No release found on GitHub update server.</string>
-    <string name="update_error_no_apk">Update release found, but APK asset is unavailable.</string>
+    <string name="update_error_no_internet" translatable="false">No active internet connection. Please check your network.</string>
+    <string name="update_error_server" translatable="false">Unable to contact update server (%1$s).</string>
+    <string name="update_error_no_release" translatable="false">No release found on GitHub update server.</string>
+    <string name="update_error_no_apk" translatable="false">Update release found, but APK asset is unavailable.</string>
     <string name="downloading_update">Downloading update...</string>
     <string name="download_complete">Download complete. Tap Install to update.</string>
     <string name="install">Install</string>

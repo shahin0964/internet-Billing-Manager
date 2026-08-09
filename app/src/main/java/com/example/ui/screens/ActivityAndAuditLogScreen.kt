@@ -18,18 +18,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.data.model.AuditLogEntity
 import com.example.ui.viewmodel.IspViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+
+data class AuditLogEntity(
+    val id: Long = 0,
+    val action: String,
+    val details: String,
+    val userEmail: String,
+    val timestamp: Long
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActivityAndAuditLogScreen(
     onBackClick: () -> Unit
 ) {
-    val viewModel: IspViewModel = viewModel()
-    val auditLogs by viewModel.repository.allAuditLogs.collectAsStateWithLifecycle(initialValue = emptyList())
+    val auditLogs = emptyList<AuditLogEntity>()
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("All") }
     

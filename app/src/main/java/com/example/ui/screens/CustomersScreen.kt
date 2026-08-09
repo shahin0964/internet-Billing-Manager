@@ -136,7 +136,7 @@ fun CustomersScreen(
             },
             text = {
                 Text(
-                    text = androidx.compose.ui.res.stringResource(com.example.R.string.delete_customer_cascade_warning),
+                    text = "Are you sure you want to delete this customer? This will also delete all associated bills and payments. This action cannot be undone.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

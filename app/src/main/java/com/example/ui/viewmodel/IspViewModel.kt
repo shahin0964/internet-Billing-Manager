@@ -499,4 +499,10 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             false
         }
     }
+
+    fun updateBill(bill: com.example.data.model.BillEntity) {
+        viewModelScope.launch {
+            repository.updateBill(bill)
+        }
+    }
 }

@@ -80,6 +80,9 @@ interface BillDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBills(bills: List<BillEntity>)
 
+    @Query("DELETE FROM bills WHERE customerId = :customerId")
+    suspend fun deleteBillsForCustomer(customerId: Long)
+
     @Update
     suspend fun updateBill(bill: BillEntity)
 
@@ -109,6 +112,9 @@ interface PaymentDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPayments(payments: List<PaymentEntity>)
+
+    @Query("DELETE FROM payments WHERE customerId = :customerId")
+    suspend fun deletePaymentsForCustomer(customerId: Long)
 
     @Query("DELETE FROM payments")
     suspend fun deleteAllPayments()
