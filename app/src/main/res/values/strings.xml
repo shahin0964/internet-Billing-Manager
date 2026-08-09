@@ -374,6 +374,63 @@
     <string name="report_problem">Report a Problem</string>
 
     <string name="about_footer_copyright">© 2026 ISP Billing Manager. All rights reserved.</string>
+
+    <!-- Profile Screen Strings -->
+    <string name="profile">Profile</string>
+    <string name="account_label">Account</string>
+    <string name="change_password">Change Password</string>
+    <string name="sync_status">Sync Status</string>
+    <string name="synced">Synced</string>
+    <string name="not_synced">Not Synced</string>
+    <string name="sync_in_progress">Syncing...</string>
+    <string name="sync_pending">Pending</string>
+    <string name="pending_backups_count">Pending Backup Count</string>
+    <string name="last_backup_time">Last Backup Time</string>
+    <string name="no_backup">No backup</string>
+    <string name="app_security">App Security</string>
+    <string name="pin_protection">PIN Protection</string>
+    <string name="pin_protection_enabled_toast">PIN protection enabled</string>
+    <string name="privacy_mode">Privacy Mode</string>
+    <string name="privacy_mode_enabled_toast">Privacy mode enabled</string>
+    <string name="privacy_mode_disabled_toast">Privacy mode disabled</string>
+    <string name="logout">Logout</string>
+    <string name="logout_failed">Logout failed: %1$s</string>
+    <string name="current_password">Current Password</string>
+    <string name="new_password">New Password</string>
+    <string name="password_changed_success">Password changed successfully</string>
+    <string name="password_change_failed">Password change failed: %1$s</string>
+    <string name="incorrect_current_password">Incorrect current password: %1$s</string>
+    <string name="fill_all_fields">Please fill all fields</string>
+    <string name="please_wait">Please wait...</string>
+    <string name="change">Change</string>
+    <string name="pin_setup_success">PIN setup successful</string>
+    <string name="disable_pin_lock">Disable PIN Lock</string>
+    <string name="disable_pin_lock_confirm">Are you sure you want to disable PIN lock?</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="pin_lock_disabled">PIN lock disabled</string>
+
+
+
+    <!-- Network Tools -->
+    <string name="network_tools">Network Tools</string>
+    <string name="network_tools_subtitle">Ping, DNS, IP, Reachability</string>
+    <string name="ping_test">Ping Test</string>
+    <string name="dns_lookup">DNS Lookup</string>
+    <string name="ip_address_check">IP Address Check</string>
+    <string name="internet_connectivity_test">Internet Connectivity Test</string>
+    <string name="gateway_reachability">Gateway/Server Reachability</string>
+    <string name="host_ip_hint">Host or IP (e.g. google.com)</string>
+    <string name="run_test">Run Test</string>
+    <string name="result">Result</string>
+    <string name="reachable">Reachable</string>
+    <string name="unreachable">Unreachable</string>
+    <string name="timeout">Timeout</string>
+    <string name="dns_failed">DNS Resolution Failed</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="testing">Testing...</string>
+    <string name="connection_type">Connection Type</string>
+    <string name="local_ip_v4">Local IPv4</string>
+    <string name="local_ip_v6">Local IPv6</string>
 </resources>
-
-

@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -105,8 +106,26 @@ fun MoreScreen(
     var themeMode by remember(settings) { mutableStateOf(settings.themeMode) }
     var logoUri by remember(settings) { mutableStateOf(settings.logoUri) }
     var showUpdateDialog by remember { mutableStateOf(false) }
-    var showSignOutDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
+    var showAccountScreen by remember { mutableStateOf(false) }
+
+    if (showAccountScreen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAccountScreen = false },
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false
+            )
+        ) {
+            ProfileScreen(
+                onBack = { showAccountScreen = false },
+                onSignOut = {
+                    showAccountScreen = false
+                    onSignOut()
+                },
+                onShowToast = onShowToast
+            )
+        }
+    }
     var isFingerprintLockEnabled by remember { mutableStateOf(false) }
     var isPinLockEnabled by remember { mutableStateOf(com.example.util.PinLockManager.isPinLockEnabled(context)) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
@@ -148,6 +167,56 @@ fun MoreScreen(
     ) {
         item { Spacer(modifier = Modifier.height(8.dp)) }
 
+        // Profile Option
+        if (!isGuestMode) {
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showAccountScreen = true },
+                    shape = RoundedCornerShape(18.dp),
+                    shadowElevation = 6.dp,
+                    tonalElevation = 3.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                        Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        SectionHeader(
+                            title = "Profile",
+                            subtitle = "Account, Security & Backup"
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    }
+                }
+            }
+        }
+
         // ISP Business Settings Card
         item {
             var showBusinessInfoDialog by remember { mutableStateOf(false) }
@@ -171,11 +240,10 @@ tonalElevation = 3.dp,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    SectionHeader(
-                        title = androidx.compose.ui.res.stringResource(com.example.R.string.isp_business_info),
-                        subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.configure_noc_desc)
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = null,
@@ -183,13 +251,17 @@ tonalElevation = 3.dp,
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            imageVector = Icons.Default.TouchApp,
-                            contentDescription = "Tap to open",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        SectionHeader(
+                        title = androidx.compose.ui.res.stringResource(com.example.R.string.isp_business_info),
+                        subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.configure_noc_desc)
+                    )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -364,11 +436,10 @@ tonalElevation = 3.dp,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    SectionHeader(
-                        title = androidx.compose.ui.res.stringResource(com.example.R.string.speed_packages),
-                        
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Router,
                             contentDescription = null,
@@ -376,13 +447,17 @@ tonalElevation = 3.dp,
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            imageVector = Icons.Default.TouchApp,
-                            contentDescription = "Tap to open",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        SectionHeader(
+                        title = androidx.compose.ui.res.stringResource(com.example.R.string.speed_packages),
+                        
+                    )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -524,10 +599,10 @@ tonalElevation = 2.dp,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    SectionHeader(
-                        title = androidx.compose.ui.res.stringResource(com.example.R.string.advanced_features)
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Tune,
                             contentDescription = null,
@@ -535,13 +610,16 @@ tonalElevation = 2.dp,
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            imageVector = Icons.Default.TouchApp,
-                            contentDescription = "Tap to open",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        SectionHeader(
+                        title = androidx.compose.ui.res.stringResource(com.example.R.string.advanced_features)
+                    )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -572,18 +650,28 @@ tonalElevation = 2.dp,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    SectionHeader(
-                        title = androidx.compose.ui.res.stringResource(com.example.R.string.language),
-                        subtitle = if (currentLang == "bn") "বাংলা" else "English"
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = androidx.compose.material.icons.Icons.Default.Language,
                             contentDescription = null,
                             modifier = Modifier.size(24.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        SectionHeader(
+                        title = androidx.compose.ui.res.stringResource(com.example.R.string.language),
+                        subtitle = if (currentLang == "bn") "বাংলা" else "English"
+                    )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -755,11 +843,10 @@ tonalElevation = 2.dp,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    SectionHeader(
-                        title = androidx.compose.ui.res.stringResource(com.example.R.string.backup_and_restore),
-                        subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.backup_restore_subtitle)
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Backup,
                             contentDescription = null,
@@ -767,13 +854,17 @@ tonalElevation = 2.dp,
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            imageVector = Icons.Default.TouchApp,
-                            contentDescription = "Tap to open",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        SectionHeader(
+                        title = androidx.compose.ui.res.stringResource(com.example.R.string.backup_and_restore),
+                        subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.backup_restore_subtitle)
+                    )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -800,10 +891,10 @@ tonalElevation = 2.dp,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    SectionHeader(
-                        title = androidx.compose.ui.res.stringResource(com.example.R.string.app_update)
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.SystemUpdate,
                             contentDescription = null,
@@ -811,60 +902,16 @@ tonalElevation = 2.dp,
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            imageVector = Icons.Default.TouchApp,
-                            contentDescription = "Tap to open",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // Security Option (ONLY for authenticated users)
-        if (!isGuestMode) {
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showSecurityDialog = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 6.dp,
-                    tonalElevation = 3.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
                         SectionHeader(
-                            title = "Security",
-                            subtitle = "PIN Lock & Biometric Security"
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Icon(
-                                imageVector = Icons.Default.TouchApp,
-                                contentDescription = "Tap to open",
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        title = androidx.compose.ui.res.stringResource(com.example.R.string.app_update)
+                    )
                     }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -892,76 +939,34 @@ tonalElevation = 2.dp,
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        SectionHeader(
-                            title = androidx.compose.ui.res.stringResource(com.example.R.string.about),
-                            subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.about_subtitle)
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                        Icon(
                                 imageVector = Icons.Default.Info,
                                 contentDescription = null,
                                 modifier = Modifier.size(24.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Icon(
-                                imageVector = Icons.Default.TouchApp,
-                                contentDescription = "Tap to open",
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        SectionHeader(
+                            title = androidx.compose.ui.res.stringResource(com.example.R.string.about),
+                            subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.about_subtitle)
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     }
                 }
             }
         }
 
-        // Logout Option (VERY BOTTOM - ONLY for authenticated users)
-        if (!isGuestMode) {
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showSignOutDialog = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 6.dp,
-                    tonalElevation = 3.dp,
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        SectionHeader(
-                            title = "Logout",
-                            subtitle = "Sign out from your account"
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Icon(
-                                imageVector = Icons.Default.TouchApp,
-                                contentDescription = "Tap to open",
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
-            }
-        }
+
 
         item { Spacer(modifier = Modifier.height(30.dp)) }
     }
@@ -1087,53 +1092,7 @@ tonalElevation = 2.dp,
         )
     }
 
-    if (showSignOutDialog) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showSignOutDialog = false },
-            title = {
-                Text(
-                    text = "Logout",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    text = "Are you sure you want to log out from your account?",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showSignOutDialog = false
-                        try {
-                            com.example.IspApplication.ensureFirebaseInitialized(context)
-                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            authUser = null
-                            onShowToast("Logged out successfully")
-                            onSignOut()
-                        } catch (e: Throwable) {
-                            onShowToast("Error logging out: ${e.localizedMessage}")
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    )
-                ) {
-                    Text("Logout")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showSignOutDialog = false }
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+
 
     if (showPinSetupDialog) {
         com.example.ui.components.PinSetupDialog(

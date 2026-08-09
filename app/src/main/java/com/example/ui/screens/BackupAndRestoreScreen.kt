@@ -36,6 +36,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -282,6 +283,80 @@ fun BackupAndRestoreScreen(
                     }
                 }
 
+                // Cloud Sync Card (Visible only if logged in)
+                if (currentUid != null) {
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (!isCloudSyncing) {
+                                        isCloudSyncing = true
+                                        coroutineScope.launch {
+                                            com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
+                                            kotlinx.coroutines.delay(1500)
+                                            isCloudSyncing = false
+                                            viewModel.showToast("Cloud backup synced successfully")
+                                        }
+                                    }
+                                },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 3.dp,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.tertiaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isCloudSyncing) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudUpload,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.tertiary
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Cloud Auto-Backup",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Text(
+                                        text = "Tap to sync manually. Your data is securely stored in your account.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(onClick = { showCloudRestoreConfirmDialog = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDownload,
+                                        contentDescription = "Restore from Cloud",
+                                        tint = MaterialTheme.colorScheme.tertiary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Latest Created Backup Section (if any)
                 latestCreatedFile?.let { file ->
                     item {
@@ -431,6 +506,54 @@ fun BackupAndRestoreScreen(
                         latestCreatedFile = createdFile
                         localBackups = viewModel.getLocalBackupFiles()
                     }
+                }
+            }
+        )
+    }
+
+    if (showCloudRestoreConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showCloudRestoreConfirmDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.CloudDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Restore from Cloud?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(text = "This will overwrite your local database with the data from your cloud account. Are you sure you want to continue?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCloudRestoreConfirmDialog = false
+                        isProcessing = true
+                        coroutineScope.launch {
+                            val success = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
+                            isProcessing = false
+                            if (success) {
+                                viewModel.showToast("Cloud restore successful")
+                            } else {
+                                viewModel.showToast("Cloud restore failed or no data found")
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                ) {
+                    Text("Restore")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showCloudRestoreConfirmDialog = false }) {
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )

@@ -134,6 +134,9 @@ object FirestoreSyncManager {
         }
 
         try {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("is_syncing", true).apply()
+
             val db = IspDatabase.getDatabase(context)
             val firestore = FirebaseFirestore.getInstance()
 
@@ -278,9 +281,16 @@ object FirestoreSyncManager {
                 )
             ).await()
 
+            prefs.edit()
+                .putLong("last_cloud_sync_time", System.currentTimeMillis())
+                .putInt("pending_sync_count", 0)
+                .putBoolean("is_syncing", false)
+                .apply()
+
             Log.i(TAG, "Successfully synced all local data to Firestore for UID: $uid")
             true
         } catch (e: FirebaseFirestoreException) {
+            context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
             if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                 Log.w(TAG, "Firestore sync skipped (Permission Denied): Check Firestore security rules or authentication status.")
             } else {
@@ -288,6 +298,7 @@ object FirestoreSyncManager {
             }
             false
         } catch (e: Exception) {
+            context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
             Log.w(TAG, "Error syncing local data to Firestore: ${e.message}")
             false
         }

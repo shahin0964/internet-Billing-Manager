@@ -48,7 +48,12 @@ class IspRepository(
     }
 
     private fun notifyCloudSync() {
-        context?.let { com.example.util.FirestoreSyncManager.triggerSync(it) }
+        context?.let { 
+            val prefs = it.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            val currentCount = prefs.getInt("pending_sync_count", 0)
+            prefs.edit().putInt("pending_sync_count", currentCount + 1).apply()
+            com.example.util.FirestoreSyncManager.triggerSync(it) 
+        }
     }
 
     suspend fun saveExpense(expense: ExpenseEntity): Long {

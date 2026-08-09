@@ -370,6 +370,63 @@
     <string name="report_problem">সমস্যা জানান</string>
 
     <string name="about_footer_copyright">© 2026 আইএসপি বিলিং ম্যানেজার। সর্বস্বত্ব সংরক্ষিত।</string>
+
+    <!-- Profile Screen Strings -->
+    <string name="profile">প্রোফাইল</string>
+    <string name="account_label">আমার হিসাব</string>
+    <string name="change_password">পাসওয়ার্ড পরিবর্তন</string>
+    <string name="sync_status">সিঙ্ক স্ট্যাটাস</string>
+    <string name="synced">সিঙ্ক করা হয়েছে</string>
+    <string name="not_synced">সিঙ্ক হয়নি</string>
+    <string name="sync_in_progress">সিঙ্ক হচ্ছে...</string>
+    <string name="sync_pending">অপেক্ষমান</string>
+    <string name="pending_backups_count">অপেক্ষমান ব্যাকআপ সংখ্যা</string>
+    <string name="last_backup_time">শেষ ব্যাকআপের সময়</string>
+    <string name="no_backup">কোনো ব্যাকআপ নেই</string>
+    <string name="app_security">অ্যাপ সিকিউরিটি</string>
+    <string name="pin_protection">পিন সুরক্ষা</string>
+    <string name="pin_protection_enabled_toast">পিন সুরক্ষা চালু করা হয়েছে</string>
+    <string name="privacy_mode">প্রাইভেসি মোড</string>
+    <string name="privacy_mode_enabled_toast">প্রাইভেসি মোড চালু</string>
+    <string name="privacy_mode_disabled_toast">প্রাইভেসি মোড বন্ধ</string>
+    <string name="logout">লগআউট</string>
+    <string name="logout_failed">লগআউট ব্যর্থ হয়েছে: %1$s</string>
+    <string name="current_password">বর্তমান পাসওয়ার্ড</string>
+    <string name="new_password">নতুন পাসওয়ার্ড</string>
+    <string name="password_changed_success">পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে</string>
+    <string name="password_change_failed">পাসওয়ার্ড পরিবর্তন ব্যর্থ হয়েছে: %1$s</string>
+    <string name="incorrect_current_password">বর্তমান পাসওয়ার্ড ভুল: %1$s</string>
+    <string name="fill_all_fields">সব ফিল্ড পূরণ করুন</string>
+    <string name="please_wait">অপেক্ষা করুন...</string>
+    <string name="change">পরিবর্তন করুন</string>
+    <string name="pin_setup_success">পিন সেটআপ সফল হয়েছে</string>
+    <string name="disable_pin_lock">পিন লক বন্ধ করুন</string>
+    <string name="disable_pin_lock_confirm">আপনি কি সত্যিই পিন লক বন্ধ করতে চান?</string>
+    <string name="yes">হ্যাঁ</string>
+    <string name="no">না</string>
+    <string name="pin_lock_disabled">পিন লক বন্ধ করা হয়েছে</string>
+
+
+
+    <!-- Network Tools -->
+    <string name="network_tools">নেটওয়ার্ক টুলস</string>
+    <string name="network_tools_subtitle">পিং, ডিএনএস, আইপি, রিচেবিলিটি</string>
+    <string name="ping_test">পিং টেস্ট</string>
+    <string name="dns_lookup">ডিএনএস লুকআপ</string>
+    <string name="ip_address_check">আইপি অ্যাড্রেস চেক</string>
+    <string name="internet_connectivity_test">ইন্টারনেট কানেক্টিভিটি টেস্ট</string>
+    <string name="gateway_reachability">গেটওয়ে/সার্ভার রিচেবিলিটি</string>
+    <string name="host_ip_hint">হোস্ট বা আইপি (যেমন google.com)</string>
+    <string name="run_test">টেস্ট রান করুন</string>
+    <string name="result">ফলাফল</string>
+    <string name="reachable">রিচেবল</string>
+    <string name="unreachable">আনরিচেবল</string>
+    <string name="timeout">টাইমআউট</string>
+    <string name="dns_failed">ডিএনএস রেজোলিউশন ব্যর্থ</string>
+    <string name="connected">কানেক্টেড</string>
+    <string name="disconnected">ডিসকানেক্টেড</string>
+    <string name="testing">টেস্ট হচ্ছে...</string>
+    <string name="connection_type">কানেকশন টাইপ</string>
+    <string name="local_ip_v4">লোকাল IPv4</string>
+    <string name="local_ip_v6">লোকাল IPv6</string>
 </resources>
-
-
