@@ -59,23 +59,83 @@ jobs:
       - name: Determine Versioning
         id: versioning
         run: |
+          echo "=== Determining Production Release Version ==="
+          
+          # Fetch all git tags
+          git fetch --tags --force || true
+
+          # Extract base version name and code from build.gradle.kts as fallback
           BASE_VER_NAME=$(grep -oP 'versionName\s*=\s*.*"([^"]+)"' app/build.gradle.kts | head -1 | grep -o '"[^"]*"' | tr -d '"')
           if [ -z "$BASE_VER_NAME" ]; then BASE_VER_NAME="1.0.24"; fi
 
           BASE_VER_CODE=$(grep -oP 'versionCode\s*=\s*.*([0-9]+)' app/build.gradle.kts | head -1 | grep -o '[0-9]\+')
           if [ -z "$BASE_VER_CODE" ]; then BASE_VER_CODE="24"; fi
 
+          # Gather all tags from git and GitHub Releases
+          GIT_TAGS=$(git tag -l)
+          GH_TAGS=""
+          if command -v gh &> /dev/null; then
+            GH_TAGS=$(gh release list --limit 100 2>/dev/null | awk '{print $1}') || true
+          fi
+
+          ALL_RAW_TAGS=$(printf "%s\n%s" "$GIT_TAGS" "$GH_TAGS" | grep -v '^$' | sort -u)
+          
+          # Parse clean semver versions (e.g., 1.0.24 from v1.0.24)
+          CLEAN_VERSIONS=$(echo "$ALL_RAW_TAGS" | grep -oP '[0-9]+\.[0-9]+(\.[0-9]+)?' | sort -u -V)
+
+          # Find highest existing release version
+          HIGHEST_TAG_VER=$(echo "$CLEAN_VERSIONS" | tail -n 1)
+
+          if [ -n "$HIGHEST_TAG_VER" ]; then
+            LATEST_EXISTING_VER=$(printf "%s\n%s" "$HIGHEST_TAG_VER" "$BASE_VER_NAME" | sort -V | tail -n 1)
+          else
+            LATEST_EXISTING_VER="$BASE_VER_NAME"
+          fi
+
+          echo "Latest existing version detected: $LATEST_EXISTING_VER"
+
           if [ "${{ github.ref_type }}" = "tag" ]; then
             TAG_NAME="${{ github.ref_name }}"
-            VER_NAME=$(echo "$TAG_NAME" | sed 's/^[vV]//')
-            echo "VERSION_NAME=$VER_NAME" >> $GITHUB_ENV
-            echo "VERSION_CODE=$BASE_VER_CODE" >> $GITHUB_ENV
-            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            VER_NAME=$(echo "$TAG_NAME" | sed -E 's/^[vV]//')
+            echo "Workflow triggered by Git Tag: $TAG_NAME (Version Name: $VER_NAME)"
           else
-            echo "VERSION_NAME=$BASE_VER_NAME" >> $GITHUB_ENV
-            echo "VERSION_CODE=$BASE_VER_CODE" >> $GITHUB_ENV
-            echo "tag_name=v$BASE_VER_NAME" >> $GITHUB_OUTPUT
+            MAJOR=$(echo "$LATEST_EXISTING_VER" | cut -d. -f1)
+            MINOR=$(echo "$LATEST_EXISTING_VER" | cut -d. -f2)
+            PATCH=$(echo "$LATEST_EXISTING_VER" | cut -d. -f3)
+
+            if [ -z "$MAJOR" ]; then MAJOR=1; fi
+            if [ -z "$MINOR" ]; then MINOR=0; fi
+            if [ -z "$PATCH" ]; then PATCH=24; fi
+
+            NEW_PATCH=$((PATCH + 1))
+            VER_NAME="${MAJOR}.${MINOR}.${NEW_PATCH}"
+            TAG_NAME="v${VER_NAME}"
+            echo "Auto-incremented version for production push: $LATEST_EXISTING_VER -> $VER_NAME ($TAG_NAME)"
           fi
+
+          V_MAJOR=$(echo "$VER_NAME" | cut -d. -f1)
+          V_MINOR=$(echo "$VER_NAME" | cut -d. -f2)
+          V_PATCH=$(echo "$VER_NAME" | cut -d. -f3)
+
+          if [ -z "$V_MAJOR" ]; then V_MAJOR=1; fi
+          if [ -z "$V_MINOR" ]; then V_MINOR=0; fi
+          if [ -z "$V_PATCH" ]; then V_PATCH=0; fi
+
+          CALCULATED_CODE=$(( V_MAJOR * 10000 + V_MINOR * 100 + V_PATCH ))
+          
+          if [ "$CALCULATED_CODE" -gt "$BASE_VER_CODE" ]; then
+            VER_CODE=$CALCULATED_CODE
+          else
+            VER_CODE=$(( BASE_VER_CODE + 1 ))
+          fi
+
+          echo "Final Version Name: $VER_NAME"
+          echo "Final Version Code: $VER_CODE"
+          echo "Final Release Tag: $TAG_NAME"
+
+          echo "VERSION_NAME=$VER_NAME" >> $GITHUB_ENV
+          echo "VERSION_CODE=$VER_CODE" >> $GITHUB_ENV
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
       - name: Generate Automatic Release Notes
         id: release_notes
@@ -240,9 +300,13 @@ jobs:
                 echo "ERROR: Built APK versionCode ($VER_CODE) does not match expected VERSION_CODE ($VERSION_CODE)!"
                 exit 1
               fi
+            else
+              echo "ERROR: Could not parse badging dump from AAPT for $APK_PATH!"
+              exit 1
             fi
           else
-            echo "AAPT not found in build-tools; skipping badging dump."
+            echo "ERROR: AAPT binary not found in build-tools!"
+            exit 1
           fi
 
           echo "Verifying Release APK Signature..."
