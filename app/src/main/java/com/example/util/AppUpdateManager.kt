@@ -13,6 +13,8 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -56,6 +58,77 @@ sealed class UpdateException(message: String, val errCode: String) : Exception(m
 object AppUpdateManager {
 
     private const val TAG = "AppUpdateManager"
+    private const val PREFS_NAME = "app_update_prefs"
+    private const val KEY_CACHED_TAG = "cached_tag_name"
+    private const val KEY_CACHED_VERSION = "cached_version"
+    private const val KEY_CACHED_NOTES = "cached_release_notes"
+    private const val KEY_CACHED_APK_URL = "cached_apk_url"
+    private const val KEY_CACHED_TIMESTAMP = "cached_timestamp"
+    private const val KEY_RATE_LIMIT_RESET = "rate_limit_reset_timestamp"
+    private const val KEY_LAST_NOTIFIED_VERSION = "last_notified_version"
+
+    private const val AUTO_CHECK_CACHE_DURATION_MS = 60 * 60 * 1000L // 1 hour TTL for auto check
+    private val checkMutex = Mutex()
+
+    fun isVersionAlreadyNotified(context: Context, version: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lastNotified = prefs.getString(KEY_LAST_NOTIFIED_VERSION, null)
+        return lastNotified == version
+    }
+
+    fun saveVersionNotified(context: Context, version: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_LAST_NOTIFIED_VERSION, version).apply()
+    }
+
+    private fun getCachedReleaseInfo(context: Context): GitHubReleaseInfo? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val version = prefs.getString(KEY_CACHED_VERSION, null) ?: return null
+        val tagName = prefs.getString(KEY_CACHED_TAG, "") ?: ""
+        val notes = prefs.getString(KEY_CACHED_NOTES, "") ?: ""
+        val apkUrl = prefs.getString(KEY_CACHED_APK_URL, null) ?: return null
+        val installedVersion = getInstalledVersion(context)
+        val isNewer = isVersionNewer(installedVersion, version)
+
+        return GitHubReleaseInfo(
+            tagName = tagName,
+            version = version,
+            releaseNotes = notes,
+            apkDownloadUrl = apkUrl,
+            isNewer = isNewer
+        )
+    }
+
+    private fun saveCachedReleaseInfo(context: Context, info: GitHubReleaseInfo) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_CACHED_TAG, info.tagName)
+            .putString(KEY_CACHED_VERSION, info.version)
+            .putString(KEY_CACHED_NOTES, info.releaseNotes)
+            .putString(KEY_CACHED_APK_URL, info.apkDownloadUrl)
+            .putLong(KEY_CACHED_TIMESTAMP, System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun getCacheTimestamp(context: Context): Long {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getLong(KEY_CACHED_TIMESTAMP, 0L)
+    }
+
+    private fun getRateLimitResetTimestamp(context: Context): Long {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getLong(KEY_RATE_LIMIT_RESET, 0L)
+    }
+
+    private fun saveRateLimitResetTimestamp(context: Context, resetEpochMs: Long) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong(KEY_RATE_LIMIT_RESET, resetEpochMs).apply()
+    }
+
+    private fun clearRateLimitResetTimestamp(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_RATE_LIMIT_RESET).apply()
+    }
 
     /**
      * Check if network connectivity is available.
@@ -135,155 +208,228 @@ object AppUpdateManager {
     }
 
     /**
-     * Check GitHub API for the latest release.
+     * Check GitHub API for the latest release with caching and rate limit handling.
      */
     suspend fun checkForUpdates(
         context: Context,
+        force: Boolean = false,
         owner: String = AppUpdateConfig.GITHUB_OWNER,
         repo: String = AppUpdateConfig.GITHUB_REPO
     ): Result<GitHubReleaseInfo> = withContext(Dispatchers.IO) {
+        val installedVersion = getInstalledVersion(context)
+
+        // Offline check
         if (!isNetworkAvailable(context)) {
             Log.w(TAG, "Network check failed: No active internet connection")
+            val cached = getCachedReleaseInfo(context)
+            if (cached != null) {
+                return@withContext Result.success(cached)
+            }
             return@withContext Result.failure(UpdateException.NoInternet())
         }
 
-        val urlString = "https://api.github.com/repos/$owner/$repo/releases/latest"
-        val installedVersion = getInstalledVersion(context)
-        Log.d(TAG, "Checking updates for repo: $owner/$repo (installed: $installedVersion)")
-        Log.d(TAG, "Request URL: $urlString")
+        // Deduplicate simultaneous check requests
+        checkMutex.withLock {
+            val now = System.currentTimeMillis()
 
-        var connection: HttpURLConnection? = null
-        try {
-            val url = URL(urlString)
-            connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 15000
-                readTimeout = 15000
-                instanceFollowRedirects = true
-                setRequestProperty("Accept", "application/vnd.github+json")
-                setRequestProperty("User-Agent", "Android-ISP-Billing-App")
-            }
+            // 1. Check Rate Limit status
+            val rateLimitReset = getRateLimitResetTimestamp(context)
+            if (now < rateLimitReset) {
+                val remainingMins = maxOf(1L, (rateLimitReset - now) / 60000L)
+                Log.w(TAG, "Rate limit currently active. Resets in $remainingMins min.")
 
-            val responseCode = connection.responseCode
-            val contentType = connection.contentType
-            Log.d(TAG, "HTTP Response Code: $responseCode, Content-Type: $contentType")
-
-            when (responseCode) {
-                HttpURLConnection.HTTP_OK -> {
-                    // OK
+                val cached = getCachedReleaseInfo(context)
+                if (cached != null) {
+                    return@withContext Result.success(cached)
                 }
-                HttpURLConnection.HTTP_NOT_FOUND -> {
-                    Log.w(TAG, "GitHub release not found for repo $owner/$repo (HTTP 404)")
-                    return@withContext Result.failure(
-                        UpdateException.ReleaseNotFound("No release found for repository $owner/$repo")
-                    )
-                }
-                HttpURLConnection.HTTP_FORBIDDEN, 429 -> {
-                    Log.w(TAG, "GitHub API rate limit or forbidden (HTTP $responseCode)")
-                    return@withContext Result.failure(
-                        UpdateException.RateLimited("GitHub API rate limit exceeded (HTTP $responseCode)")
-                    )
-                }
-                in 500..599 -> {
-                    Log.w(TAG, "GitHub server error (HTTP $responseCode)")
-                    return@withContext Result.failure(
-                        UpdateException.ServerError(responseCode, "GitHub server error (HTTP $responseCode)")
-                    )
-                }
-                else -> {
-                    Log.w(TAG, "HTTP request failed with status $responseCode")
-                    return@withContext Result.failure(
-                        UpdateException.HttpError(responseCode, "HTTP Error: $responseCode")
-                    )
-                }
-            }
-
-            val jsonString = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = try {
-                JSONObject(jsonString)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse release JSON", e)
-                return@withContext Result.failure(UpdateException.InvalidJson("Malformed JSON from release server"))
-            }
-
-            val tagName = json.optString("tag_name", "")
-            val releaseName = json.optString("name", "")
-            val cleanVersion = tagName.removePrefix("v").removePrefix("V")
-                .ifBlank { releaseName.removePrefix("v").removePrefix("V") }
-            val rawBody = if (json.isNull("body")) "" else json.optString("body", "")
-            val releaseNotes = if (rawBody.isBlank() || rawBody.trim().equals("null", ignoreCase = true)) {
-                context.getString(com.example.R.string.update_notes_fallback)
-            } else {
-                rawBody.trim()
-            }
-
-            Log.d(TAG, "Release tag received: $tagName (clean: $cleanVersion)")
-
-            var apkUrl: String? = null
-            var apkFilename: String? = null
-
-            if (json.has("assets")) {
-                val assets = json.getJSONArray("assets")
-                Log.d(TAG, "Number of assets received: ${assets.length()}")
-
-                val apkAssets = mutableListOf<Pair<String, String>>()
-                for (i in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(i)
-                    val assetName = asset.optString("name", "")
-                    val downloadUrl = asset.optString("browser_download_url", "")
-                    if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotBlank()) {
-                        apkAssets.add(Pair(assetName, downloadUrl))
-                    }
-                }
-
-                if (apkAssets.isNotEmpty()) {
-                    val matched = apkAssets.firstOrNull { (name, _) ->
-                        name.equals("ISP-Billing-Release.apk", ignoreCase = true) ||
-                        name.equals("InternetBillManagement.apk", ignoreCase = true)
-                    } ?: apkAssets.first()
-
-                    apkFilename = matched.first
-                    apkUrl = matched.second
-                }
-            }
-
-            Log.d(TAG, "Selected APK filename: $apkFilename, download URL: $apkUrl")
-
-            if (apkUrl.isNullOrBlank()) {
                 return@withContext Result.failure(
-                    UpdateException.ApkAssetNotFound("No APK asset found in release $tagName")
+                    UpdateException.RateLimited("GitHub API rate limit exceeded. Resets in $remainingMins min.")
                 )
             }
 
-            val isNewer = isVersionNewer(installedVersion, cleanVersion)
-            Log.d(TAG, "Version comparison: installed=$installedVersion, latest=$cleanVersion, isNewer=$isNewer")
+            // 2. Check Cache freshness for automatic checks (force == false)
+            if (!force) {
+                val cachedTimestamp = getCacheTimestamp(context)
+                if (now - cachedTimestamp < AUTO_CHECK_CACHE_DURATION_MS) {
+                    val cached = getCachedReleaseInfo(context)
+                    if (cached != null) {
+                        Log.d(TAG, "Returning cached release info (age: ${(now - cachedTimestamp) / 1000}s)")
+                        return@withContext Result.success(cached)
+                    }
+                }
+            }
 
-            Result.success(
-                GitHubReleaseInfo(
+            // 3. Make HTTP request to GitHub API
+            val urlString = "https://api.github.com/repos/$owner/$repo/releases/latest"
+            Log.d(TAG, "Checking updates for repo: $owner/$repo (installed: $installedVersion, force=$force)")
+
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL(urlString)
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    instanceFollowRedirects = true
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("User-Agent", "Android-ISP-Billing-App")
+                }
+
+                val responseCode = connection.responseCode
+                val remainingHeader = connection.getHeaderField("X-RateLimit-Remaining")
+                val resetHeader = connection.getHeaderField("X-RateLimit-Reset")
+                val retryAfterHeader = connection.getHeaderField("Retry-After")
+
+                Log.d(TAG, "HTTP Response Code: $responseCode, RateLimit-Remaining: $remainingHeader, Reset: $resetHeader")
+
+                if (responseCode == HttpURLConnection.HTTP_FORBIDDEN || responseCode == 429 || (remainingHeader == "0" && responseCode != HttpURLConnection.HTTP_OK)) {
+                    val resetEpochMs = when {
+                        resetHeader != null -> (resetHeader.toLongOrNull() ?: 0L) * 1000L
+                        retryAfterHeader != null -> now + ((retryAfterHeader.toLongOrNull() ?: 1800L) * 1000L)
+                        else -> now + (30 * 60 * 1000L)
+                    }
+                    val validReset = maxOf(now + 60000L, resetEpochMs)
+                    saveRateLimitResetTimestamp(context, validReset)
+
+                    val minsLeft = maxOf(1L, (validReset - now) / 60000L)
+                    Log.w(TAG, "GitHub API rate limit exceeded (HTTP $responseCode). Resets in $minsLeft min.")
+
+                    val cached = getCachedReleaseInfo(context)
+                    if (cached != null) {
+                        return@withContext Result.success(cached)
+                    }
+                    return@withContext Result.failure(
+                        UpdateException.RateLimited("GitHub API rate limit exceeded. Try again in $minsLeft min.")
+                    )
+                }
+
+                when (responseCode) {
+                    HttpURLConnection.HTTP_OK -> {
+                        // OK
+                    }
+                    HttpURLConnection.HTTP_NOT_FOUND -> {
+                        Log.w(TAG, "GitHub release not found for repo $owner/$repo (HTTP 404)")
+                        return@withContext Result.failure(
+                            UpdateException.ReleaseNotFound("No release found for repository $owner/$repo")
+                        )
+                    }
+                    in 500..599 -> {
+                        Log.w(TAG, "GitHub server error (HTTP $responseCode)")
+                        return@withContext Result.failure(
+                            UpdateException.ServerError(responseCode, "GitHub server error (HTTP $responseCode)")
+                        )
+                    }
+                    else -> {
+                        Log.w(TAG, "HTTP request failed with status $responseCode")
+                        return@withContext Result.failure(
+                            UpdateException.HttpError(responseCode, "HTTP Error: $responseCode")
+                        )
+                    }
+                }
+
+                clearRateLimitResetTimestamp(context)
+
+                val jsonString = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = try {
+                    JSONObject(jsonString)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse release JSON", e)
+                    return@withContext Result.failure(UpdateException.InvalidJson("Malformed JSON from release server"))
+                }
+
+                val tagName = json.optString("tag_name", "")
+                val releaseName = json.optString("name", "")
+                val cleanVersion = tagName.removePrefix("v").removePrefix("V")
+                    .ifBlank { releaseName.removePrefix("v").removePrefix("V") }
+                val rawBody = if (json.isNull("body")) "" else json.optString("body", "")
+                val releaseNotes = if (rawBody.isBlank() || rawBody.trim().equals("null", ignoreCase = true)) {
+                    context.getString(com.example.R.string.update_notes_fallback)
+                } else {
+                    rawBody.trim()
+                }
+
+                Log.d(TAG, "Release tag received: $tagName (clean: $cleanVersion)")
+
+                var apkUrl: String? = null
+                var apkFilename: String? = null
+
+                if (json.has("assets")) {
+                    val assets = json.getJSONArray("assets")
+                    Log.d(TAG, "Number of assets received: ${assets.length()}")
+
+                    val apkAssets = mutableListOf<Pair<String, String>>()
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        val assetName = asset.optString("name", "")
+                        val downloadUrl = asset.optString("browser_download_url", "")
+                        if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotBlank()) {
+                            apkAssets.add(Pair(assetName, downloadUrl))
+                        }
+                    }
+
+                    if (apkAssets.isNotEmpty()) {
+                        val matched = apkAssets.firstOrNull { (name, _) ->
+                            name.equals("ISP-Billing-Release.apk", ignoreCase = true) ||
+                            name.equals("InternetBillManagement.apk", ignoreCase = true)
+                        } ?: apkAssets.first()
+
+                        apkFilename = matched.first
+                        apkUrl = matched.second
+                    }
+                }
+
+                Log.d(TAG, "Selected APK filename: $apkFilename, download URL: $apkUrl")
+
+                if (apkUrl.isNullOrBlank()) {
+                    return@withContext Result.failure(
+                        UpdateException.ApkAssetNotFound("No APK asset found in release $tagName")
+                    )
+                }
+
+                val isNewer = isVersionNewer(installedVersion, cleanVersion)
+                Log.d(TAG, "Version comparison: installed=$installedVersion, latest=$cleanVersion, isNewer=$isNewer")
+
+                val releaseInfo = GitHubReleaseInfo(
                     tagName = tagName,
                     version = cleanVersion,
                     releaseNotes = releaseNotes,
                     apkDownloadUrl = apkUrl,
                     isNewer = isNewer
                 )
-            )
-        } catch (e: UnknownHostException) {
-            Log.w(TAG, "DNS failure / unknown host: ${e.message}")
-            Result.failure(UpdateException.ConnectionFailed("Unable to resolve GitHub host"))
-        } catch (e: SocketTimeoutException) {
-            Log.w(TAG, "Connection timeout: ${e.message}")
-            Result.failure(UpdateException.Timeout("Connection timed out"))
-        } catch (e: SSLException) {
-            Log.w(TAG, "SSL error: ${e.message}")
-            Result.failure(UpdateException.SslError("Secure connection error"))
-        } catch (e: IOException) {
-            Log.w(TAG, "I/O error contacting GitHub API: ${e.message}")
-            Result.failure(UpdateException.ConnectionFailed(e.message ?: "Network error"))
-        } catch (e: Exception) {
-            Log.w(TAG, "Unexpected error checking updates: ${e.message}", e)
-            Result.failure(e)
-        } finally {
-            connection?.disconnect()
+
+                saveCachedReleaseInfo(context, releaseInfo)
+
+                Result.success(releaseInfo)
+            } catch (e: UnknownHostException) {
+                Log.w(TAG, "DNS failure / unknown host: ${e.message}")
+                val cached = getCachedReleaseInfo(context)
+                if (cached != null) {
+                    return@withContext Result.success(cached)
+                }
+                Result.failure(UpdateException.ConnectionFailed("Unable to resolve GitHub host"))
+            } catch (e: SocketTimeoutException) {
+                Log.w(TAG, "Connection timeout: ${e.message}")
+                val cached = getCachedReleaseInfo(context)
+                if (cached != null) {
+                    return@withContext Result.success(cached)
+                }
+                Result.failure(UpdateException.Timeout("Connection timed out"))
+            } catch (e: SSLException) {
+                Log.w(TAG, "SSL error: ${e.message}")
+                Result.failure(UpdateException.SslError("Secure connection error"))
+            } catch (e: IOException) {
+                Log.w(TAG, "I/O error contacting GitHub API: ${e.message}")
+                val cached = getCachedReleaseInfo(context)
+                if (cached != null) {
+                    return@withContext Result.success(cached)
+                }
+                Result.failure(UpdateException.ConnectionFailed(e.message ?: "Network error"))
+            } catch (e: Exception) {
+                Log.w(TAG, "Unexpected error checking updates: ${e.message}", e)
+                Result.failure(e)
+            } finally {
+                connection?.disconnect()
+            }
         }
     }
 

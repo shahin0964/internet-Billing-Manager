@@ -89,15 +89,20 @@ fun AppUpdateDialog(
         parseSummaryItems(rawReleaseNotes)
     }
 
-    fun checkUpdates() {
+    fun checkUpdates(force: Boolean = true) {
         state = UpdateState.CHECKING
         errorMessage = null
         scope.launch {
             try {
-                val result = AppUpdateManager.checkForUpdates(context)
+                val result = AppUpdateManager.checkForUpdates(context, force = force)
                 result.onSuccess { info ->
                     releaseInfo = info
-                    state = if (info.isNewer) UpdateState.NEW_AVAILABLE else UpdateState.LATEST
+                    state = if (info.isNewer) {
+                        AppUpdateManager.saveVersionNotified(context, info.version)
+                        UpdateState.NEW_AVAILABLE
+                    } else {
+                        UpdateState.LATEST
+                    }
                 }.onFailure { err ->
                     errorMessage = when (err) {
                         is UpdateException.NoInternet -> context.getString(R.string.update_error_no_internet)
@@ -105,7 +110,7 @@ fun AppUpdateDialog(
                         is UpdateException.ApkAssetNotFound -> context.getString(R.string.update_error_no_apk)
                         is UpdateException.HttpError -> context.getString(R.string.update_error_server, "HTTP ${err.httpCode}")
                         is UpdateException.ServerError -> context.getString(R.string.update_error_server, "HTTP ${err.httpCode}")
-                        is UpdateException.RateLimited -> context.getString(R.string.update_error_server, "Rate Limit Exceeded")
+                        is UpdateException.RateLimited -> err.message ?: context.getString(R.string.update_error_server, "Rate Limit Exceeded")
                         is UpdateException.Timeout, is UpdateException.ConnectionFailed -> context.getString(R.string.update_error_server, "Connection Timeout")
                         is UpdateException.SslError -> context.getString(R.string.update_error_server, "SSL Error")
                         is UpdateException.InvalidJson -> context.getString(R.string.update_error_server, "Invalid Response")

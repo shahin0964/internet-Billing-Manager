@@ -200,6 +200,8 @@
     <string name="change_logo">Change Logo</string>
     <string name="remove_logo">Remove Logo</string>
     <string name="advanced_features">Advanced Features</string>
+    <string name="automatic_sms">Automatic SMS</string>
+    <string name="automatic_sms_subtitle">Manage automatic billing, reminder, and payment SMS alerts</string>
     <string name="import_customers">Import Customers</string>
     <string name="import_customers_subtitle">Bulk import customers from CSV or Excel file</string>
     <string name="select_import_file">Select File (.csv, .xlsx)</string>

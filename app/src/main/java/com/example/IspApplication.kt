@@ -10,6 +10,7 @@ class IspApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ensureFirebaseInitialized(this)
+        com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
     }
 
     companion object {

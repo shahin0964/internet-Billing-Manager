@@ -201,6 +201,11 @@ class IspRepository(
 
         if (newBills.isNotEmpty()) {
             billDao.insertBills(newBills)
+            try {
+                context?.let { com.example.util.AutomaticSmsManager.onBillsGenerated(it, newBills) }
+            } catch (e: Exception) {
+                Log.e("IspRepository", "Failed to queue billing SMS: ${e.message}")
+            }
         }
         notifyCloudSync()
         return generatedCount
@@ -260,6 +265,11 @@ class IspRepository(
             notes = notes
         )
         paymentDao.insertPayment(payment)
+        try {
+            context?.let { com.example.util.AutomaticSmsManager.onPaymentRecorded(it, payment) }
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Failed to queue payment SMS: ${e.message}")
+        }
         notifyCloudSync()
 
         return true

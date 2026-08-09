@@ -200,6 +200,8 @@
     <string name="change_logo">লোগো পরিবর্তন করুন</string>
     <string name="remove_logo">লোগো মুছে ফেলুন</string>
     <string name="advanced_features">অ্যাডভান্সড ফিচার</string>
+    <string name="automatic_sms">স্বয়ংক্রিয় এসএমএস</string>
+    <string name="automatic_sms_subtitle">স্বয়ংক্রিয় বিলিং, রিমাইন্ডার এবং পেমেন্ট এসএমএস অ্যালার্ট পরিচালনা করুন</string>
     <string name="import_customers">গ্রাহক ইমপোর্ট</string>
     <string name="import_customers_subtitle">সিএসভি বা এক্সেল ফাইল থেকে একাধিক গ্রাহক তথ্য ইমপোর্ট করুন</string>
     <string name="select_import_file">ফাইল নির্বাচন করুন (.csv, .xlsx)</string>

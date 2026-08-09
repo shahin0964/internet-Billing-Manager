@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Security
@@ -58,6 +59,14 @@ fun AdvancedFeaturesScreen(
     var showSpeedTest by remember { mutableStateOf(false) }
     var showWifiAnalyzer by remember { mutableStateOf(false) }
     var showImportCustomers by remember { mutableStateOf(false) }
+    var showAutomaticSms by remember { mutableStateOf(false) }
+
+    if (showAutomaticSms) {
+        AutomaticSmsScreen(
+            onBackClick = { showAutomaticSms = false }
+        )
+        return
+    }
 
     if (showImportCustomers) {
         ImportCustomersScreen(
@@ -231,6 +240,69 @@ fun AdvancedFeaturesScreen(
                                 )
                                 Text(
                                     text = stringResource(R.string.expense_management_subtitle),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Automatic SMS Entry
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showAutomaticSms = true },
+                    shape = RoundedCornerShape(18.dp),
+                    shadowElevation = 4.dp,
+                    tonalElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .padding(10.dp)
+                                        .fillMaxSize()
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.automatic_sms),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(R.string.automatic_sms_subtitle),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

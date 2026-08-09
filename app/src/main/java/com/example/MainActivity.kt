@@ -81,7 +81,15 @@ enum class NavTab(
 class MainActivity : ComponentActivity() {
 
     private val viewModel: IspViewModel by viewModels()
+    private val openUpdateDialogFlow = kotlinx.coroutines.flow.MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("open_update_dialog", false)) {
+            openUpdateDialogFlow.tryEmit(true)
+        }
+    }
 
     override fun attachBaseContext(newBase: android.content.Context) {
         val prefs = newBase.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
@@ -98,18 +106,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        if (intent?.getBooleanExtra("open_update_dialog", false) == true) {
+            openUpdateDialogFlow.tryEmit(true)
+        }
+
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
 
             IspControlTheme(themeMode = settings.themeMode) {
-                MainAppContent(viewModel = viewModel)
+                MainAppContent(viewModel = viewModel, openUpdateDialogFlow = openUpdateDialogFlow)
             }
         }
     }
 }
 
 @Composable
-fun MainAppContent(viewModel: IspViewModel) {
+fun MainAppContent(
+    viewModel: IspViewModel,
+    openUpdateDialogFlow: kotlinx.coroutines.flow.SharedFlow<Boolean> = remember { kotlinx.coroutines.flow.MutableSharedFlow() }
+) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(NavTab.DASHBOARD) }
 
@@ -196,15 +211,55 @@ fun MainAppContent(viewModel: IspViewModel) {
         }
     }
 
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            android.util.Log.d("MainActivity", "Notification permission granted")
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                "android.permission.POST_NOTIFICATIONS"
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!hasPermission) {
+                permissionLauncher.launch("android.permission.POST_NOTIFICATIONS")
+            }
+        }
+    }
+
+    LaunchedEffect(openUpdateDialogFlow) {
+        openUpdateDialogFlow.collect { trigger ->
+            if (trigger) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val result = AppUpdateManager.checkForUpdates(context, force = false)
+                    val info = result.getOrNull()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        autoUpdateReleaseInfo = info
+                        showAutoUpdatePrompt = true
+                    }
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val result = AppUpdateManager.checkForUpdates(context)
+                val result = AppUpdateManager.checkForUpdates(context, force = false)
                 result.onSuccess { info ->
                     if (info.isNewer) {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            autoUpdateReleaseInfo = info
-                            showAutoUpdatePrompt = true
+                        val alreadyNotified = AppUpdateManager.isVersionAlreadyNotified(context, info.version)
+                        if (!alreadyNotified) {
+                            AppUpdateManager.saveVersionNotified(context, info.version)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                autoUpdateReleaseInfo = info
+                                showAutoUpdatePrompt = true
+                            }
+                            com.example.util.AppNotificationHelper.showUpdateNotification(context, info.version)
                         }
                     }
                 }

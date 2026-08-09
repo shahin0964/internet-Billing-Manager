@@ -1,0 +1,478 @@
+package com.example.util
+
+import android.app.Activity
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.os.Build
+import android.telephony.SmsManager
+import android.telephony.SubscriptionManager
+import android.util.Log
+import androidx.core.content.ContextCompat
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.example.data.database.IspDatabase
+import com.example.data.database.SmsDatabase
+import com.example.data.model.BillEntity
+import com.example.data.model.PaymentEntity
+import com.example.data.model.SmsQueueEntity
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+
+object AutomaticSmsManager {
+    private const val TAG = "AutomaticSmsManager"
+    private const val PREFS_NAME = "automatic_sms_prefs"
+
+    // Settings Keys
+    private const val KEY_SMS_ENABLED = "sms_enabled"
+    private const val KEY_SELECTED_SIM = "selected_sim" // 0: Default, 1: SIM 1, 2: SIM 2
+    private const val KEY_DEFAULT_SENDING_TIME = "default_sending_time"
+    private const val KEY_RETRY_FAILED = "retry_failed"
+    private const val KEY_MAX_RETRY_COUNT = "max_retry_count"
+
+    // Rules Keys
+    private const val KEY_RULE_BILL_GENERATED = "rule_bill_generated"
+    private const val KEY_RULE_DUE_REMINDER = "rule_due_reminder"
+    private const val KEY_RULE_OVERDUE = "rule_overdue"
+    private const val KEY_RULE_PAYMENT_CONFIRMATION = "rule_payment_confirmation"
+    private const val KEY_RULE_GENERAL_NOTICE = "rule_general_notice"
+
+    // Due Reminder Offset Key
+    private const val KEY_DUE_REMINDER_OFFSET = "due_reminder_offset" // e.g. -3, -1, 0, 1, 3
+
+    // Template Keys
+    private const val KEY_TEMPLATE_BILL_GENERATED = "template_bill_generated"
+    private const val KEY_TEMPLATE_DUE_REMINDER = "template_due_reminder"
+    private const val KEY_TEMPLATE_OVERDUE = "template_overdue"
+    private const val KEY_TEMPLATE_PAYMENT_CONFIRMATION = "template_payment_confirmation"
+    private const val KEY_TEMPLATE_GENERAL_NOTICE = "template_general_notice"
+
+    // Defaults (Bengali and English fallback default templates)
+    private const val DEFAULT_TEMPLATE_BILL_GENERATED = "প্রিয় [Customer Name],\nআপনার [Package/Speed] ইন্টারনেট বিল ৳[Monthly Fee] তৈরি করা হয়েছে। পরিশোধের শেষ সময়: [Due Date]। ধন্যবাদ।"
+    private const val DEFAULT_TEMPLATE_DUE_REMINDER = "প্রিয় [Customer Name],\nআপনার ইন্টারনেট বিল ৳[Due Amount] পরিশোধের শেষ তারিখ: [Due Date]। সংযোগ সচল রাখতে অনুগ্রহ করে দ্রুত বিল পরিশোধ করুন।"
+    private const val DEFAULT_TEMPLATE_OVERDUE = "প্রিয় [Customer Name],\nআপনার ইন্টারনেট বিল ৳[Due Amount] বকেয়া রয়েছে। সংযোগ বিচ্ছিন্ন হওয়া এড়াতে দয়া করে এখনই বিল পরিশোধ করুন।"
+    private const val DEFAULT_TEMPLATE_PAYMENT_CONFIRMATION = "প্রিয় [Customer Name],\nআপনার বিল বাবদ ৳[Payment Amount] পরিশোধ সফলভাবে গ্রহণ করা হয়েছে। ধন্যবাদ।"
+    private const val DEFAULT_TEMPLATE_GENERAL_NOTICE = "প্রিয় [Customer Name],\nআমাদের সেবা সাময়িক বিঘ্নিত হতে পারে। সাময়িক অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত।"
+
+    private fun getPrefs(context: Context): SharedPreferences {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // Settings Getters & Setters
+    fun isSmsEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_SMS_ENABLED, false)
+    fun setSmsEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_SMS_ENABLED, enabled).apply()
+
+    fun getSelectedSim(context: Context): Int = getPrefs(context).getInt(KEY_SELECTED_SIM, 0)
+    fun setSelectedSim(context: Context, sim: Int) = getPrefs(context).edit().putInt(KEY_SELECTED_SIM, sim).apply()
+
+    fun getDefaultSendingTime(context: Context): String = getPrefs(context).getString(KEY_DEFAULT_SENDING_TIME, "10:00") ?: "10:00"
+    fun setDefaultSendingTime(context: Context, time: String) = getPrefs(context).edit().putString(KEY_DEFAULT_SENDING_TIME, time).apply()
+
+    fun isRetryFailedEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RETRY_FAILED, true)
+    fun setRetryFailedEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RETRY_FAILED, enabled).apply()
+
+    fun getMaxRetryCount(context: Context): Int = getPrefs(context).getInt(KEY_MAX_RETRY_COUNT, 3)
+    fun setMaxRetryCount(context: Context, count: Int) = getPrefs(context).edit().putInt(KEY_MAX_RETRY_COUNT, count).apply()
+
+    // Rules Getters & Setters
+    fun isRuleBillGeneratedEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_BILL_GENERATED, true)
+    fun setRuleBillGeneratedEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_BILL_GENERATED, enabled).apply()
+
+    fun isRuleDueReminderEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_DUE_REMINDER, true)
+    fun setRuleDueReminderEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_DUE_REMINDER, enabled).apply()
+
+    fun isRuleOverdueEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_OVERDUE, true)
+    fun setRuleOverdueEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_OVERDUE, enabled).apply()
+
+    fun isRulePaymentConfirmationEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_PAYMENT_CONFIRMATION, true)
+    fun setRulePaymentConfirmationEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_PAYMENT_CONFIRMATION, enabled).apply()
+
+    fun isRuleGeneralNoticeEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_GENERAL_NOTICE, true)
+    fun setRuleGeneralNoticeEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_GENERAL_NOTICE, enabled).apply()
+
+    // Offset Getters & Setters
+    fun getDueReminderOffset(context: Context): Int = getPrefs(context).getInt(KEY_DUE_REMINDER_OFFSET, 0)
+    fun setDueReminderOffset(context: Context, offset: Int) = getPrefs(context).edit().putInt(KEY_DUE_REMINDER_OFFSET, offset).apply()
+
+    // Templates Getters & Setters
+    fun getTemplateBillGenerated(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_BILL_GENERATED, DEFAULT_TEMPLATE_BILL_GENERATED) ?: DEFAULT_TEMPLATE_BILL_GENERATED
+    fun setTemplateBillGenerated(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_BILL_GENERATED, t).apply()
+
+    fun getTemplateDueReminder(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_DUE_REMINDER, DEFAULT_TEMPLATE_DUE_REMINDER) ?: DEFAULT_TEMPLATE_DUE_REMINDER
+    fun setTemplateDueReminder(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_DUE_REMINDER, t).apply()
+
+    fun getTemplateOverdue(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_OVERDUE, DEFAULT_TEMPLATE_OVERDUE) ?: DEFAULT_TEMPLATE_OVERDUE
+    fun setTemplateOverdue(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_OVERDUE, t).apply()
+
+    fun getTemplatePaymentConfirmation(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_PAYMENT_CONFIRMATION, DEFAULT_TEMPLATE_PAYMENT_CONFIRMATION) ?: DEFAULT_TEMPLATE_PAYMENT_CONFIRMATION
+    fun setTemplatePaymentConfirmation(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_PAYMENT_CONFIRMATION, t).apply()
+
+    fun getTemplateGeneralNotice(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_GENERAL_NOTICE, DEFAULT_TEMPLATE_GENERAL_NOTICE) ?: DEFAULT_TEMPLATE_GENERAL_NOTICE
+    fun setTemplateGeneralNotice(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_GENERAL_NOTICE, t).apply()
+
+    // Permission check
+    fun isSmsPermissionGranted(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(context, android.Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Trigger background queue processor worker.
+     */
+    fun triggerSmsWorker(context: Context) {
+        try {
+            val oneTimeWork = OneTimeWorkRequestBuilder<SmsQueueWorker>()
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "sms_queue_one_time",
+                ExistingWorkPolicy.REPLACE,
+                oneTimeWork
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to enqueue SmsQueueWorker: ${e.message}")
+        }
+    }
+
+    /**
+     * Schedules periodic SMS queue processor (every 1 hour).
+     */
+    fun schedulePeriodicSmsWorker(context: Context) {
+        try {
+            val periodicWork = PeriodicWorkRequestBuilder<SmsQueueWorker>(1, TimeUnit.HOURS)
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                "sms_queue_periodic",
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodicWork
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule periodic SmsQueueWorker: ${e.message}")
+        }
+    }
+
+    /**
+     * Dynamic Template replacement engine.
+     */
+    fun processTemplate(
+        template: String,
+        customerName: String = "",
+        monthlyFee: String = "",
+        dueAmount: String = "",
+        dueDate: String = "",
+        paymentAmount: String = "",
+        paymentDate: String = "",
+        packageSpeed: String = "",
+        ispName: String = ""
+    ): String {
+        return template
+            .replace("[Customer Name]", customerName)
+            .replace("[Customer]", customerName)
+            .replace("[Bill Amount]", monthlyFee)
+            .replace("[Monthly Fee]", monthlyFee)
+            .replace("[Due Amount]", dueAmount)
+            .replace("[Due Date]", dueDate)
+            .replace("[Payment Amount]", paymentAmount)
+            .replace("[Payment Date]", paymentDate)
+            .replace("[Package/Speed]", packageSpeed)
+            .replace("[ISP Name]", ispName)
+    }
+
+    /**
+     * Safe queueing with duplicate prevention using idempotency key.
+     */
+    private suspend fun enqueueSms(
+        context: Context,
+        customerId: Long,
+        customerName: String,
+        mobileNumber: String,
+        message: String,
+        smsType: String,
+        idempotencyKey: String
+    ) {
+        val cleanNumber = mobileNumber.trim().replace(" ", "").replace("-", "")
+        if (cleanNumber.isBlank()) {
+            Log.w(TAG, "Skipping SMS queuing for customer $customerName: Mobile number is empty")
+            return
+        }
+
+        val db = SmsDatabase.getDatabase(context)
+        val dao = db.smsQueueDao()
+
+        // 1. Prevent duplicate checking idempotencyKey
+        val count = dao.countByIdempotencyKey(idempotencyKey)
+        if (count > 0) {
+            Log.d(TAG, "Skipping duplicate SMS queue: Idempotency key '$idempotencyKey' already exists")
+            return
+        }
+
+        // 2. Insert to queue
+        val entity = SmsQueueEntity(
+            customerReferenceId = customerId.toString(),
+            customerName = customerName,
+            mobileNumber = cleanNumber,
+            message = message,
+            smsType = smsType,
+            createdTime = System.currentTimeMillis(),
+            scheduledTime = System.currentTimeMillis(),
+            status = "PENDING",
+            idempotencyKey = idempotencyKey
+        )
+        dao.insertSms(entity)
+        Log.d(TAG, "Queued automatic SMS for $customerName ($smsType, idempotencyKey: $idempotencyKey)")
+
+        // 3. Fire immediate sending worker
+        triggerSmsWorker(context)
+    }
+
+    /**
+     * Hooks for Bill Generation Event
+     */
+    suspend fun onBillsGenerated(context: Context, bills: List<BillEntity>) {
+        if (!isSmsEnabled(context)) return
+
+        val ispDb = IspDatabase.getDatabase(context)
+        val customerDao = ispDb.customerDao()
+        val settingsDao = ispDb.settingsDao()
+        val settings = settingsDao.getSettings().first()
+        val ispName = settings?.ispName ?: "ISP"
+
+        val sendBillGen = isRuleBillGeneratedEnabled(context)
+        val sendDueRem = isRuleDueReminderEnabled(context)
+
+        for (bill in bills) {
+            val customer = customerDao.getCustomerById(bill.customerId).first() ?: continue
+
+            // 1. Queue Bill Generated SMS
+            if (sendBillGen) {
+                val template = getTemplateBillGenerated(context)
+                val msg = processTemplate(
+                    template = template,
+                    customerName = customer.name,
+                    monthlyFee = bill.amount.toString(),
+                    dueDate = bill.dueDate,
+                    packageSpeed = customer.packageName,
+                    ispName = ispName
+                )
+                val idKey = "bill_${bill.id}_generated"
+                enqueueSms(context, customer.id, customer.name, customer.phone, msg, "bill_generated", idKey)
+            }
+
+            // 2. Queue Due Reminder SMS (if offset is configured to be on/before due date)
+            if (sendDueRem) {
+                val offset = getDueReminderOffset(context)
+                if (offset <= 0) { // e.g. -3, -1, 0
+                    val template = getTemplateDueReminder(context)
+                    val msg = processTemplate(
+                        template = template,
+                        customerName = customer.name,
+                        dueAmount = bill.dueAmount.toString(),
+                        dueDate = bill.dueDate,
+                        ispName = ispName
+                    )
+                    val idKey = "bill_${bill.id}_due_$offset"
+                    enqueueSms(context, customer.id, customer.name, customer.phone, msg, "due_reminder", idKey)
+                }
+            }
+        }
+    }
+
+    /**
+     * Hooks for Payment Confirmation Event
+     */
+    suspend fun onPaymentRecorded(context: Context, payment: PaymentEntity) {
+        if (!isSmsEnabled(context)) return
+        if (!isRulePaymentConfirmationEnabled(context)) return
+
+        val ispDb = IspDatabase.getDatabase(context)
+        val customerDao = ispDb.customerDao()
+        val settingsDao = ispDb.settingsDao()
+        val settings = settingsDao.getSettings().first()
+        val ispName = settings?.ispName ?: "ISP"
+
+        val customer = customerDao.getCustomerById(payment.customerId).first() ?: return
+
+        val template = getTemplatePaymentConfirmation(context)
+        val msg = processTemplate(
+            template = template,
+            customerName = customer.name,
+            paymentAmount = payment.amount.toString(),
+            paymentDate = payment.paymentDate,
+            ispName = ispName
+        )
+        val idKey = "payment_${payment.id}_confirmed"
+        enqueueSms(context, customer.id, customer.name, customer.phone, msg, "payment_confirmation", idKey)
+    }
+
+    /**
+     * Manual Send SMS (doesn't trigger rules, queues directly)
+     */
+    suspend fun queueManualSms(
+        context: Context,
+        customerId: Long,
+        customerName: String,
+        mobileNumber: String,
+        message: String
+    ) {
+        val idKey = "manual_${System.currentTimeMillis()}_${customerId}"
+        enqueueSms(context, customerId, customerName, mobileNumber, message, "general_notice", idKey)
+    }
+
+    /**
+     * Synchronous single SMS sender with transient receiver
+     */
+    suspend fun sendSingleSms(
+        context: Context,
+        mobileNumber: String,
+        message: String,
+        smsId: Long
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!isSmsPermissionGranted(context)) {
+            return@withContext Result.failure(Exception("Permission denied"))
+        }
+
+        val selectedSimIndex = getSelectedSim(context) // 0: Default, 1: SIM 1, 2: SIM 2
+        val smsManager = try {
+            getSmsManagerForIndex(context, selectedSimIndex)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error selecting SIM subscription, falling back to default SMS manager: ${e.message}")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.getSystemService(SmsManager::class.java)
+            } else {
+                SmsManager.getDefault()
+            }
+        }
+
+        val sentAction = "SMS_SENT_${System.currentTimeMillis()}_${smsId}"
+        val sentIntent = PendingIntent.getBroadcast(
+            context,
+            smsId.toInt(),
+            Intent(sentAction),
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val deferred = CompletableDeferred<Int>()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                deferred.complete(resultCode)
+                try {
+                    context.unregisterReceiver(this)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unregister error: ${e.message}")
+                }
+            }
+        }
+
+        // Register receiver with appropriate safety flags
+        withContext(Dispatchers.Main) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(receiver, IntentFilter(sentAction), Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(receiver, IntentFilter(sentAction))
+            }
+        }
+
+        try {
+            // Send the message text
+            val msgList = smsManager.divideMessage(message)
+            if (msgList.size > 1) {
+                val sentIntents = ArrayList<PendingIntent>()
+                sentIntents.add(sentIntent)
+                for (k in 1 until msgList.size) {
+                    sentIntents.add(
+                        PendingIntent.getBroadcast(
+                            context,
+                            (smsId + k).toInt(),
+                            Intent(sentAction),
+                            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                        )
+                    )
+                }
+                smsManager.sendMultipartTextMessage(mobileNumber, null, msgList, sentIntents, null)
+            } else {
+                smsManager.sendTextMessage(mobileNumber, null, message, sentIntent, null)
+            }
+
+            // Wait with a 15-second timeout
+            val resultCode = withTimeoutOrNull(15000L) {
+                deferred.await()
+            } ?: SmsManager.RESULT_ERROR_GENERIC_FAILURE
+
+            if (resultCode == Activity.RESULT_OK) {
+                Result.success(Unit)
+            } else {
+                val errText = when (resultCode) {
+                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "Generic Failure"
+                    SmsManager.RESULT_ERROR_NO_SERVICE -> "No Mobile Service"
+                    SmsManager.RESULT_ERROR_NULL_PDU -> "Null PDU"
+                    SmsManager.RESULT_ERROR_RADIO_OFF -> "Airplane Mode / Radio Off"
+                    else -> "SMS Code: $resultCode"
+                }
+                Result.failure(Exception(errText))
+            }
+        } catch (e: Exception) {
+            // Unregister to prevent leaks
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (ex: Exception) {}
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Resolves appropriate SmsManager for Dual SIM slots
+     */
+    private fun getSmsManagerForIndex(context: Context, slotIndex: Int): SmsManager {
+        if (slotIndex == 0) {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.getSystemService(SmsManager::class.java)
+            } else {
+                SmsManager.getDefault()
+            }
+        }
+
+        val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+        if (subscriptionManager != null) {
+            try {
+                val activeList = subscriptionManager.activeSubscriptionInfoList
+                if (activeList != null) {
+                    val targetSlot = slotIndex - 1 // convert 1/2 selection to 0/1 index
+                    val matchedSub = activeList.firstOrNull { it.simSlotIndex == targetSlot } 
+                        ?: activeList.getOrNull(targetSlot) 
+                        ?: activeList.firstOrNull()
+
+                    if (matchedSub != null) {
+                        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            context.getSystemService(SmsManager::class.java).createForSubscriptionId(matchedSub.subscriptionId)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
+                        }
+                    }
+                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Cannot access SubscriptionManager due to security limits: ${e.message}")
+            }
+        }
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(SmsManager::class.java)
+        } else {
+            SmsManager.getDefault()
+        }
+    }
+}
