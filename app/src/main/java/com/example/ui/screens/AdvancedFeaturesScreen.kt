@@ -21,6 +21,9 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.GroupAdd
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ui.viewmodel.IspViewModel
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,11 +51,21 @@ import com.example.ui.components.SectionHeader
 @Composable
 fun AdvancedFeaturesScreen(
     onBackClick: () -> Unit,
-    onOpenExpenseManagement: () -> Unit = {}
+    onOpenExpenseManagement: () -> Unit = {},
+    viewModel: IspViewModel = viewModel()
 ) {
     var showActivityAndAuditLog by remember { mutableStateOf(false) }
     var showSpeedTest by remember { mutableStateOf(false) }
     var showWifiAnalyzer by remember { mutableStateOf(false) }
+    var showImportCustomers by remember { mutableStateOf(false) }
+
+    if (showImportCustomers) {
+        ImportCustomersScreen(
+            onBackClick = { showImportCustomers = false },
+            viewModel = viewModel
+        )
+        return
+    }
     if (showWifiAnalyzer) {
         WiFiAnalyzerScreen(
             onBackClick = { showWifiAnalyzer = false }
@@ -106,6 +119,69 @@ fun AdvancedFeaturesScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Import Customers Feature Entry
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showImportCustomers = true },
+                    shape = RoundedCornerShape(18.dp),
+                    shadowElevation = 4.dp,
+                    tonalElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.GroupAdd,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .padding(10.dp)
+                                        .fillMaxSize()
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.import_customers),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(R.string.import_customers_subtitle),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             // Expense Management Feature Entry
             item {
                 Surface(

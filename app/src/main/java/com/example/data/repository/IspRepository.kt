@@ -85,6 +85,11 @@ class IspRepository(
         return result
     }
 
+    suspend fun saveCustomers(customers: List<CustomerEntity>) {
+        customerDao.insertCustomers(customers)
+        notifyCloudSync()
+    }
+
     suspend fun updateCustomer(customer: CustomerEntity) {
         customerDao.updateCustomer(customer)
         billDao.updateCustomerNameInBills(customer.id, customer.name)

@@ -252,6 +252,57 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun importCustomers(
+        candidates: List<CustomerEntity>,
+        overwriteDuplicates: Boolean,
+        onComplete: (importedCount: Int, updatedCount: Int, skippedCount: Int) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                var importedCount = 0
+                var updatedCount = 0
+                var skippedCount = 0
+
+                val existingList = repository.customers.first()
+                val existingByCode = existingList.associateBy { it.customerCode.trim().lowercase(java.util.Locale.ROOT) }
+                val existingByPppoe = existingList.filter { it.pppoeUsername.isNotBlank() }
+                    .associateBy { it.pppoeUsername.trim().lowercase(java.util.Locale.ROOT) }
+
+                val newToInsert = mutableListOf<CustomerEntity>()
+
+                for (candidate in candidates) {
+                    val codeKey = candidate.customerCode.trim().lowercase(java.util.Locale.ROOT)
+                    val pppoeKey = candidate.pppoeUsername.trim().lowercase(java.util.Locale.ROOT)
+
+                    val matchedExisting = existingByCode[codeKey]
+                        ?: (if (pppoeKey.isNotEmpty()) existingByPppoe[pppoeKey] else null)
+
+                    if (matchedExisting != null) {
+                        if (overwriteDuplicates) {
+                            val updatedEntity = candidate.copy(id = matchedExisting.id)
+                            repository.updateCustomer(updatedEntity)
+                            updatedCount++
+                        } else {
+                            skippedCount++
+                        }
+                    } else {
+                        newToInsert.add(candidate)
+                        importedCount++
+                    }
+                }
+
+                if (newToInsert.isNotEmpty()) {
+                    repository.saveCustomers(newToInsert)
+                }
+
+                onComplete(importedCount, updatedCount, skippedCount)
+            } catch (e: Exception) {
+                android.util.Log.e("IspViewModel", "Failed to import customers: ${e.message}", e)
+                onComplete(0, 0, candidates.size)
+            }
+        }
+    }
+
     fun updateCustomer(customer: CustomerEntity) {
         viewModelScope.launch {
             repository.updateCustomer(customer)
