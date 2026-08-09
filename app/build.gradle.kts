@@ -34,6 +34,16 @@ android {
 
     buildConfigField("String", "GITHUB_OWNER", "\"$defaultOwner\"")
     buildConfigField("String", "GITHUB_REPO", "\"$defaultRepo\"")
+
+    val googleApiKey = providers.gradleProperty("GOOGLE_API_KEY")
+      .orElse("")
+      .get()
+
+    buildConfigField(
+      "String",
+      "GOOGLE_API_KEY",
+      "\"${googleApiKey.replace("\"", "\\\"")}\""
+    )
   }
 
   signingConfigs {
