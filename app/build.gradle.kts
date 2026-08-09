@@ -23,8 +23,8 @@ android {
     val envVersionCode = System.getenv("VERSION_CODE")?.takeIf { it.isNotBlank() }?.toIntOrNull()
       ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
 
-    versionCode = envVersionCode ?: 23
-    versionName = envVersionName ?: "1.0.23"
+    versionCode = envVersionCode ?: 24
+    versionName = envVersionName ?: "1.0.24"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
