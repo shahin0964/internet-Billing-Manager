@@ -40,12 +40,9 @@ android {
       ?: project.findProperty("GOOGLE_API_KEY")?.toString()?.takeIf { it.isNotBlank() }
       ?: System.getProperty("GOOGLE_API_KEY")?.takeIf { it.isNotBlank() }
       ?: "").trim()
-
-    buildConfigField(
-      "String",
-      "GOOGLE_API_KEY",
-      "\"${googleApiKey.replace("\"", "\\\"")}\""
-    )
+    
+    val safeApiKey = if (googleApiKey.isEmpty()) "\"\"" else "\"${googleApiKey.replace("\"", "\\\"")}\""
+    buildConfigField("String", "GOOGLE_API_KEY", safeApiKey)
   }
 
   signingConfigs {
