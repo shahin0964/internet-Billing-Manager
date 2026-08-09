@@ -154,27 +154,30 @@ jobs:
           fi
 
           NOTES=""
+          COUNT=0
           if [ -n "$COMMITS" ]; then
             while IFS= read -r line; do
               [ -z "$line" ] && continue
+              [ $COUNT -ge 5 ] && break
               
-              if [[ "$line" =~ ^Merge || "$line" =~ ^chore\(release\) ]]; then
+              if [[ "$line" =~ ^[Mm]erge || "$line" =~ ^chore || "$line" =~ ^ci || "$line" =~ ^build || "$line" =~ ^deps || "$line" =~ ^workflow || "$line" =~ ^release ]]; then
                 continue
               fi
 
-              CLEAN_LINE=$(echo "$line" | sed -E 's/^(feat|fix|refactor|style|docs|perf|test|chore|ci)(\([^\)]+\))?:\s*//i')
+              CLEAN_LINE=$(echo "$line" | sed -E 's/^(feat|fix|ui|refactor|style|docs|perf|test|chore|ci)(\([^\)]+\))?:\s*//i')
               FIRST_CHAR=$(echo "${CLEAN_LINE:0:1}" | tr '[:lower:]' '[:upper:]')
               REST_CHAR="${CLEAN_LINE:1}"
               CLEAN_LINE="${FIRST_CHAR}${REST_CHAR}"
 
               if [ -n "$CLEAN_LINE" ] && [[ ! "$NOTES" =~ "$CLEAN_LINE" ]]; then
                 NOTES="${NOTES}• ${CLEAN_LINE}"$'\n'
+                COUNT=$((COUNT + 1))
               fi
             done <<< "$COMMITS"
           fi
 
           if [ -z "$NOTES" ]; then
-            NOTES="• Improved app performance"$'\n'"• Fixed billing-related issues"$'\n'"• Improved backup and sync"$'\n'"• Improved app stability"
+            NOTES="• Maintenance update and general performance improvements"$'\n'
           fi
 
           {
