@@ -212,7 +212,7 @@ object AppUpdateManager {
                 .ifBlank { releaseName.removePrefix("v").removePrefix("V") }
             val rawBody = if (json.isNull("body")) "" else json.optString("body", "")
             val releaseNotes = if (rawBody.isBlank() || rawBody.trim().equals("null", ignoreCase = true)) {
-                "What's New information is not available for this update."
+                context.getString(com.example.R.string.update_notes_fallback)
             } else {
                 rawBody.trim()
             }

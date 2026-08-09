@@ -219,8 +219,10 @@ fun AppUpdateDialog(
                             }
                         }
 
+                        val fallbackText = stringResource(R.string.update_notes_fallback)
                         val hasValidNotes = rawReleaseNotes.isNotBlank() && 
                             !rawReleaseNotes.trim().equals("null", ignoreCase = true) &&
+                            !rawReleaseNotes.contains("তথ্য পাওয়া যায়নি", ignoreCase = true) &&
                             !rawReleaseNotes.contains("information is not available", ignoreCase = true)
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -271,9 +273,9 @@ fun AppUpdateDialog(
                                 }
                             } else {
                                 val displayText = if (hasValidNotes) {
-                                    rawReleaseNotes
+                                    rawReleaseNotes.replace("###", "").replace("##", "").replace("#", "").replace("**", "").replace("`", "").trim()
                                 } else {
-                                    "What's New information is not available for this update."
+                                    fallbackText
                                 }
                                 Text(
                                     text = displayText,
@@ -451,10 +453,14 @@ fun AppUpdateDialog(
                         .heightIn(max = 320.dp)
                         .verticalScroll(scrollState)
                 ) {
-                    val dialogNotes = if (rawReleaseNotes.isNotBlank() && !rawReleaseNotes.trim().equals("null", ignoreCase = true)) {
-                        rawReleaseNotes
+                    val dialogFallback = stringResource(R.string.update_notes_fallback)
+                    val dialogNotes = if (rawReleaseNotes.isNotBlank() && 
+                        !rawReleaseNotes.trim().equals("null", ignoreCase = true) &&
+                        !rawReleaseNotes.contains("information is not available", ignoreCase = true)
+                    ) {
+                        rawReleaseNotes.replace("###", "").replace("##", "").replace("#", "").replace("**", "").replace("`", "").trim()
                     } else {
-                        "What's New information is not available for this update."
+                        dialogFallback
                     }
                     Text(
                         text = dialogNotes,
@@ -473,7 +479,11 @@ fun AppUpdateDialog(
 }
 
 private fun parseSummaryItems(releaseNotes: String): List<String> {
-    if (releaseNotes.isBlank() || releaseNotes.trim().equals("null", ignoreCase = true) || releaseNotes.contains("information is not available", ignoreCase = true)) {
+    if (releaseNotes.isBlank() || 
+        releaseNotes.trim().equals("null", ignoreCase = true) || 
+        releaseNotes.contains("তথ্য পাওয়া যায়নি", ignoreCase = true) ||
+        releaseNotes.contains("information is not available", ignoreCase = true)
+    ) {
         return emptyList()
     }
     return releaseNotes.lines()
@@ -497,8 +507,14 @@ private fun parseSummaryItems(releaseNotes: String): List<String> {
                 .removePrefix("3.")
                 .removePrefix("4.")
                 .removePrefix("5.")
+                .removePrefix("6.")
+                .removePrefix("7.")
+                .removePrefix("8.")
+                .removePrefix("9.")
+                .replace("**", "")
+                .replace("`", "")
                 .trim()
         }
         .filter { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
-        .take(8)
+        .take(10)
 }

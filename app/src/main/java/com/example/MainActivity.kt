@@ -720,12 +720,12 @@ fun MainAppContent(viewModel: IspViewModel) {
     }
 
     if (showGenerateBillsDialog) {
-        val activeCount = customers.count { it.status == "ACTIVE" }
+        val activeCustomers = remember(customers) { customers.filter { it.status == "ACTIVE" } }
         BillGenerateDialog(
-            activeCustomerCount = activeCount,
+            activeCustomers = activeCustomers,
             onDismiss = { showGenerateBillsDialog = false },
-            onGenerate = { month, dueDate ->
-                viewModel.generateMonthlyBills(month, dueDate)
+            onGenerate = { month, dueDate, selectedCustomerIds ->
+                viewModel.generateMonthlyBills(month, dueDate, selectedCustomerIds)
                 showGenerateBillsDialog = false
             }
         )

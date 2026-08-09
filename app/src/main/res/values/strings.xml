@@ -220,6 +220,7 @@
     <string name="view_details">View details</string>
     <string name="release_notes_title">Full Release Notes</string>
     <string name="close">Close</string>
+    <string name="update_notes_fallback">এই আপডেটের পরিবর্তনগুলোর বিস্তারিত তথ্য পাওয়া যায়নি।</string>
 
     <!-- Expense Management Strings -->
     <string name="expense_management">Expense Management</string>
@@ -433,4 +434,13 @@
     <string name="connection_type">Connection Type</string>
     <string name="local_ip_v4">Local IPv4</string>
     <string name="local_ip_v6">Local IPv6</string>
+
+    <!-- Customer Selection for Billing -->
+    <string name="generate_all">Generate All</string>
+    <string name="select_customers">Select Customers</string>
+    <string name="select_all">Select All</string>
+    <string name="clear_selection">Clear Selection</string>
+    <string name="selected_count">Selected: %1$d</string>
+    <string name="generate_selected">Generate Selected (%1$d)</string>
+    <string name="search_customers_compact">Search customer...</string>
 </resources>

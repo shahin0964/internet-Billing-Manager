@@ -152,10 +152,16 @@ class IspRepository(
         notifyCloudSync()
     }
 
-    suspend fun generateMonthlyBills(billingMonth: String, dueDate: String): Int {
+    suspend fun generateMonthlyBills(
+        billingMonth: String,
+        dueDate: String,
+        selectedCustomerIds: Set<Long>? = null
+    ): Int {
         val currentCustomers = customers.first()
         val existingBills = bills.first()
-        val activeCustomers = currentCustomers.filter { it.status == "ACTIVE" }
+        val activeCustomers = currentCustomers.filter {
+            it.status == "ACTIVE" && (selectedCustomerIds == null || selectedCustomerIds.contains(it.id))
+        }
         
         var generatedCount = 0
         val newBills = mutableListOf<BillEntity>()

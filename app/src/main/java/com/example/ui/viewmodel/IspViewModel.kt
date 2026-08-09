@@ -310,9 +310,9 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun generateMonthlyBills(billingMonth: String, dueDate: String) {
+    fun generateMonthlyBills(billingMonth: String, dueDate: String, selectedCustomerIds: Set<Long>? = null) {
         viewModelScope.launch {
-            val count = repository.generateMonthlyBills(billingMonth, dueDate)
+            val count = repository.generateMonthlyBills(billingMonth, dueDate, selectedCustomerIds)
             if (count > 0) {
                 _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_generated_bills, count, billingMonth)
             } else {
