@@ -32,6 +32,7 @@ import java.net.NetworkInterface
 
 enum class NetworkToolType {
     NONE, PING, DNS, IP_CHECK, INTERNET_CONNECTIVITY, GATEWAY
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,7 +122,6 @@ fun NetworkToolsScreen(onBackClick: () -> Unit) {
         }
     }
 }
-
 @Composable
 fun ToolCard(title: String, icon: ImageVector, onClick: () -> Unit) {
     Surface(
@@ -170,94 +170,6 @@ fun ToolCard(title: String, icon: ImageVector, onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PingTestScreen(onBackClick: () -> Unit) {
-    var host by remember { mutableStateOf("") }
-    var result by remember { mutableStateOf("") }
-    var isTesting by remember { mutableStateOf(false) }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.ping_test), fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            OutlinedTextField(
-                value = host,
-                onValueChange = { host = it },
-                label = { Text(stringResource(R.string.host_ip_hint)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
-            Button(
-                onClick = {
-                    if (host.isNotBlank()) {
-                        isTesting = true
-                        result = ""
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isTesting && host.isNotBlank()
-            ) {
-                Text(if (isTesting) stringResource(R.string.testing) else stringResource(R.string.run_test))
-            }
-            
-            LaunchedEffect(isTesting) {
-                if (isTesting) {
-                    result = withContext(Dispatchers.IO) {
-                        try {
-                            val process = Runtime.getRuntime().exec("ping -c 4 $host")
-                            val reader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream))
-                            val output = StringBuilder()
-                            var line: String?
-                            while (reader.readLine().also { line = it } != null) {
-                                output.append(line).append("\n")
-                            }
-                            process.waitFor()
-                            if (output.isEmpty()) {
-                                "Unreachable or timeout."
-                            } else {
-                                output.toString()
-                            }
-                        } catch (e: Exception) {
-                            "Error: ${e.message}"
-                        }
-                    }
-                    isTesting = false
-                }
-            }
-
-            if (result.isNotEmpty()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Text(
-                        text = result,
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

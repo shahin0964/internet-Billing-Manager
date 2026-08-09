@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -44,7 +45,8 @@ fun BillingScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onGenerateBillsClick: () -> Unit,
-    onRecordPaymentForBill: (BillEntity) -> Unit
+    onRecordPaymentForBill: (BillEntity) -> Unit,
+    onEditBill: (BillEntity) -> Unit = {}
 ) {
     val filteredBills = remember(bills, searchQuery) {
         bills.filter { bill ->
@@ -147,7 +149,8 @@ tonalElevation = 2.dp,
                     BillItemCard(
                         bill = bill,
                         currencySymbol = currencySymbol,
-                        onCollectPayment = { onRecordPaymentForBill(bill) }
+                        onCollectPayment = { onRecordPaymentForBill(bill) },
+                        onEditBill = { onEditBill(bill) }
                     )
                 }
                 item { Spacer(modifier = Modifier.height(24.dp)) }
@@ -160,7 +163,8 @@ tonalElevation = 2.dp,
 fun BillItemCard(
     bill: BillEntity,
     currencySymbol: String,
-    onCollectPayment: () -> Unit
+    onCollectPayment: () -> Unit,
+    onEditBill: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -179,7 +183,7 @@ tonalElevation = 2.dp,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = bill.customerName,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -191,7 +195,21 @@ tonalElevation = 2.dp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                StatusBadge(status = bill.status)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusBadge(status = bill.status)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    androidx.compose.material3.IconButton(
+                        onClick = onEditBill,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Bill",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))

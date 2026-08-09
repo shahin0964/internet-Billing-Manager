@@ -55,6 +55,7 @@ import com.example.ui.components.BillGenerateDialog
 import com.example.ui.components.CustomerDialog
 import com.example.ui.components.PackageDialog
 import com.example.ui.components.PaymentDialog
+import com.example.ui.components.EditBillDialog
 import com.example.ui.screens.BillingScreen
 import com.example.ui.screens.CollectionScreen
 import com.example.ui.screens.CustomersScreen
@@ -139,6 +140,8 @@ fun MainAppContent(viewModel: IspViewModel) {
 
     var showPaymentDialog by remember { mutableStateOf(false) }
     var preSelectedPaymentBill by remember { mutableStateOf<BillEntity?>(null) }
+    var showEditBillDialog by remember { mutableStateOf(false) }
+    var billToEdit by remember { mutableStateOf<BillEntity?>(null) }
 
     var showPackageDialog by remember { mutableStateOf(false) }
     var packageToEdit by remember { mutableStateOf<IspPackageEntity?>(null) }
@@ -439,6 +442,12 @@ fun MainAppContent(viewModel: IspViewModel) {
                                 preSelectedPaymentBill = bill
                                 showPaymentDialog = true
                             }
+                        },
+                        onEditBill = { bill ->
+                            runAction {
+                                billToEdit = bill
+                                showEditBillDialog = true
+                            }
                         }
                     )
                 }
@@ -633,6 +642,18 @@ fun MainAppContent(viewModel: IspViewModel) {
             onRecordPayment = { billId, customerId, amount, method, notes ->
                 viewModel.recordPayment(billId, customerId, amount, method, notes)
                 showPaymentDialog = false
+            }
+        )
+    }
+
+    if (showEditBillDialog && billToEdit != null) {
+        EditBillDialog(
+            bill = billToEdit!!,
+            onDismiss = { showEditBillDialog = false; billToEdit = null },
+            onSave = { updatedBill ->
+                viewModel.updateBill(updatedBill)
+                showEditBillDialog = false
+                billToEdit = null
             }
         )
     }

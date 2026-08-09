@@ -136,7 +136,7 @@ fun CustomersScreen(
             },
             text = {
                 Text(
-                    text = "Are you sure you want to permanently delete customer \"${cust.name}\" (#${cust.customerCode})?\n\nThis will remove all stored records for this customer.",
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.delete_customer_cascade_warning),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -155,7 +155,7 @@ fun CustomersScreen(
                         contentColor = MaterialTheme.colorScheme.onError
                     )
                 ) {
-                    Text("Delete")
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.delete))
                 }
             },
             dismissButton = {

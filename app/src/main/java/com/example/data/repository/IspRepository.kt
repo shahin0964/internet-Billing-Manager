@@ -91,8 +91,22 @@ class IspRepository(
     }
 
     suspend fun deleteCustomer(customer: CustomerEntity) {
+        val bills = billDao.getBillsForCustomer(customer.id).first()
+        val payments = paymentDao.getPaymentsForCustomer(customer.id).first()
+
+        billDao.deleteBillsForCustomer(customer.id)
+        paymentDao.deletePaymentsForCustomer(customer.id)
         customerDao.deleteCustomer(customer)
-        context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "customers", customer.id.toString()) }
+
+        context?.let { ctx ->
+            bills.forEach { bill ->
+                com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "bills", bill.id.toString())
+            }
+            payments.forEach { payment ->
+                com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "payments", payment.id.toString())
+            }
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "customers", customer.id.toString())
+        }
         notifyCloudSync()
     }
 
@@ -115,6 +129,18 @@ class IspRepository(
     suspend fun deletePackage(pkg: IspPackageEntity) {
         packageDao.deletePackage(pkg)
         context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "packages", pkg.id.toString()) }
+        notifyCloudSync()
+    }
+
+    suspend fun updateBill(bill: BillEntity) {
+        val newDue = (bill.amount - bill.paidAmount).coerceAtLeast(0.0)
+        val newStatus = when {
+            newDue <= 0.0 -> "PAID"
+            bill.paidAmount > 0.0 -> "PARTIAL"
+            else -> "UNPAID"
+        }
+        val finalBill = bill.copy(dueAmount = newDue, status = newStatus)
+        billDao.updateBill(finalBill)
         notifyCloudSync()
     }
 
