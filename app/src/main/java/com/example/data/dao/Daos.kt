@@ -89,6 +89,9 @@ interface BillDao {
     @Delete
     suspend fun deleteBill(bill: BillEntity)
 
+    @Query("UPDATE bills SET customerName = :customerName WHERE customerId = :customerId")
+    suspend fun updateCustomerNameInBills(customerId: Long, customerName: String)
+
     @Query("DELETE FROM bills")
     suspend fun deleteAllBills()
 }
@@ -115,6 +118,9 @@ interface PaymentDao {
 
     @Query("DELETE FROM payments WHERE customerId = :customerId")
     suspend fun deletePaymentsForCustomer(customerId: Long)
+
+    @Query("UPDATE payments SET customerName = :customerName WHERE customerId = :customerId")
+    suspend fun updateCustomerNameInPayments(customerId: Long, customerName: String)
 
     @Query("DELETE FROM payments")
     suspend fun deleteAllPayments()

@@ -87,6 +87,8 @@ class IspRepository(
 
     suspend fun updateCustomer(customer: CustomerEntity) {
         customerDao.updateCustomer(customer)
+        billDao.updateCustomerNameInBills(customer.id, customer.name)
+        paymentDao.updateCustomerNameInPayments(customer.id, customer.name)
         notifyCloudSync()
     }
 
@@ -129,6 +131,12 @@ class IspRepository(
     suspend fun deletePackage(pkg: IspPackageEntity) {
         packageDao.deletePackage(pkg)
         context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "packages", pkg.id.toString()) }
+        notifyCloudSync()
+    }
+
+    suspend fun deleteBill(bill: BillEntity) {
+        billDao.deleteBill(bill)
+        context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "bills", bill.id.toString()) }
         notifyCloudSync()
     }
 

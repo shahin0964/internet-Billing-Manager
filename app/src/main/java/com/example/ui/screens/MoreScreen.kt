@@ -27,6 +27,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
@@ -43,6 +45,9 @@ import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Message
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -409,6 +414,65 @@ tonalElevation = 3.dp,
                             Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
                         }
                     }
+                )
+            }
+        }
+
+        // Bulk SMS Template Configuration Card
+        item {
+            var showSmsTemplateDialog by remember { mutableStateOf(false) }
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showSmsTemplateDialog = true },
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 6.dp,
+                tonalElevation = 3.dp,
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Message,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        SectionHeader(
+                            title = "Bulk SMS Template",
+                            subtitle = "বাল্ক এসএমএস মেসেজ টেমপ্লেট কাস্টমাইজ করুন"
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (showSmsTemplateDialog) {
+                BulkSmsTemplateDialog(
+                    context = context,
+                    ispName = settings.ispName,
+                    currencySymbol = settings.currencySymbol,
+                    onDismiss = { showSmsTemplateDialog = false },
+                    onShowToast = { onShowToast(it) }
                 )
             }
         }
@@ -1299,5 +1363,349 @@ fun ThemeItemCard(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun BulkSmsTemplateDialog(
+    context: Context,
+    ispName: String,
+    currencySymbol: String,
+    onDismiss: () -> Unit,
+    onShowToast: (String) -> Unit
+) {
+    var templateText by remember {
+        mutableStateOf(com.example.util.SmsTemplateManager.getSmsTemplate(context))
+    }
+
+    var customTemplates by remember {
+        mutableStateOf(com.example.util.SmsTemplateManager.getCustomTemplates(context))
+    }
+
+    var selectedTemplateId by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var showSaveCustomDialog by remember { mutableStateOf(false) }
+    var customTitleInput by remember { mutableStateOf("") }
+
+    val allTemplates = remember(customTemplates) {
+        com.example.util.SmsTemplateManager.BUILT_IN_TEMPLATES + customTemplates
+    }
+
+    val samplePreviewText = remember(templateText, ispName, currencySymbol) {
+        com.example.util.SmsTemplateManager.replaceVariables(
+            template = templateText,
+            customerName = "রহিম আহমেদ",
+            monthlyFee = "${currencySymbol}500.00",
+            dueAmount = "${currencySymbol}500.00",
+            packageName = "10 Mbps Basic",
+            phone = "01700000000",
+            ispName = ispName.ifBlank { "ISP Net" }
+        )
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "💬 Bulk SMS Template",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "রেডি-মেড বাংলা টেমপ্লেট নির্বাচন ও কাস্টমাইজ করুন",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Ready-made Templates Selector
+                Text(
+                    text = "📋 প্রস্তুত বাংলা টেমপ্লেটসমূহ (Select Template):",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    allTemplates.forEach { item ->
+                        val isSelected = selectedTemplateId == item.id || templateText == item.content
+                        Surface(
+                            onClick = {
+                                selectedTemplateId = item.id
+                                templateText = item.content
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isSelected) 1.5.dp else 1.dp,
+                                if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = item.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (!item.isBuiltIn) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.secondaryContainer
+                                            ) {
+                                                Text(
+                                                    text = "Custom",
+                                                    fontSize = 9.sp,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = item.content.replace("\n", " "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (!item.isBuiltIn) {
+                                        IconButton(
+                                            onClick = {
+                                                com.example.util.SmsTemplateManager.deleteCustomTemplate(context, item.id)
+                                                customTemplates = com.example.util.SmsTemplateManager.getCustomTemplates(context)
+                                                onShowToast("কাস্টম টেমপ্লেট মুছে ফেলা হয়েছে")
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // Tags Insertion
+                Text(
+                    text = "🏷️ ট্যাগ নির্বাচন করুন (ক্লিক করলে টেক্সটে যুক্ত হবে):",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "[Customer Name]",
+                        "[Monthly Fee]",
+                        "[Due Amount]",
+                        "[Package/Speed]",
+                        "[Phone Number]",
+                        "[ISP Name]"
+                    ).forEach { tag ->
+                        Surface(
+                            onClick = { templateText += " $tag" },
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                        ) {
+                            Text(
+                                text = tag,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Editable Box
+                OutlinedTextField(
+                    value = templateText,
+                    onValueChange = { templateText = it },
+                    label = { Text("Bangla SMS Template Editor") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { showSaveCustomDialog = true }
+                    ) {
+                        Text("➕ কাস্টম হিসাবে সংরক্ষণ", fontSize = 11.sp)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            templateText = com.example.util.SmsTemplateManager.DEFAULT_TEMPLATE
+                            selectedTemplateId = null
+                        }
+                    ) {
+                        Text("ডিফল্ট টেমপ্লেট রিসেট", fontSize = 11.sp)
+                    }
+                }
+
+                // Sample Preview Card
+                Text(
+                    text = "👁️ স্যাম্পল মেসেজ প্রিভিউ (Live Preview):",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = samplePreviewText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("বাতিল")
+                }
+
+                Button(
+                    onClick = {
+                        com.example.util.SmsTemplateManager.saveSmsTemplate(context, templateText)
+                        onShowToast("ডিফল্ট এসএমএস টেমপ্লেট সফলভাবে সংরক্ষিত হয়েছে")
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("ডিফল্ট সেট করুন")
+                }
+            }
+        },
+        dismissButton = null
+    )
+
+    if (showSaveCustomDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSaveCustomDialog = false },
+            title = { Text("কাস্টম টেমপ্লেট সংরক্ষণ করুন") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("টেমপ্লেটের জন্য একটি নাম দিন:")
+                    OutlinedTextField(
+                        value = customTitleInput,
+                        onValueChange = { customTitleInput = it },
+                        label = { Text("Template Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (customTitleInput.isNotBlank()) {
+                            val saved = com.example.util.SmsTemplateManager.saveCustomTemplate(
+                                context,
+                                customTitleInput.trim(),
+                                templateText
+                            )
+                            customTemplates = com.example.util.SmsTemplateManager.getCustomTemplates(context)
+                            selectedTemplateId = saved.id
+                            showSaveCustomDialog = false
+                            customTitleInput = ""
+                            onShowToast("কাস্টম টেমপ্লেট সংরক্ষিত হয়েছে")
+                        }
+                    }
+                ) {
+                    Text("সংরক্ষণ")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showSaveCustomDialog = false }) {
+                    Text("বাতিল")
+                }
+            }
+        )
     }
 }

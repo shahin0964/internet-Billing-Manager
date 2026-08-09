@@ -14,6 +14,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
+    
     applicationId = "com.aistudio.ispbilling.control"
     minSdk = 24
     targetSdk = 36
@@ -22,8 +23,8 @@ android {
     val envVersionCode = System.getenv("VERSION_CODE")?.takeIf { it.isNotBlank() }?.toIntOrNull()
       ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
 
-    versionCode = envVersionCode ?: 17
-    versionName = envVersionName ?: "1.0.17"
+    versionCode = envVersionCode ?: 23
+    versionName = envVersionName ?: "1.0.23"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -145,7 +146,7 @@ dependencies {
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  implementation(libs.firebase.appcheck.recaptcha)
+  // implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)

@@ -43,8 +43,6 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.ui.components.SectionHeader
 
-@Composable
-fun SpeedTestScreen(onBackClick: () -> Unit) {}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

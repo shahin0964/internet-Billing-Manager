@@ -243,7 +243,17 @@ fun MainAppContent(viewModel: IspViewModel) {
                                 onSuccess()
                             }
                             .addOnFailureListener { e ->
-                                onError(e.localizedMessage ?: "Sign up failed. Please try again.")
+                                val rawMsg = e.localizedMessage ?: e.message ?: ""
+                                val friendlyMsg = when {
+                                    rawMsg.contains("EMAIL_EXISTS", ignoreCase = true) || rawMsg.contains("ALREADY_IN_USE", ignoreCase = true) ->
+                                        "An account with this email already exists. Please log in."
+                                    rawMsg.contains("WEAK_PASSWORD", ignoreCase = true) ->
+                                        "Password should be at least 6 characters."
+                                    rawMsg.contains("INVALID_EMAIL", ignoreCase = true) ->
+                                        "Please enter a valid email address."
+                                    else -> rawMsg.ifBlank { "Sign up failed. Please try again." }
+                                }
+                                onError(friendlyMsg)
                             }
                     } catch (e: Throwable) {
                         onError(e.localizedMessage ?: e.message ?: "Sign up error occurred.")
@@ -269,7 +279,24 @@ fun MainAppContent(viewModel: IspViewModel) {
                                     onSuccess()
                                 }
                                 .addOnFailureListener { e ->
-                                    onError(e.localizedMessage ?: "Login failed. Please check your credentials.")
+                                    val rawMsg = e.localizedMessage ?: e.message ?: ""
+                                    val friendlyMsg = when {
+                                        rawMsg.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) ||
+                                        rawMsg.contains("INVALID_CREDENTIALS", ignoreCase = true) ||
+                                        rawMsg.contains("WRONG_PASSWORD", ignoreCase = true) ||
+                                        rawMsg.contains("INVALID_PASSWORD", ignoreCase = true) ->
+                                            "Incorrect email or password. Please check your credentials."
+                                        rawMsg.contains("USER_NOT_FOUND", ignoreCase = true) ||
+                                        rawMsg.contains("no user record", ignoreCase = true) ->
+                                            "No account found with this email. Please sign up first."
+                                        rawMsg.contains("TOO_MANY_ATTEMPTS", ignoreCase = true) ||
+                                        rawMsg.contains("TOO_MANY_REQUESTS", ignoreCase = true) ->
+                                            "Too many failed login attempts. Please try again later."
+                                        rawMsg.contains("USER_DISABLED", ignoreCase = true) ->
+                                            "This user account has been disabled."
+                                        else -> rawMsg.ifBlank { "Login failed. Please check your credentials." }
+                                    }
+                                    onError(friendlyMsg)
                                 }
                         } else {
                             onError("Please enter a valid Gmail / Email address (e.g. user@example.com).")
@@ -298,7 +325,14 @@ fun MainAppContent(viewModel: IspViewModel) {
                                     onSuccess("Password reset email sent to $email")
                                 }
                                 .addOnFailureListener { e ->
-                                    onError(e.localizedMessage ?: "Failed to send password reset email.")
+                                    val rawMsg = e.localizedMessage ?: e.message ?: ""
+                                    val friendlyMsg = when {
+                                        rawMsg.contains("USER_NOT_FOUND", ignoreCase = true) ||
+                                        rawMsg.contains("no user record", ignoreCase = true) ->
+                                            "No account found with this email address."
+                                        else -> rawMsg.ifBlank { "Failed to send password reset email." }
+                                    }
+                                    onError(friendlyMsg)
                                 }
                         }
                     } catch (e: Throwable) {
@@ -421,7 +455,8 @@ fun MainAppContent(viewModel: IspViewModel) {
                                 preSelectedPaymentBill = unpaidForCust
                                 showPaymentDialog = true
                             }
-                        }
+                        },
+                        ispName = settings.ispName
                     )
                 }
 
@@ -647,11 +682,21 @@ fun MainAppContent(viewModel: IspViewModel) {
     }
 
     if (showEditBillDialog && billToEdit != null) {
+        val selectedCustomerForEdit = customers.find { it.id == billToEdit?.customerId }
         EditBillDialog(
             bill = billToEdit!!,
+            customer = selectedCustomerForEdit,
+            availablePackages = packages,
+            currencySymbol = settings.currencySymbol,
             onDismiss = { showEditBillDialog = false; billToEdit = null },
-            onSave = { updatedBill ->
+            onSave = { updatedCustomer, updatedBill ->
+                viewModel.updateCustomer(updatedCustomer)
                 viewModel.updateBill(updatedBill)
+                showEditBillDialog = false
+                billToEdit = null
+            },
+            onDeleteBill = { billToDelete ->
+                viewModel.deleteBill(billToDelete)
                 showEditBillDialog = false
                 billToEdit = null
             }

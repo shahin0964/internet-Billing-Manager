@@ -28,10 +28,13 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
@@ -44,6 +47,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -51,6 +55,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -93,10 +98,22 @@ fun CustomersScreen(
     onEditCustomerClick: (CustomerEntity) -> Unit,
     onDeleteCustomerClick: (CustomerEntity) -> Unit,
     onToggleStatusClick: (CustomerEntity) -> Unit,
-    onCollectPaymentForCustomer: (CustomerEntity) -> Unit
+    onCollectPaymentForCustomer: (CustomerEntity) -> Unit,
+    ispName: String = ""
 ) {
     var previewCustomerState by remember { mutableStateOf<CustomerEntity?>(null) }
     var customerToDelete by remember { mutableStateOf<CustomerEntity?>(null) }
+    var showBulkSmsDialog by remember { mutableStateOf(false) }
+
+    if (showBulkSmsDialog) {
+        BulkSmsDialog(
+            customers = customers,
+            bills = bills,
+            currencySymbol = currencySymbol,
+            ispName = ispName,
+            onDismiss = { showBulkSmsDialog = false }
+        )
+    }
 
     // Always get the latest data from the database if preview is active
     val currentPreviewCustomer = previewCustomerState?.let { selected ->
@@ -214,22 +231,54 @@ fun CustomersScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Filter Chips
+                // Filter Chips & Bulk SMS
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("ALL", "ACTIVE", "SUSPENDED", "INACTIVE").forEach { filter ->
-                        FilterChip(
-                            selected = (selectedStatusFilter == filter),
-                            onClick = { onStatusFilterChange(filter) },
-                            label = {
-                                Text(
-                                    text = filter.lowercase().replaceFirstChar { it.uppercase() },
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                        )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        listOf("ALL", "ACTIVE", "SUSPENDED", "INACTIVE").forEach { filter ->
+                            FilterChip(
+                                selected = (selectedStatusFilter == filter),
+                                onClick = { onStatusFilterChange(filter) },
+                                label = {
+                                    Text(
+                                        text = filter.lowercase().replaceFirstChar { it.uppercase() },
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    Surface(
+                        onClick = { showBulkSmsDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Message,
+                                contentDescription = "Bulk SMS",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "💬 বাল্ক এসএমএস",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                     }
                 }
 
@@ -289,6 +338,7 @@ fun CustomerItemCard(
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val totalDue = bills.sumOf { it.dueAmount }
 
     Surface(
@@ -368,6 +418,97 @@ tonalElevation = 3.dp,
             Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Communication Action Row: 📞 Call | 💬 SMS | 🟢 WhatsApp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 📞 Call
+                Surface(
+                    onClick = { launchDialer(context, customer.phone) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = "Call",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Call",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                // 💬 SMS
+                Surface(
+                    onClick = { launchSmsComposer(context, customer.phone) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Message,
+                            contentDescription = "SMS",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "SMS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+
+                // 🟢 WhatsApp
+                Surface(
+                    onClick = { launchWhatsApp(context, customer.phone) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = androidx.compose.ui.graphics.Color(0xFF25D366).copy(alpha = 0.15f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🟢",
+                            fontSize = 10.sp
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = "WhatsApp",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = androidx.compose.ui.graphics.Color(0xFF128C7E)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Action Row on List Item: Edit and Delete
             Row(
@@ -883,4 +1024,314 @@ fun PreviewInfoRow(
             color = valueColor
         )
     }
+}
+
+private fun launchDialer(context: android.content.Context, phone: String) {
+    if (phone.isBlank()) return
+    try {
+        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${phone.trim()}"))
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+private fun launchSmsComposer(context: android.content.Context, phone: String, message: String = "") {
+    if (phone.isBlank()) return
+    try {
+        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${phone.trim()}")).apply {
+            if (message.isNotBlank()) {
+                putExtra("sms_body", message)
+            }
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+private fun launchWhatsApp(context: android.content.Context, phone: String) {
+    if (phone.isBlank()) return
+    try {
+        val cleanPhone = phone.replace(Regex("[^0-9+]"), "")
+        val formattedPhone = if (!cleanPhone.startsWith("+") && cleanPhone.startsWith("0")) {
+            "+880" + cleanPhone.substring(1)
+        } else {
+            cleanPhone
+        }
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$formattedPhone"))
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BulkSmsDialog(
+    customers: List<CustomerEntity>,
+    bills: List<BillEntity>,
+    currencySymbol: String,
+    ispName: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var selectedCustomerIds by remember {
+        mutableStateOf(customers.map { it.id }.toSet())
+    }
+
+    var templateText by remember {
+        mutableStateOf(com.example.util.SmsTemplateManager.getSmsTemplate(context))
+    }
+
+    val sampleCustomer = remember(selectedCustomerIds, customers) {
+        customers.find { selectedCustomerIds.contains(it.id) } ?: customers.firstOrNull()
+    }
+
+    val samplePreviewText = remember(templateText, sampleCustomer, bills, currencySymbol, ispName) {
+        if (sampleCustomer != null) {
+            val totalDue = bills.filter { it.customerId == sampleCustomer.id }.sumOf { it.dueAmount }
+            com.example.util.SmsTemplateManager.replaceVariables(
+                template = templateText,
+                customerName = sampleCustomer.name,
+                monthlyFee = "$currencySymbol${sampleCustomer.monthlyFee.formatAmount()}",
+                dueAmount = "$currencySymbol${totalDue.formatAmount()}",
+                packageName = sampleCustomer.packageName,
+                phone = sampleCustomer.phone,
+                ispName = ispName.ifBlank { "ISP Net" }
+            )
+        } else {
+            templateText
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "💬 বাল্ক এসএমএস (Bulk SMS)",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "নির্বাচিত গ্রাহকদের একসাথে এসএমএস পাঠান",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Counter & Selection Controls Row
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(10.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "নির্বাচিত: ${selectedCustomerIds.size} / ${customers.size} জন",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TextButton(
+                                onClick = { selectedCustomerIds = customers.map { it.id }.toSet() },
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("সবাইকে নির্বাচন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            TextButton(
+                                onClick = { selectedCustomerIds = emptySet() },
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("বাতিল", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+
+                // Template Selector Row
+                Text(
+                    text = "এসএমএস টেমপ্লেট নির্বাচন করুন:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                val allTemplates = remember {
+                    com.example.util.SmsTemplateManager.BUILT_IN_TEMPLATES + com.example.util.SmsTemplateManager.getCustomTemplates(context)
+                }
+
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(allTemplates, key = { it.id }) { item ->
+                        val isSelected = templateText == item.content
+                        Surface(
+                            onClick = { templateText = item.content },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            )
+                        ) {
+                            Text(
+                                text = item.title,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Message Preview Section
+                Text(
+                    text = "মেসেজ প্রিভিউ (Message Preview):",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = samplePreviewText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (sampleCustomer != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "💡 প্রিভিউ গ্রাহক: ${sampleCustomer.name} (${sampleCustomer.phone})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                // Customer List with Checkboxes
+                Text(
+                    text = "গ্রাহক তালিকা নির্বাচন করুন:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                ) {
+                    LazyColumn(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                        items(customers, key = { it.id }) { cust ->
+                            val isSelected = selectedCustomerIds.contains(cust.id)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedCustomerIds = if (isSelected) {
+                                            selectedCustomerIds - cust.id
+                                        } else {
+                                            selectedCustomerIds + cust.id
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { checked ->
+                                        selectedCustomerIds = if (checked == true) {
+                                            selectedCustomerIds + cust.id
+                                        } else {
+                                            selectedCustomerIds - cust.id
+                                        }
+                                    }
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = cust.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${cust.phone} • ${cust.packageName}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("বাতিল")
+                }
+
+                Button(
+                    onClick = {
+                        val selectedCusts = customers.filter { selectedCustomerIds.contains(it.id) }
+                        val phones = selectedCusts.map { it.phone.trim() }.filter { it.isNotBlank() }.joinToString(";")
+                        if (phones.isNotBlank()) {
+                            launchSmsComposer(context, phones, samplePreviewText)
+                        }
+                        onDismiss()
+                    },
+                    enabled = selectedCustomerIds.isNotEmpty(),
+                    modifier = Modifier.weight(1.5f)
+                ) {
+                    Icon(imageVector = Icons.Default.Message, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("এসএমএস পাঠান (${selectedCustomerIds.size})")
+                }
+            }
+        },
+        dismissButton = null
+    )
 }

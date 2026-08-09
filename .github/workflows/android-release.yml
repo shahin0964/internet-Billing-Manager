@@ -75,8 +75,10 @@ jobs:
             echo "VERSION_CODE=$CALC_CODE" >> $GITHUB_ENV
             echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
           else
-            VER_NAME="1.0.${RUN_NUM}"
-            CALC_CODE="${RUN_NUM}"
+            VER_NAME=$(grep -oP 'versionName\s*=\s*.*"([^"]+)"' app/build.gradle.kts | head -1 | grep -o '"[^"]*"' | tr -d '"')
+            if [ -z "$VER_NAME" ]; then VER_NAME="1.0.23"; fi
+            CALC_CODE=$(grep -oP 'versionCode\s*=\s*.*([0-9]+)' app/build.gradle.kts | head -1 | grep -o '[0-9]\+')
+            if [ -z "$CALC_CODE" ]; then CALC_CODE="23"; fi
             
             echo "VERSION_NAME=$VER_NAME" >> $GITHUB_ENV
             echo "VERSION_CODE=$CALC_CODE" >> $GITHUB_ENV
@@ -132,6 +134,10 @@ jobs:
           echo "=== Generated Release Notes ==="
           cat release_notes.md
           echo "==============================="
+
+      - name: Create .env file for secrets
+        run: |
+          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" > .env
 
       - name: Build Release APK
         env:

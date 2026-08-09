@@ -505,4 +505,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             repository.updateBill(bill)
         }
     }
+
+    fun deleteBill(bill: com.example.data.model.BillEntity) {
+        viewModelScope.launch {
+            repository.deleteBill(bill)
+            _toastMessage.value = "Billing record deleted successfully"
+        }
+    }
 }
