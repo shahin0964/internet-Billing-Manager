@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ISP Control</string>
+    <string name="app_name">Internet Billing Management</string>
     <string name="dashboard">Dashboard</string>
     <string name="customers">Customers</string>
     <string name="billing">Billing</string>
@@ -349,7 +349,7 @@
     <string name="about_section_privacy">Data &amp; Privacy</string>
     <string name="about_section_support">Support</string>
     <string name="about_section_licenses">Open Source Licenses</string>
-    <string name="about_app_name">ISP Billing Manager</string>
+    <string name="about_app_name">Internet Billing Management</string>
     <string name="about_version">Version</string>
     <string name="about_build">Build</string>
     <string name="about_app_id">Application ID</string>
@@ -406,7 +406,7 @@
     <string name="contact_support">Contact Support</string>
     <string name="report_problem">Report a Problem</string>
 
-    <string name="about_footer_copyright">© 2026 ISP Billing Manager. All rights reserved.</string>
+    <string name="about_footer_copyright">© 2026 Internet Billing Management. All rights reserved.</string>
 
     <!-- Profile Screen Strings -->
     <string name="profile">Profile</string>

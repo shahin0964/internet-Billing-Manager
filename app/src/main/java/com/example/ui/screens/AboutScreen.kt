@@ -399,7 +399,7 @@ fun AboutScreen(
                             }
 
                             OutlinedButton(
-                                onClick = { sendSupportEmail(context, subject = "ISP Billing Manager - Problem Report") },
+                                onClick = { sendSupportEmail(context, subject = "Internet Billing Management - Problem Report") },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(10.dp)
                             ) {
@@ -532,7 +532,7 @@ fun AboutScreen(
     }
 }
 
-private fun sendSupportEmail(context: android.content.Context, subject: String = "ISP Billing Manager - Support Request") {
+private fun sendSupportEmail(context: android.content.Context, subject: String = "Internet Billing Management - Support Request") {
     try {
         val intent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse("mailto:md.shahin0962@gmail.com")

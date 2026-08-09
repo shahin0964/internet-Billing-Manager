@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "ISP Control"
+rootProject.name = "Internet Billing Management"
 
 include(":app")

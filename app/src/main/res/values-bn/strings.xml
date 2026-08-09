@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">আইএসপি কন্ট্রোল</string>
+    <string name="app_name">ইন্টারনেট বিলিং ম্যানেজমেন্ট</string>
     <string name="dashboard">ড্যাশবোর্ড</string>
     <string name="customers">গ্রাহক</string>
     <string name="billing">বিলিং</string>
@@ -344,7 +344,7 @@
     <string name="about_section_privacy">তথ্য ও গোপনীয়তা</string>
     <string name="about_section_support">সহায়তা</string>
     <string name="about_section_licenses">ওপেন সোর্স লাইসেন্স</string>
-    <string name="about_app_name">আইএসপি বিলিং ম্যানেজার</string>
+    <string name="about_app_name">ইন্টারনেট বিলিং ম্যানেজমেন্ট</string>
     <string name="about_version">ভার্সন</string>
     <string name="about_build">বিল্ড</string>
     <string name="about_app_id">অ্যাপ্লিকেশন আইডি</string>
@@ -401,7 +401,7 @@
     <string name="contact_support">সাপোর্টে যোগাযোগ</string>
     <string name="report_problem">সমস্যা জানান</string>
 
-    <string name="about_footer_copyright">© 2026 আইএসপি বিলিং ম্যানেজার। সর্বস্বত্ব সংরক্ষিত।</string>
+    <string name="about_footer_copyright">© 2026 ইন্টারনেট বিলিং ম্যানেজমেন্ট। সর্বস্বত্ব সংরক্ষিত।</string>
 
     <!-- Profile Screen Strings -->
     <string name="profile">প্রোফাইল</string>

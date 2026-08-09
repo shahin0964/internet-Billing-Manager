@@ -93,7 +93,7 @@ fun LoginScreen(
             )
 
             Text(
-                text = "ISP Billing & Management",
+                text = "Internet Billing Management",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
