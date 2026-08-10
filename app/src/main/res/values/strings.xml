@@ -502,4 +502,11 @@
     <string name="total_amount_label">Total: %1$s%2$s</string>
     <string name="no_bill_entries_found">No bill entries found for the selected filter.</string>
     <string name="customer_code_label">Code: %1$s</string>
+
+    <!-- Bulk SMS Selection -->
+    <string name="select_all_btn">Select All</string>
+    <string name="unselect_all_btn">Unselect All</string>
+    <string name="selected_counter_label">Selected: %1$d / %2$d</string>
+    <string name="bulk_sms_title">💬 Bulk SMS</string>
+    <string name="bulk_sms_subtitle">Send SMS to selected customers</string>
 </resources>

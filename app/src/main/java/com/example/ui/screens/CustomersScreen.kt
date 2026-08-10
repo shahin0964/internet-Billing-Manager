@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -1125,14 +1126,14 @@ fun BulkSmsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "💬 বাল্ক এসএমএস (Bulk SMS)",
+                        text = androidx.compose.ui.res.stringResource(com.example.R.string.bulk_sms_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "নির্বাচিত গ্রাহকদের একসাথে এসএমএস পাঠান",
+                        text = androidx.compose.ui.res.stringResource(com.example.R.string.bulk_sms_subtitle),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1150,37 +1151,78 @@ fun BulkSmsDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Counter & Selection Controls Row
+                val isAllSelected = customers.isNotEmpty() && selectedCustomerIds.size == customers.size
+
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                    )
                 ) {
                     Row(
                         modifier = Modifier
-                            .padding(10.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
                             .fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "নির্বাচিত: ${selectedCustomerIds.size} / ${customers.size} জন",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable {
+                                    selectedCustomerIds = if (isAllSelected) emptySet() else customers.map { it.id }.toSet()
+                                }
+                        ) {
+                            Checkbox(
+                                checked = isAllSelected,
+                                onCheckedChange = { checked ->
+                                    selectedCustomerIds = if (checked == true) customers.map { it.id }.toSet() else emptySet()
+                                },
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(
+                                    com.example.R.string.selected_counter_label,
+                                    selectedCustomerIds.size,
+                                    customers.size
+                                ),
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             TextButton(
                                 onClick = { selectedCustomerIds = customers.map { it.id }.toSet() },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
-                                Text("সবাইকে নির্বাচন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(com.example.R.string.select_all_btn),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                             TextButton(
                                 onClick = { selectedCustomerIds = emptySet() },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
-                                Text("বাতিল", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(com.example.R.string.unselect_all_btn),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
                             }
                         }
                     }

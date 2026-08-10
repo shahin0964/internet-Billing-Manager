@@ -483,4 +483,11 @@
     <string name="total_amount_label">মোট: %1$s%2$s</string>
     <string name="no_bill_entries_found">নির্বাচিত ফিল্টারে কোনো বিল এন্ট্রি পাওয়া যায়নি।</string>
     <string name="customer_code_label">কোড: %1$s</string>
+
+    <!-- Bulk SMS Selection -->
+    <string name="select_all_btn">সব সিলেক্ট</string>
+    <string name="unselect_all_btn">সব আনসিলেক্ট</string>
+    <string name="selected_counter_label">নির্বাচিত: %1$d / %2$d জন</string>
+    <string name="bulk_sms_title">💬 বাল্ক এসএমএস (Bulk SMS)</string>
+    <string name="bulk_sms_subtitle">নির্বাচিত গ্রাহকদের একসাথে এসএমএস পাঠান</string>
 </resources>
