@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.BillEntity
+import com.example.data.model.getDisplayBillNumber
 import com.example.ui.components.CustomSearchBar
 import com.example.ui.components.EmptyStateView
 import com.example.ui.components.StatusBadge
@@ -53,7 +54,7 @@ fun BillingScreen(
             val isUnpaid = bill.status == "UNPAID" || bill.status == "PARTIAL"
             val matchesQuery = searchQuery.isBlank() ||
                     bill.customerName.contains(searchQuery, ignoreCase = true) ||
-                    bill.billNumber.contains(searchQuery, ignoreCase = true) ||
+                    bill.getDisplayBillNumber().contains(searchQuery, ignoreCase = true) ||
                     bill.billingMonth.contains(searchQuery, ignoreCase = true)
 
             isUnpaid && matchesQuery
@@ -166,11 +167,16 @@ fun BillItemCard(
     onCollectPayment: () -> Unit,
     onEditBill: () -> Unit = {}
 ) {
+    val isBreakdown = bill.billNumber.startsWith("BREAKDOWN|")
+    val parts = if (isBreakdown) bill.billNumber.split("|") else null
+    val displayBillNo = parts?.getOrNull(3) ?: bill.billNumber
+    val billingMonthLabel = parts?.getOrNull(2)?.split(":")?.getOrNull(0) ?: bill.billingMonth
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-shadowElevation = 3.dp,
-tonalElevation = 2.dp,
+        shadowElevation = 3.dp,
+        tonalElevation = 2.dp,
         color = MaterialTheme.colorScheme.surface,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
@@ -190,7 +196,7 @@ tonalElevation = 2.dp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "${bill.billNumber} • ${bill.billingMonth}",
+                        text = "$displayBillNo • $billingMonthLabel",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -212,6 +218,75 @@ tonalElevation = 2.dp,
                 }
             }
 
+            if (isBreakdown && parts != null && parts.size >= 3) {
+                Spacer(modifier = Modifier.height(10.dp))
+                androidx.compose.material3.HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                val prevListRaw = parts[1]
+                val prevItems = prevListRaw.split(",").mapNotNull {
+                    val pair = it.split(":")
+                    if (pair.size == 2) {
+                        val m = pair[0]
+                        val d = pair[1].toDoubleOrNull() ?: 0.0
+                        m to d
+                    } else null
+                }
+                
+                Text(
+                    text = if (prevItems.size > 1) "Previous Due Breakdown" else "Previous Due",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                prevItems.forEach { (m, d) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = m,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "$currencySymbol${d.formatAmount()}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Current Bill",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                
+                val currentPart = parts[2].split(":")
+                val curMonth = currentPart.getOrNull(0) ?: bill.billingMonth
+                val curDue = currentPart.getOrNull(1)?.toDoubleOrNull() ?: bill.dueAmount
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = curMonth,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "$currencySymbol${curDue.formatAmount()}",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
 
             Row(
@@ -220,7 +295,7 @@ tonalElevation = 2.dp,
             ) {
                 Column {
                     Text(
-                        text = androidx.compose.ui.res.stringResource(com.example.R.string.total_bill),
+                        text = if (isBreakdown) "Total Payable" else androidx.compose.ui.res.stringResource(com.example.R.string.total_bill),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -247,7 +322,7 @@ tonalElevation = 2.dp,
 
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = androidx.compose.ui.res.stringResource(com.example.R.string.due_amount),
+                        text = if (isBreakdown) "Total Due" else androidx.compose.ui.res.stringResource(com.example.R.string.due_amount),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

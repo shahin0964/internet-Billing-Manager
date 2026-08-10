@@ -70,6 +70,7 @@ import android.os.Build
 import com.example.data.model.BillEntity
 import com.example.data.model.CustomerEntity
 import com.example.data.model.IspPackageEntity
+import com.example.data.model.PreviousDueItem
 import com.example.ui.components.AppUpdateDialog
 import com.example.util.AppUpdateManager
 import com.example.ui.components.BillGenerateDialog
@@ -929,9 +930,9 @@ fun MainAppContent(
             availablePackages = packages,
             currencySymbol = settings.currencySymbol,
             onDismiss = { showCustomerDialog = false },
-            onSave = { customer ->
+            onSave = { customer, previousDues ->
                 if (customer.id == 0L) {
-                    viewModel.saveCustomer(customer)
+                    viewModel.saveCustomer(customer, previousDues)
                 } else {
                     viewModel.updateCustomer(customer)
                 }

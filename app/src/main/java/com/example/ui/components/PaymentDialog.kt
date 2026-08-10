@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.BillEntity
+import com.example.data.model.getDisplayBillNumber
 
 @Composable
 fun PaymentDialog(
@@ -73,8 +74,14 @@ fun PaymentDialog(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     OutlinedTextField(
-                        value = selectedBill?.let { "${it.customerName} (${it.billingMonth}) — Due: $currencySymbol${it.dueAmount.formatAmount()}" }
-                            ?: androidx.compose.ui.res.stringResource(com.example.R.string.no_unpaid_bill_selected),
+                        value = selectedBill?.let { bill ->
+                            val isBd = bill.billNumber.startsWith("BREAKDOWN|")
+                            if (isBd) {
+                                "${bill.customerName} (${bill.billingMonth} + Prev) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                            } else {
+                                "${bill.customerName} (${bill.billingMonth}) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                            }
+                        } ?: androidx.compose.ui.res.stringResource(com.example.R.string.no_unpaid_bill_selected),
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { Text("▼") },
@@ -87,14 +94,95 @@ fun PaymentDialog(
                         onDismissRequest = { billDropdownExpanded = false }
                     ) {
                         unpaidBills.forEach { bill ->
+                            val isBd = bill.billNumber.startsWith("BREAKDOWN|")
+                            val displayText = if (isBd) {
+                                "${bill.customerName} — ${bill.billingMonth} (with previous dues) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                            } else {
+                                "${bill.customerName} — ${bill.billingMonth} — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                            }
                             DropdownMenuItem(
-                                text = { Text("${bill.customerName} — ${bill.billingMonth} — Due: $currencySymbol${bill.dueAmount.formatAmount()}") },
+                                text = { Text(displayText) },
                                 onClick = {
                                     selectedBill = bill
                                     amountStr = bill.dueAmount.formatAmount()
                                     billDropdownExpanded = false
                                 }
                             )
+                        }
+                    }
+                }
+
+                // If the selected bill is a consolidated bill, show its breakdown
+                selectedBill?.let { bill ->
+                    if (bill.billNumber.startsWith("BREAKDOWN|")) {
+                        val parts = bill.billNumber.split("|")
+                        if (parts.size >= 3) {
+                            val prevListRaw = parts[1]
+                            val prevItems = prevListRaw.split(",").mapNotNull {
+                                val pair = it.split(":")
+                                if (pair.size == 2) {
+                                    val m = pair[0]
+                                    val d = pair[1].toDoubleOrNull() ?: 0.0
+                                    m to d
+                                } else null
+                            }
+                            
+                            val currentPart = parts[2].split(":")
+                            val curMonth = currentPart.getOrNull(0) ?: bill.billingMonth
+                            val curDue = currentPart.getOrNull(1)?.toDoubleOrNull() ?: bill.dueAmount
+
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = if (prevItems.size > 1) "Previous Due Breakdown" else "Previous Due",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    prevItems.forEach { (m, d) ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(text = m, style = MaterialTheme.typography.bodySmall)
+                                            Text(text = "$currencySymbol${d.formatAmount()}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium))
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Current Bill",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(text = curMonth, style = MaterialTheme.typography.bodySmall)
+                                        Text(text = "$currencySymbol${curDue.formatAmount()}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium))
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    androidx.compose.material3.HorizontalDivider(
+                                        thickness = 1.dp,
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(text = "Total Payable", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                        Text(text = "$currencySymbol${bill.dueAmount.formatAmount()}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

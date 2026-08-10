@@ -89,3 +89,19 @@ data class ExpenseCategoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String
 )
+
+fun BillEntity.getDisplayBillNumber(): String {
+    if (billNumber.startsWith("BREAKDOWN|")) {
+        val parts = billNumber.split("|")
+        if (parts.size >= 4) {
+            return parts[3]
+        }
+    }
+    return billNumber
+}
+
+data class PreviousDueItem(
+    val month: String,
+    val year: String,
+    val amount: Double
+)

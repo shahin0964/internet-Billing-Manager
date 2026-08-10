@@ -17,6 +17,7 @@ import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
+import com.example.data.model.PreviousDueItem
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -84,6 +85,41 @@ class IspRepository(
         val result = customerDao.insertCustomer(customer)
         notifyCloudSync()
         return result
+    }
+
+    suspend fun createPreviousDues(
+        customerId: Long,
+        customer: CustomerEntity,
+        previousDues: List<PreviousDueItem>
+    ) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val todayStr = sdf.format(Date())
+        val monthsList = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+        
+        // Sort chronologically oldest first to ensure Room assigns ascending IDs to them!
+        val sortedDues = previousDues.sortedWith(compareBy<PreviousDueItem> { it.year.toIntOrNull() ?: 0 }.thenBy { monthsList.indexOf(it.month) })
+        
+        val newBills = sortedDues.map { item ->
+            val billingMonth = "${item.month} ${item.year}"
+            val billNo = "PREV-BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customerId}-${item.month.take(3)}"
+            BillEntity(
+                billNumber = billNo,
+                customerId = customerId,
+                customerName = customer.name,
+                customerCode = customer.customerCode ?: "CUST-${customerId}",
+                billingMonth = billingMonth,
+                amount = item.amount,
+                paidAmount = 0.0,
+                dueAmount = item.amount,
+                status = "UNPAID",
+                generatedDate = todayStr,
+                dueDate = todayStr
+            )
+        }
+        if (newBills.isNotEmpty()) {
+            billDao.insertBills(newBills)
+        }
+        notifyCloudSync()
     }
 
     suspend fun saveCustomers(customers: List<CustomerEntity>) {

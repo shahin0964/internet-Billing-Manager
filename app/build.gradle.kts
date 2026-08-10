@@ -148,6 +148,7 @@ dependencies {
   implementation(libs.firebase.ai)
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.analytics)
+  implementation(libs.firebase.messaging)
   implementation(libs.androidx.work.runtime.ktx)
 
   // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google

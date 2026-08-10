@@ -13,6 +13,7 @@ import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
+import com.example.data.model.PreviousDueItem
 import com.example.data.repository.IspRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -171,8 +172,13 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
             if (previousDue > 0) {
                 val totalDue = currentBill.dueAmount + previousDue
+                
+                // Formulate BREAKDOWN structure: BREAKDOWN|previous_dues|current_bill|original_bill_number
+                val prevList = previousBills.sortedBy { it.id }.map { "${it.billingMonth}:${it.dueAmount}" }.joinToString(",")
+                val breakdownString = "BREAKDOWN|$prevList|${currentBill.billingMonth}:${currentBill.dueAmount}|${currentBill.billNumber}"
+
                 val virtualBill = currentBill.copy(
-                    billNumber = "Cur: ${currentBill.dueAmount.formatAmount()} | Prev Due: $previousDue",
+                    billNumber = breakdownString,
                     amount = totalDue,
                     dueAmount = totalDue,
                     paidAmount = 0.0 // Representing remaining aggregate
@@ -254,9 +260,12 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         _toastMessage.value = msg
     }
 
-    fun saveCustomer(customer: CustomerEntity) {
+    fun saveCustomer(customer: CustomerEntity, previousDues: List<PreviousDueItem> = emptyList()) {
         viewModelScope.launch {
-            repository.saveCustomer(customer)
+            val insertedId = repository.saveCustomer(customer)
+            if (previousDues.isNotEmpty()) {
+                repository.createPreviousDues(insertedId, customer, previousDues)
+            }
             _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_customer_saved)
         }
     }
