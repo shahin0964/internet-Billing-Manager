@@ -176,6 +176,9 @@
     <string name="msg_generated_bills">Generated %1$d bills for %2$s</string>
     <string name="msg_payment_recorded">Payment of %1$s%2$s recorded</string>
     <string name="msg_customer_status">Customer status set to %1$s</string>
+    <string name="theme_liquid_glass">✨ Liquid Glass</string>
+    <string name="theme_liquid_glass_desc">Frosted translucent theme with rounded curves and depth (Android 12+)</string>
+    <string name="theme_unsupported_version">This theme requires Android 12 or higher.</string>
 
     <string name="msg_collected">Collected: %1$s%2$s</string>
     <string name="msg_generate_customers">Generate (%1$d Customers)</string>
