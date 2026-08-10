@@ -6,74 +6,88 @@
     android:viewportHeight="108">
 
     <group
-        android:scaleX="1.0"
-        android:scaleY="1.0"
         android:pivotX="54"
         android:pivotY="54">
 
-        <!-- Outer Wi-Fi Arc (Blue) -->
+        <!-- 1. Wi-Fi Arcs (Top Center) -->
+        <!-- Outer Arc (Royal Blue) -->
         <path
             android:strokeColor="#005BF8"
-            android:strokeWidth="3.6"
-            android:strokeLineCap="round"
-            android:pathData="M27,27 A16,16 0 0,1 57,27" />
-
-        <!-- Middle Wi-Fi Arc (White) -->
-        <path
-            android:strokeColor="#FFFFFF"
             android:strokeWidth="3.2"
             android:strokeLineCap="round"
-            android:pathData="M31,27 A12,12 0 0,1 53,27" />
+            android:pathData="M37,16 A20,20 0 0,1 77,16" />
 
-        <!-- Inner Wi-Fi Arc (Cyan) -->
+        <!-- Middle Arc (Medium Cyan) -->
         <path
-            android:strokeColor="#00C8FF"
+            android:strokeColor="#00B4FF"
             android:strokeWidth="2.8"
             android:strokeLineCap="round"
-            android:pathData="M35,27 A8,8 0 0,1 49,27" />
+            android:pathData="M43,21 A14,14 0 0,1 71,21" />
 
-        <!-- Dot of 'i' (Blue) -->
+        <!-- Inner Arc (Bright Cyan) -->
+        <path
+            android:strokeColor="#00E5FF"
+            android:strokeWidth="2.4"
+            android:strokeLineCap="round"
+            android:pathData="M49,26 A8,8 0 0,1 65,26" />
+
+        <!-- Wi-Fi Dot / Dot of 'i' (Royal Blue Circle) -->
         <path
             android:fillColor="#005BF8"
-            android:pathData="M42,33.5m-2.8,0a2.8,2.8 0 1,1 5.6,0a2.8,2.8 0 1,1 -5.6,0" />
+            android:pathData="M57,30.5m-2.8,0a2.8,2.8 0 1,1 5.6,0a2.8,2.8 0 1,1 -5.6,0" />
 
-        <!-- Vertical Stem of 'i' (White Bar) -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M38,38 h8 v28 h-8 z" />
+        <!-- 2. Main Emblem ('i' Stem, Circular Ring & 'm') -->
 
-        <!-- B Pixel Pattern (left side of B) -->
+        <!-- Right Half of Ring (Bright Cyan Arc) -->
         <path
-            android:fillColor="#00C8FF"
-            android:pathData="M37.5,42 h2.8 v2.8 h-2.8 z" />
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M40.3,42 h2.8 v2.8 h-2.8 z" />
-        <path
-            android:fillColor="#00C8FF"
-            android:pathData="M43.1,42 h2.8 v2.8 h-2.8 z" />
+            android:strokeColor="#00E5FF"
+            android:strokeWidth="5"
+            android:strokeLineCap="butt"
+            android:pathData="M57,35 A15,15 0 0,1 72,50 A15,15 0 0,1 57,65" />
 
-        <!-- Letter B (Cyan/Blue gradient stylized B) - simplified for icon -->
-        <path
-            android:fillColor="#00C8FF"
-            android:pathData="M45,42 h13 v14 h-13 z" />
-
-        <!-- Letter M (Solid White) -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M60,42 h26 v14 h-26 z" />
-
-        <!-- Swoosh curve under B & M (Blue curved stroke ending with dot) -->
+        <!-- Bottom & Lower Left Arc of Ring (Royal Blue Arc) -->
         <path
             android:strokeColor="#005BF8"
-            android:strokeWidth="3.8"
-            android:strokeLineCap="round"
-            android:pathData="M45,69 C43,78 50,78 68,64 C78,56 86,48 90,44" />
+            android:strokeWidth="5"
+            android:strokeLineCap="butt"
+            android:pathData="M57,65 A15,15 0 0,1 42,50" />
 
-        <!-- Swoosh end circle dot -->
+        <!-- Vertical Stem of 'i' & Upper Left Ring (White) -->
         <path
-            android:fillColor="#005BF8"
-            android:pathData="M90,44m-3.2,0a3.2,3.2 0 1,1 6.4,0a3.2,3.2 0 1,1 -6.4,0" />
+            android:fillColor="#FFFFFF"
+            android:pathData="M50,34 h5 v18 h-5 z" />
+
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:pathData="M52.5,35 A15,15 0 0,0 42,50" />
+
+        <!-- Letter 'm' inside the circle (White) -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2.6"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M51,56 V48 C51,45.5 53.5,45.5 55,45.5 C56.5,45.5 59,45.5 59,48 V56 M59,48 C59,45.5 61.5,45.5 63,45.5 C64.5,45.5 67,45.5 67,48 V56" />
+
+        <!-- 3. Text Representation at Bottom -->
+        <!-- "Internet Billing" (Bright Cyan Header) -->
+        <path
+            android:fillColor="#00E5FF"
+            android:pathData="M22,71 h3 v6 h-3 z M26,73 h2.2 v4 h-2.2 z M29,74 h2.2 v3 h-2.2 z M32,73 h2.2 v4 h-2.2 z M35,74 h2.2 v3 h-2.2 z M38,74 h2.2 v3 h-2.2 z M41,73 h2.2 v4 h-2.2 z M44,74 h2.2 v3 h-2.2 z M47,71 h3 v6 h-3 z M51,73 h2.2 v4 h-2.2 z M54,71 h2.2 v6 h-2.2 z M57,71 h2.2 v6 h-2.2 z M60,74 h2.2 v3 h-2.2 z M63,74 h2.2 v3 h-2.2 z M66,73 h2.2 v4 h-2.2 z M69,74 h2.2 v3 h-2.2 z M72,71 h3 v6 h-3 z M76,73 h2.2 v4 h-2.2 z M79,74 h2.2 v3 h-2.2 z M82,73 h2.2 v4 h-2.2 z" />
+
+        <!-- "management" (Royal Blue Subheader) -->
+        <path
+            android:fillColor="#2980FF"
+            android:pathData="M24,79 h2.2 v4 h-2.2 z M27,80 h2.2 v3 h-2.2 z M30,80 h2.2 v3 h-2.2 z M33,80 h2.2 v3 h-2.2 z M36,80 h2.2 v3 h-2.2 z M39,80 h2.2 v3 h-2.2 z M42,80 h2.2 v3 h-2.2 z M45,80 h2.2 v3 h-2.2 z M48,80 h2.2 v3 h-2.2 z M51,79 h2.2 v4 h-2.2 z M54,80 h2.2 v3 h-2.2 z M57,80 h2.2 v3 h-2.2 z M60,79 h2.2 v4 h-2.2 z M63,80 h2.2 v3 h-2.2 z M66,80 h2.2 v3 h-2.2 z M69,80 h2.2 v3 h-2.2 z M72,80 h2.2 v3 h-2.2 z M75,80 h2.2 v3 h-2.2 z M78,79 h2.2 v4 h-2.2 z M81,80 h2.2 v3 h-2.2 z" />
+
+        <!-- Slogan Divider Line: "— Seamless Connection. Smarter Billing. —" -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="0.8"
+            android:strokeLineCap="round"
+            android:pathData="M22,86 H30 M33,86 H75 M78,86 H86" />
 
     </group>
 </vector>
