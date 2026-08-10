@@ -1264,7 +1264,8 @@ fun ThemeItemCard(
 ) {
     val context = LocalContext.current
     val isLiquidGlass = themeItem.key.equals("LIQUID_GLASS", ignoreCase = true)
-    val isSupported = !isLiquidGlass || com.example.ui.theme.isLiquidGlassSupported()
+    val isDynamic = themeItem.key.equals("DYNAMIC", ignoreCase = true)
+    val isSupported = (!isLiquidGlass || com.example.ui.theme.isLiquidGlassSupported()) && (!isDynamic || com.example.ui.theme.isDynamicColorSupported())
 
     Surface(
         modifier = Modifier

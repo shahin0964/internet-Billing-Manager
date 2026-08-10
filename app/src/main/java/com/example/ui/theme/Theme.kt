@@ -237,6 +237,9 @@ val LiquidGlassDarkColorScheme = darkColorScheme(
     errorContainer = CrimsonDangerContainer
 )
 
+// 12. Monet / Dynamic Color
+// Colors are dynamically determined by system, so no predefined ColorScheme is needed here.
+
 data class AppThemeItem(
     val key: String,
     val nameRes: Int,
@@ -386,11 +389,26 @@ val ALL_THEME_ITEMS = listOf(
         previewBackground = Color(0xFF0B0F19),
         previewSurface = Color(0x99111827),
         isDarkScheme = true
+    ),
+    AppThemeItem(
+        key = "DYNAMIC",
+        nameRes = R.string.theme_dynamic,
+        defaultName = "🎨 Dynamic Color",
+        descRes = R.string.theme_dynamic_desc,
+        defaultDesc = "Uses your device's wallpaper colors (Android 12+)",
+        previewPrimary = Color(0xFF6750A4),
+        previewBackground = Color(0xFFFFFBFE),
+        previewSurface = Color(0xFFF8F1FF),
+        isDarkScheme = false
     )
 )
 
 fun isLiquidGlassSupported(): Boolean {
     return true
+}
+
+fun isDynamicColorSupported(): Boolean {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 }
 
 fun getThemeItem(key: String): AppThemeItem {
@@ -410,6 +428,7 @@ fun getThemeColorScheme(themeMode: String, isSystemDark: Boolean): Pair<ColorSch
         "SLATE" -> Pair(SlateColorScheme, false)
         "AQUA" -> Pair(AquaColorScheme, true)
         "LIQUID_GLASS" -> Pair(LiquidGlassLightColorScheme, false)
+        "DYNAMIC" -> Pair(LightColorScheme, false)
         else -> Pair(if (isSystemDark) DarkColorScheme else LightColorScheme, isSystemDark)
     }
 }
@@ -417,11 +436,24 @@ fun getThemeColorScheme(themeMode: String, isSystemDark: Boolean): Pair<ColorSch
 @Composable
 fun IspControlTheme(
     themeMode: String = "SYSTEM",
-    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val isSystemDark = isSystemInDarkTheme()
-    val (colorScheme, isDarkStatusBar) = getThemeColorScheme(themeMode, isSystemDark)
+    val context = LocalContext.current
+    
+    val colorScheme = when {
+        themeMode.uppercase() == "DYNAMIC" && isDynamicColorSupported() -> {
+            if (isSystemDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        else -> {
+            getThemeColorScheme(themeMode, isSystemDark).first
+        }
+    }
+    
+    val isDarkStatusBar = when {
+        themeMode.uppercase() == "DYNAMIC" && isDynamicColorSupported() -> isSystemDark
+        else -> getThemeColorScheme(themeMode, isSystemDark).second
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
