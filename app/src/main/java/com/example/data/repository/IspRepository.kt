@@ -810,6 +810,12 @@ class IspRepository(
                 }
             }
 
+            try {
+                com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -975,6 +981,20 @@ class IspRepository(
                 if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
                 if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
                 if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
+            }
+        }
+    }
+
+    suspend fun clearAllLocalData() {
+        db.runInTransaction {
+            kotlinx.coroutines.runBlocking {
+                customerDao.deleteAllCustomers()
+                packageDao.deleteAllPackages()
+                billDao.deleteAllBills()
+                paymentDao.deleteAllPayments()
+                expenseDao.deleteAllExpenses()
+                expenseDao.deleteAllCategories()
+                settingsDao.deleteSettings()
             }
         }
     }

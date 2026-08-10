@@ -154,6 +154,18 @@ object FirestoreSyncManager {
             val userRef = firestore.collection("users").document(uid)
 
             // 1. Sync Customers
+            val localCustIds = customers.map { it.id.toString() }.toSet()
+            try {
+                val remoteCusts = userRef.collection("customers").get().await()
+                remoteCusts.documents.forEach { doc ->
+                    if (!localCustIds.contains(doc.id)) {
+                        userRef.collection("customers").document(doc.id).delete().await()
+                        Log.d(TAG, "Sync: Deleted customer ${doc.id} from cloud because it does not exist locally.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Error cleaning deleted customers from cloud: ${e.message}")
+            }
             customers.forEach { customer ->
                 val map = mapOf(
                     "id" to customer.id,
@@ -176,6 +188,18 @@ object FirestoreSyncManager {
             }
 
             // 2. Sync Packages
+            val localPkgIds = packages.map { it.id.toString() }.toSet()
+            try {
+                val remotePkgs = userRef.collection("packages").get().await()
+                remotePkgs.documents.forEach { doc ->
+                    if (!localPkgIds.contains(doc.id)) {
+                        userRef.collection("packages").document(doc.id).delete().await()
+                        Log.d(TAG, "Sync: Deleted package ${doc.id} from cloud because it does not exist locally.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Error cleaning deleted packages from cloud: ${e.message}")
+            }
             packages.forEach { pkg ->
                 val map = mapOf(
                     "id" to pkg.id,
@@ -190,6 +214,18 @@ object FirestoreSyncManager {
             }
 
             // 3. Sync Bills
+            val localBillIds = bills.map { it.id.toString() }.toSet()
+            try {
+                val remoteBills = userRef.collection("bills").get().await()
+                remoteBills.documents.forEach { doc ->
+                    if (!localBillIds.contains(doc.id)) {
+                        userRef.collection("bills").document(doc.id).delete().await()
+                        Log.d(TAG, "Sync: Deleted bill ${doc.id} from cloud because it does not exist locally.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Error cleaning deleted bills from cloud: ${e.message}")
+            }
             bills.forEach { bill ->
                 val map = mapOf(
                     "id" to bill.id,
@@ -211,6 +247,18 @@ object FirestoreSyncManager {
             }
 
             // 4. Sync Payments
+            val localPaymentIds = payments.map { it.id.toString() }.toSet()
+            try {
+                val remotePayments = userRef.collection("payments").get().await()
+                remotePayments.documents.forEach { doc ->
+                    if (!localPaymentIds.contains(doc.id)) {
+                        userRef.collection("payments").document(doc.id).delete().await()
+                        Log.d(TAG, "Sync: Deleted payment ${doc.id} from cloud because it does not exist locally.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Error cleaning deleted payments from cloud: ${e.message}")
+            }
             payments.forEach { payment ->
                 val map = mapOf(
                     "id" to payment.id,
@@ -229,6 +277,18 @@ object FirestoreSyncManager {
             }
 
             // 5. Sync Expenses
+            val localExpenseIds = expenses.map { it.id.toString() }.toSet()
+            try {
+                val remoteExpenses = userRef.collection("expenses").get().await()
+                remoteExpenses.documents.forEach { doc ->
+                    if (!localExpenseIds.contains(doc.id)) {
+                        userRef.collection("expenses").document(doc.id).delete().await()
+                        Log.d(TAG, "Sync: Deleted expense ${doc.id} from cloud because it does not exist locally.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Error cleaning deleted expenses from cloud: ${e.message}")
+            }
             expenses.forEach { expense ->
                 val map = mapOf(
                     "id" to expense.id,
@@ -247,6 +307,18 @@ object FirestoreSyncManager {
             }
 
             // 6. Sync Categories
+            val localCategoryIds = categories.map { it.id.toString() }.toSet()
+            try {
+                val remoteCategories = userRef.collection("expense_categories").get().await()
+                remoteCategories.documents.forEach { doc ->
+                    if (!localCategoryIds.contains(doc.id)) {
+                        userRef.collection("expense_categories").document(doc.id).delete().await()
+                        Log.d(TAG, "Sync: Deleted category ${doc.id} from cloud because it does not exist locally.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Error cleaning deleted categories from cloud: ${e.message}")
+            }
             categories.forEach { cat ->
                 val map = mapOf(
                     "id" to cat.id,
@@ -344,9 +416,6 @@ object FirestoreSyncManager {
                     )
                 } catch (e: Exception) { null }
             }
-            if (restoredCustomers.isNotEmpty()) {
-                db.customerDao().insertCustomers(restoredCustomers)
-            }
 
             // Restore Packages
             val pkgDocs = userRef.collection("packages").get().await()
@@ -360,9 +429,6 @@ object FirestoreSyncManager {
                         description = doc.getString("description") ?: ""
                     )
                 } catch (e: Exception) { null }
-            }
-            if (restoredPackages.isNotEmpty()) {
-                db.packageDao().insertPackages(restoredPackages)
             }
 
             // Restore Bills
@@ -385,9 +451,6 @@ object FirestoreSyncManager {
                     )
                 } catch (e: Exception) { null }
             }
-            if (restoredBills.isNotEmpty()) {
-                db.billDao().insertBills(restoredBills)
-            }
 
             // Restore Payments
             val payDocs = userRef.collection("payments").get().await()
@@ -405,9 +468,6 @@ object FirestoreSyncManager {
                         notes = doc.getString("notes") ?: ""
                     )
                 } catch (e: Exception) { null }
-            }
-            if (restoredPayments.isNotEmpty()) {
-                db.paymentDao().insertPayments(restoredPayments)
             }
 
             // Restore Expenses
@@ -428,9 +488,6 @@ object FirestoreSyncManager {
                     )
                 } catch (e: Exception) { null }
             }
-            if (restoredExpenses.isNotEmpty()) {
-                db.expenseDao().insertExpenses(restoredExpenses)
-            }
 
             // Restore Categories
             val catDocs = userRef.collection("expense_categories").get().await()
@@ -442,14 +499,11 @@ object FirestoreSyncManager {
                     )
                 } catch (e: Exception) { null }
             }
-            if (restoredCategories.isNotEmpty()) {
-                db.expenseDao().insertCategories(restoredCategories)
-            }
 
             // Restore Settings
             val settingsDoc = userRef.collection("settings").document("business_settings").get().await()
-            if (settingsDoc.exists()) {
-                val st = BusinessSettingsEntity(
+            val restoredSettings = if (settingsDoc.exists()) {
+                BusinessSettingsEntity(
                     id = 1,
                     ispName = settingsDoc.getString("ispName") ?: "",
                     hotline = settingsDoc.getString("hotline") ?: "",
@@ -459,7 +513,40 @@ object FirestoreSyncManager {
                     themeMode = settingsDoc.getString("themeMode") ?: "SYSTEM",
                     logoUri = settingsDoc.getString("logoUri")?.ifEmpty { null }
                 )
-                db.settingsDao().insertOrUpdateSettings(st)
+            } else null
+
+            db.runInTransaction {
+                kotlinx.coroutines.runBlocking {
+                    db.customerDao().deleteAllCustomers()
+                    db.packageDao().deleteAllPackages()
+                    db.billDao().deleteAllBills()
+                    db.paymentDao().deleteAllPayments()
+                    db.expenseDao().deleteAllExpenses()
+                    db.expenseDao().deleteAllCategories()
+                    db.settingsDao().deleteSettings()
+
+                    if (restoredCustomers.isNotEmpty()) {
+                        db.customerDao().insertCustomers(restoredCustomers)
+                    }
+                    if (restoredPackages.isNotEmpty()) {
+                        db.packageDao().insertPackages(restoredPackages)
+                    }
+                    if (restoredBills.isNotEmpty()) {
+                        db.billDao().insertBills(restoredBills)
+                    }
+                    if (restoredPayments.isNotEmpty()) {
+                        db.paymentDao().insertPayments(restoredPayments)
+                    }
+                    if (restoredExpenses.isNotEmpty()) {
+                        db.expenseDao().insertExpenses(restoredExpenses)
+                    }
+                    if (restoredCategories.isNotEmpty()) {
+                        db.expenseDao().insertCategories(restoredCategories)
+                    }
+                    if (restoredSettings != null) {
+                        db.settingsDao().insertOrUpdateSettings(restoredSettings)
+                    }
+                }
             }
 
             Log.i(TAG, "Successfully restored data from Firestore for UID: $uid")

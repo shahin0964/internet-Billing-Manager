@@ -76,11 +76,20 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                if (com.example.util.FirestoreSyncManager.getCurrentUid() != null) {
-                    // If local DB is empty, attempt initial cloud restore
-                    val existingCustomers = db.customerDao().getAllCustomers().first()
-                    if (existingCustomers.isEmpty()) {
-                        com.example.util.FirestoreSyncManager.restoreCloudToLocal(application)
+                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(application)
+                if (uid != null) {
+                    val prefs = application.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                    val restoreDoneKey = "cloud_initial_restore_done_$uid"
+                    val isRestoreDone = prefs.getBoolean(restoreDoneKey, false)
+
+                    if (!isRestoreDone) {
+                        val existingCustomers = db.customerDao().getAllCustomers().first()
+                        if (existingCustomers.isEmpty()) {
+                            com.example.util.FirestoreSyncManager.restoreCloudToLocal(application)
+                        } else {
+                            com.example.util.FirestoreSyncManager.syncLocalToCloud(application)
+                        }
+                        prefs.edit().putBoolean(restoreDoneKey, true).apply()
                     } else {
                         com.example.util.FirestoreSyncManager.syncLocalToCloud(application)
                     }
@@ -572,6 +581,12 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.deleteBill(bill)
             _toastMessage.value = "Billing record deleted successfully"
+        }
+    }
+
+    fun clearAllLocalData() {
+        viewModelScope.launch {
+            repository.clearAllLocalData()
         }
     }
 }

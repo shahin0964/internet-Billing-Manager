@@ -805,6 +805,7 @@ fun MainAppContent(
                             isAuthChosen = false
                         },
                         onSignOut = {
+                            viewModel.clearAllLocalData()
                             isGuestMode = false
                             isAuthChosen = false
                         }
