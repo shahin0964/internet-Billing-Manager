@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
@@ -140,9 +142,17 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
+            var isSplashScreenVisible by remember { mutableStateOf(true) }
 
             IspControlTheme(themeMode = settings.themeMode) {
-                MainAppContent(viewModel = viewModel, openUpdateDialogFlow = openUpdateDialogFlow)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    MainAppContent(viewModel = viewModel, openUpdateDialogFlow = openUpdateDialogFlow)
+
+                    com.example.ui.components.SplashScreenOverlay(
+                        isVisible = isSplashScreenVisible,
+                        onSplashFinished = { isSplashScreenVisible = false }
+                    )
+                }
             }
         }
     }

@@ -1,38 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
     <group
-        android:translateX="22"
-        android:translateY="22">
-        <!-- Wi-Fi / Fiber signal arcs -->
+        android:scaleX="0.95"
+        android:scaleY="0.95"
+        android:pivotX="54"
+        android:pivotY="54">
+
+        <!-- Outer Wi-Fi Arc (Blue) -->
         <path
-            android:fillColor="#06B6D4"
-            android:pathData="M32,10 C18.7,10 8,20.7 8,34 L12,34 C12,22.9 21.1,14 32,14 C42.9,14 52,22.9 52,34 L56,34 C56,20.7 45.3,10 32,10 Z" />
+            android:strokeColor="#005BF8"
+            android:strokeWidth="3.6"
+            android:strokeLineCap="round"
+            android:pathData="M27,27 A16,16 0 0,1 57,27" />
+
+        <!-- Middle Wi-Fi Arc (White) -->
         <path
-            android:fillColor="#38BDF8"
-            android:pathData="M32,18 C23.2,18 16,25.2 16,34 L20,34 C20,27.4 25.4,22 32,22 C38.6,22 44,27.4 44,34 L48,34 C48,25.2 40.8,18 32,18 Z" />
-        <!-- Router Base Unit -->
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3.2"
+            android:strokeLineCap="round"
+            android:pathData="M31,27 A12,12 0 0,1 53,27" />
+
+        <!-- Inner Wi-Fi Arc (Cyan) -->
         <path
-            android:fillColor="#38BDF8"
-            android:pathData="M12,40 C12,37.8 13.8,36 16,36 L48,36 C50.2,36 52,37.8 52,40 L52,46 C52,48.2 50.2,50 48,50 L16,50 C13.8,50 12,48.2 12,46 Z" />
-        <!-- LED status dots -->
+            android:strokeColor="#00C8FF"
+            android:strokeWidth="2.8"
+            android:strokeLineCap="round"
+            android:pathData="M35,27 A8,8 0 0,1 49,27" />
+
+        <!-- Dot of 'i' (Blue) -->
         <path
-            android:fillColor="#10B981"
-            android:pathData="M18,43m-2,0a2,2 0 1,1 4,0a2,2 0 1,1 -4,0" />
+            android:fillColor="#005BF8"
+            android:pathData="M42,33.5m-2.8,0a2.8,2.8 0 1,1 5.6,0a2.8,2.8 0 1,1 -5.6,0" />
+
+        <!-- Vertical Stem of 'i' (White Bar) -->
         <path
-            android:fillColor="#10B981"
-            android:pathData="M25,43m-2,0a2,2 0 1,1 4,0a2,2 0 1,1 -4,0" />
+            android:fillColor="#FFFFFF"
+            android:pathData="M38,38 h8 v28 h-8 z" />
+
+        <!-- B Pixel Pattern (left side of B) -->
         <path
-            android:fillColor="#38BDF8"
-            android:pathData="M32,43m-2,0a2,2 0 1,1 4,0a2,2 0 1,1 -4,0" />
-        <!-- Antennas -->
+            android:fillColor="#00C8FF"
+            android:pathData="M37.5,42 h2.8 v2.8 h-2.8 z" />
         <path
-            android:fillColor="#06B6D4"
-            android:pathData="M20,26 L22,26 L22,36 L20,36 Z" />
+            android:fillColor="#FFFFFF"
+            android:pathData="M40.3,42 h2.8 v2.8 h-2.8 z" />
         <path
-            android:fillColor="#06B6D4"
-            android:pathData="M42,26 L44,26 L44,36 L42,36 Z" />
+            android:fillColor="#00C8FF"
+            android:pathData="M43.1,42 h2.8 v2.8 h-2.8 z" />
+
+        <!-- Letter B (Cyan/Blue gradient stylized B) - simplified for icon -->
+        <path
+            android:fillColor="#00C8FF"
+            android:pathData="M45,42 h13 v14 h-13 z" />
+
+        <!-- Letter M (Solid White) -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M60,42 h26 v14 h-26 z" />
+
+        <!-- Swoosh curve under B & M (Blue curved stroke ending with dot) -->
+        <path
+            android:strokeColor="#005BF8"
+            android:strokeWidth="3.8"
+            android:strokeLineCap="round"
+            android:pathData="M45,69 C43,78 50,78 68,64 C78,56 86,48 90,44" />
+
+        <!-- Swoosh end circle dot -->
+        <path
+            android:fillColor="#005BF8"
+            android:pathData="M90,44m-3.2,0a3.2,3.2 0 1,1 6.4,0a3.2,3.2 0 1,1 -6.4,0" />
+
     </group>
 </vector>
