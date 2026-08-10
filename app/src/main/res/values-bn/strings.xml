@@ -463,4 +463,24 @@
     <string name="connection_type">কানেকশন টাইপ</string>
     <string name="local_ip_v4">লোকাল IPv4</string>
     <string name="local_ip_v6">লোকাল IPv6</string>
+
+    <!-- Collection Delete -->
+    <string name="delete_collection_title">কালেকশন এন্ট্রি মুছে ফেলুন</string>
+    <string name="delete_collection_confirm">আপনি কি এই collection entry-টি মুছে ফেলতে চান?\nমুছে ফেললে এই entry-এর paid amount Main Account এবং collection summary থেকেও বাদ যাবে।</string>
+    <string name="delete_collection_success">Collection entry সফলভাবে মুছে ফেলা হয়েছে।</string>
+    <string name="delete_collection_error">কালেকশন এন্ট্রি মুছে ফেলা সম্ভব হয়নি।</string>
+
+    <!-- Daily Bill Entry -->
+    <string name="daily_bill_entry_title">দৈনিক বিল এন্ট্রি</string>
+    <string name="daily_bill_entry_subtitle">প্রতিদিনের তৈরি হওয়া বিলের সম্পূর্ণ হিসাব</string>
+    <string name="filter_all">সকল</string>
+    <string name="filter_today">আজ</string>
+    <string name="filter_yesterday">গতকাল</string>
+    <string name="filter_this_month">এই মাস</string>
+    <string name="filter_prev_month">গত মাস</string>
+    <string name="filter_custom_date">কাস্টম তারিখ</string>
+    <string name="bill_entries_count">%1$dটি বিল এন্ট্রি</string>
+    <string name="total_amount_label">মোট: %1$s%2$s</string>
+    <string name="no_bill_entries_found">নির্বাচিত ফিল্টারে কোনো বিল এন্ট্রি পাওয়া যায়নি।</string>
+    <string name="customer_code_label">কোড: %1$s</string>
 </resources>

@@ -17,12 +17,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -30,9 +34,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,6 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.BillEntity
 import com.example.data.model.PaymentEntity
 import com.example.ui.components.CustomSearchBar
@@ -59,15 +67,56 @@ fun CollectionScreen(
     currencySymbol: String,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onCollectPaymentClick: () -> Unit
+    onCollectPaymentClick: () -> Unit,
+    onDeletePaymentClick: (PaymentEntity) -> Unit = {}
 ) {
     val sdfMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
     var monthOffset by remember { mutableIntStateOf(0) }
+    var paymentToDelete by remember { mutableStateOf<PaymentEntity?>(null) }
+    var showDailyBillEntryScreen by remember { mutableStateOf(false) }
     
     val selectedMonthString = remember(monthOffset) {
         val calendar = Calendar.getInstance()
         calendar.add(Calendar.MONTH, monthOffset)
         sdfMonth.format(calendar.time)
+    }
+
+    if (paymentToDelete != null) {
+        val payment = paymentToDelete!!
+        AlertDialog(
+            onDismissRequest = { paymentToDelete = null },
+            title = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.delete_collection_title),
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.delete_collection_confirm),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val p = payment
+                        paymentToDelete = null
+                        onDeletePaymentClick(p)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { paymentToDelete = null }) {
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
+                }
+            }
+        )
     }
 
     val monthlyBills = remember(bills, selectedMonthString) {
@@ -156,6 +205,69 @@ fun CollectionScreen(
             )
         }
 
+        // Daily Bill Entry Card
+        item {
+            Surface(
+                onClick = { showDailyBillEntryScreen = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                shadowElevation = 3.dp,
+                tonalElevation = 2.dp,
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarToday,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "📅 " + androidx.compose.ui.res.stringResource(com.example.R.string.daily_bill_entry_title),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(com.example.R.string.daily_bill_entry_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
         // Action banner
         item {
             Surface(
@@ -237,19 +349,34 @@ tonalElevation = 2.dp,
             items(filteredPayments, key = { it.id }) { payment ->
                 PaymentReceiptCard(
                     payment = payment,
-                    currencySymbol = currencySymbol
+                    currencySymbol = currencySymbol,
+                    onDeleteClick = { paymentToDelete = payment }
                 )
             }
         }
 
         item { Spacer(modifier = Modifier.height(24.dp)) }
     }
+
+    if (showDailyBillEntryScreen) {
+        Dialog(
+            onDismissRequest = { showDailyBillEntryScreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            DailyBillEntryScreen(
+                bills = bills,
+                currencySymbol = currencySymbol,
+                onBackClick = { showDailyBillEntryScreen = false }
+            )
+        }
+    }
 }
 
 @Composable
 fun PaymentReceiptCard(
     payment: PaymentEntity,
-    currencySymbol: String
+    currencySymbol: String,
+    onDeleteClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -291,27 +418,44 @@ tonalElevation = 2.dp,
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "+$currencySymbol${payment.amount.formatAmount()}",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = EmeraldSuccess,
-                        fontSize = 18.sp
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "+$currencySymbol${payment.amount.formatAmount()}",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldSuccess,
+                            fontSize = 18.sp
+                        )
                     )
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
 shadowElevation = 3.dp,
 tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surfaceVariant
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = payment.paymentMethod,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onDeleteClick,
+                    modifier = Modifier.size(36.dp)
                 ) {
-                    Text(
-                        text = payment.paymentMethod,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = androidx.compose.ui.res.stringResource(com.example.R.string.delete),
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }

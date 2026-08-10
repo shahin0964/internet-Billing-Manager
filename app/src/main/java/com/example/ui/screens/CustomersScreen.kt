@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -232,52 +233,63 @@ fun CustomersScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Filter Chips & Bulk SMS
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        listOf("ALL", "ACTIVE", "SUSPENDED", "INACTIVE").forEach { filter ->
-                            FilterChip(
-                                selected = (selectedStatusFilter == filter),
-                                onClick = { onStatusFilterChange(filter) },
-                                label = {
-                                    Text(
-                                        text = filter.lowercase().replaceFirstChar { it.uppercase() },
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                }
-                            )
-                        }
-                    }
-
-                    Surface(
-                        onClick = { showBulkSmsDialog = true },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
+                        // Horizontally scrollable filter chips row with compact size
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState())
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Message,
-                                contentDescription = "Bulk SMS",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "💬 বাল্ক এসএমএস",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                            listOf("ALL", "ACTIVE", "SUSPENDED", "INACTIVE").forEach { filter ->
+                                FilterChip(
+                                    selected = (selectedStatusFilter == filter),
+                                    onClick = { onStatusFilterChange(filter) },
+                                    modifier = Modifier.height(32.dp),
+                                    label = {
+                                        Text(
+                                            text = filter.lowercase().replaceFirstChar { it.uppercase() },
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
+                        // Bulk SMS button compact
+                        Surface(
+                            onClick = { showBulkSmsDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.padding(start = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Message,
+                                    contentDescription = "Bulk SMS",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "বাল্ক এসএমএস",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
                 }

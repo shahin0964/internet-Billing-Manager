@@ -17,6 +17,7 @@ import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
@@ -273,6 +274,57 @@ class IspRepository(
         notifyCloudSync()
 
         return true
+    }
+
+    suspend fun deletePayment(payment: PaymentEntity): Boolean {
+        try {
+            db.withTransaction {
+                // Delete payment record locally
+                paymentDao.deletePaymentById(payment.id)
+
+                // Get all remaining payments for this customer
+                val remainingPayments = paymentDao.getPaymentsListForCustomer(payment.customerId)
+                var remainingAmount = remainingPayments.sumOf { it.amount }
+
+                // Get all bills for this customer, sorted chronologically (oldest first)
+                val customerBills = billDao.getBillsListForCustomer(payment.customerId).sortedBy { it.id }
+
+                for (bill in customerBills) {
+                    val amountToApply = minOf(remainingAmount, bill.amount)
+                    remainingAmount = (remainingAmount - amountToApply).coerceAtLeast(0.0)
+
+                    val newPaid = amountToApply
+                    val newDue = (bill.amount - newPaid).coerceAtLeast(0.0)
+                    val newStatus = when {
+                        newDue <= 0.0 -> "PAID"
+                        newPaid > 0.0 -> "PARTIAL"
+                        else -> "UNPAID"
+                    }
+
+                    val updatedBill = bill.copy(
+                        paidAmount = newPaid,
+                        dueAmount = newDue,
+                        status = newStatus
+                    )
+                    billDao.updateBill(updatedBill)
+                }
+            }
+
+            // Remove document from Cloud Firestore if online sync is active
+            context?.let { ctx ->
+                com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(
+                    ctx,
+                    "payments",
+                    payment.id.toString()
+                )
+            }
+
+            notifyCloudSync()
+            return true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Error deleting payment record: ${e.message}", e)
+            return false
+        }
     }
 
     suspend fun saveSettings(settings: BusinessSettingsEntity) {

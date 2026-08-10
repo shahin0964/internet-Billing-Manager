@@ -738,6 +738,11 @@ fun MainAppContent(
                                 preSelectedPaymentBill = null
                                 showPaymentDialog = true
                             }
+                        },
+                        onDeletePaymentClick = { payment ->
+                            runAction {
+                                viewModel.deletePayment(payment)
+                            }
                         }
                     )
                 }

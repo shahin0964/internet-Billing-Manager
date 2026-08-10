@@ -71,6 +71,9 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE customerId = :customerId ORDER BY id DESC")
     fun getBillsForCustomer(customerId: Long): Flow<List<BillEntity>>
 
+    @Query("SELECT * FROM bills WHERE customerId = :customerId ORDER BY id DESC")
+    suspend fun getBillsListForCustomer(customerId: Long): List<BillEntity>
+
     @Query("SELECT * FROM bills WHERE id = :id")
     fun getBillById(id: Long): Flow<BillEntity?>
 
@@ -104,6 +107,12 @@ interface PaymentDao {
     @Query("SELECT * FROM payments WHERE customerId = :customerId ORDER BY id DESC")
     fun getPaymentsForCustomer(customerId: Long): Flow<List<PaymentEntity>>
 
+    @Query("SELECT * FROM payments WHERE customerId = :customerId ORDER BY id DESC")
+    suspend fun getPaymentsListForCustomer(customerId: Long): List<PaymentEntity>
+
+    @Query("SELECT * FROM payments WHERE id = :id LIMIT 1")
+    suspend fun getPaymentById(id: Long): PaymentEntity?
+
     @Query("SELECT * FROM payments WHERE billId = :billId ORDER BY id DESC")
     fun getPaymentsForBill(billId: Long): Flow<List<PaymentEntity>>
 
@@ -115,6 +124,12 @@ interface PaymentDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPayments(payments: List<PaymentEntity>)
+
+    @Delete
+    suspend fun deletePayment(payment: PaymentEntity)
+
+    @Query("DELETE FROM payments WHERE id = :id")
+    suspend fun deletePaymentById(id: Long)
 
     @Query("DELETE FROM payments WHERE customerId = :customerId")
     suspend fun deletePaymentsForCustomer(customerId: Long)

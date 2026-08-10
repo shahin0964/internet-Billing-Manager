@@ -389,6 +389,17 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deletePayment(payment: PaymentEntity) {
+        viewModelScope.launch {
+            val success = repository.deletePayment(payment)
+            if (success) {
+                _toastMessage.value = getApplication<Application>().getString(com.example.R.string.delete_collection_success)
+            } else {
+                _toastMessage.value = getApplication<Application>().getString(com.example.R.string.delete_collection_error)
+            }
+        }
+    }
+
     fun updateSettings(newSettings: BusinessSettingsEntity) {
         viewModelScope.launch {
             repository.saveSettings(newSettings)
