@@ -805,7 +805,12 @@ fun MainAppContent(
                             isAuthChosen = false
                         },
                         onSignOut = {
+                            val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
                             viewModel.clearAllLocalData()
+                            if (uid != null) {
+                                val prefs = context.getSharedPreferences("isp_prefs", android.content.Context.MODE_PRIVATE)
+                                prefs.edit().remove("cloud_initial_restore_done_$uid").apply()
+                            }
                             isGuestMode = false
                             isAuthChosen = false
                         }
