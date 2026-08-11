@@ -189,3 +189,4 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
+// Force rebuild Tue Aug 11 03:52:36 PM UTC 2026

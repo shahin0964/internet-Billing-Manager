@@ -27,7 +27,7 @@ class IspApplication : Application() {
         if (isLoggedIn(this)) {
             ensureFirebaseInitialized(this)
         }
-        com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
+        // com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
     }
 
     companion object {
