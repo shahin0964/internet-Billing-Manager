@@ -363,7 +363,7 @@ fun AutomaticSmsScreen(
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
 
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
                             value = selectedCustomer?.name ?: searchQuery,
                             onValueChange = {
@@ -374,7 +374,7 @@ fun AutomaticSmsScreen(
                                 }
                                 dropdownExpanded = true
                             },
-                            placeholder = { Text(if (isBn) "খুঁজুন (নাম বা মোবাইল)" else "Search (Name or phone)") },
+                            placeholder = { Text(if (isBn) "খুঁজুন (নাম, মোবাইল বা আইডি)" else "Search (Name, Phone or ID)") },
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
                                 IconButton(onClick = { dropdownExpanded = !dropdownExpanded }) {
@@ -382,35 +382,49 @@ fun AutomaticSmsScreen(
                                 }
                             }
                         )
-
-                        DropdownMenu(
-                            expanded = dropdownExpanded,
-                            onDismissRequest = { dropdownExpanded = false },
-                            modifier = Modifier
-                                .fillMaxWidth(0.9f)
-                                .heightIn(max = 250.dp)
-                        ) {
-                            if (filteredCustomers.isEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text(if (isBn) "কোনো গ্রাহক পাওয়া যায়নি" else "No customers found") },
-                                    onClick = {}
-                                )
-                            } else {
-                                filteredCustomers.take(20).forEach { customer ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text(text = customer.name, fontWeight = FontWeight.Bold)
-                                                Text(text = "📞 ${customer.phone} | ID: ${customer.customerCode}", style = MaterialTheme.typography.bodySmall)
-                                            }
-                                        },
-                                        onClick = {
-                                            selectedCustomer = customer
-                                            customNumber = customer.phone
-                                            dropdownExpanded = false
-                                            searchQuery = customer.name
-                                        }
+                        
+                        androidx.compose.animation.AnimatedVisibility(visible = dropdownExpanded) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 250.dp)
+                                    .padding(top = 4.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            ) {
+                                if (filteredCustomers.isEmpty()) {
+                                    Text(
+                                        text = if (isBn) "কোনো গ্রাহক পাওয়া যায়নি" else "No customers found",
+                                        modifier = Modifier.padding(16.dp),
+                                        style = MaterialTheme.typography.bodyMedium
                                     )
+                                } else {
+                                    androidx.compose.foundation.lazy.LazyColumn(
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        items(filteredCustomers.size) { index ->
+                                            val customer = filteredCustomers[index]
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        selectedCustomer = customer
+                                                        customNumber = customer.phone
+                                                        dropdownExpanded = false
+                                                        searchQuery = customer.name
+                                                    }
+                                                    .padding(16.dp)
+                                            ) {
+                                                Column {
+                                                    Text(text = customer.name, fontWeight = FontWeight.Bold)
+                                                    Text(text = "📞 ${customer.phone} | ID: ${customer.customerCode}", style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+                                            if (index < filteredCustomers.size - 1) {
+                                                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
