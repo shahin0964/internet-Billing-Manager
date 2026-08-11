@@ -511,10 +511,16 @@ fun SmsDashboardTab(
     val failedCount = smsList.count { it.status == "FAILED" }
 
     val selectedSim = AutomaticSmsManager.getSelectedSim(context)
-    val simLabel = when (selectedSim) {
-        1 -> "SIM 1"
-        2 -> "SIM 2"
-        else -> if (isBn) "সিস্টেম ডিফল্ট সিম" else "OS Default SIM"
+    val availableSims = remember { AutomaticSmsManager.getAvailableSims(context) }
+    val simLabel = if (selectedSim == -1) {
+        if (isBn) "সিস্টেম ডিফল্ট সিম" else "OS Default SIM"
+    } else {
+        val simInfo = availableSims.find { it.subscriptionId == selectedSim }
+        if (simInfo != null) {
+            "SIM ${simInfo.slotIndex + 1} - ${simInfo.carrierName} - ${simInfo.number}"
+        } else {
+            if (isBn) "নির্বাচিত সিম পাওয়া যায়নি" else "Selected SIM unavailable"
+        }
     }
 
     LazyColumn(
@@ -778,6 +784,58 @@ var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymen
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+
+        item {
+            val availableSims = remember { AutomaticSmsManager.getAvailableSims(context) }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = if (isBn) "এসএমএস পাঠানোর সিম (SMS Sending SIM)" else "SMS Sending SIM",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    var expandedSim by remember { mutableStateOf(false) }
+                    val currentSimLabel = if (selectedSim == -1) {
+                        if (isBn) "সিস্টেম ডিফল্ট সিম" else "System Default SIM"
+                    } else {
+                        val simInfo = availableSims.find { it.subscriptionId == selectedSim }
+                        if (simInfo != null) "SIM ${simInfo.slotIndex + 1} - ${simInfo.carrierName} - ${simInfo.number}" else (if (isBn) "নির্বাচিত সিম পাওয়া যায়নি" else "Selected SIM unavailable")
+                    }
+
+                    Box {
+                        OutlinedButton(onClick = { expandedSim = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(text = currentSimLabel)
+                        }
+                        DropdownMenu(expanded = expandedSim, onDismissRequest = { expandedSim = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (isBn) "সিস্টেম ডিফল্ট সিম" else "System Default SIM") },
+                                onClick = {
+                                    selectedSim = -1
+                                    AutomaticSmsManager.setSelectedSim(context, -1)
+                                    expandedSim = false
+                                }
+                            )
+                            availableSims.forEach { sim ->
+                                DropdownMenuItem(
+                                    text = { Text("SIM ${sim.slotIndex + 1} - ${sim.carrierName} - ${sim.number}") },
+                                    onClick = {
+                                        selectedSim = sim.subscriptionId
+                                        AutomaticSmsManager.setSelectedSim(context, sim.subscriptionId)
+                                        expandedSim = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
 // Bill Generated
         item {
             RuleCard(
@@ -1312,6 +1370,16 @@ fun SmsHistoryItemCard(
                 }
             }
 
+            // If SENT, display SIM info if available
+            if (sms.status == "SENT" && !sms.lastError.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "📱 ${sms.lastError}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            
             // If Failed, display error reason logs
             if (sms.status == "FAILED" && !sms.lastError.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))

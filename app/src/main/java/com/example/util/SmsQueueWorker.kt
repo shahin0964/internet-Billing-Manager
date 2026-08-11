@@ -99,11 +99,20 @@ class SmsQueueWorker(
 
             if (sendResult.isSuccess) {
                 Log.d(TAG, "Successfully sent SMS ID ${sms.id} to $cleanNumber")
+                
+                // Fetch the SIM label to store in history
+                val selectedSubId = AutomaticSmsManager.getSelectedSim(context)
+                val availableSims = AutomaticSmsManager.getAvailableSims(context)
+                val simLabel = if (selectedSubId == -1) "OS Default SIM" else {
+                    val simInfo = availableSims.find { it.subscriptionId == selectedSubId }
+                    if (simInfo != null) "SIM ${simInfo.slotIndex + 1}" else "Unknown SIM"
+                }
+                
                 dao.updateSms(
                     sms.copy(
                         status = "SENT",
-                        lastError = null,
-                        mobileNumber = cleanNumber // Update to the actual number sent to
+                        lastError = "Sent via $simLabel", // Use lastError field to store SIM info for history
+                        mobileNumber = cleanNumber
                     )
                 )
             } else {

@@ -93,11 +93,47 @@ object AutomaticSmsManager {
     fun isSmsEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_SMS_ENABLED, false)
     fun setSmsEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_SMS_ENABLED, enabled).apply()
 
-    fun getSelectedSim(context: Context): Int = getPrefs(context).getInt(KEY_SELECTED_SIM, 0)
-    fun setSelectedSim(context: Context, sim: Int) = getPrefs(context).edit().putInt(KEY_SELECTED_SIM, sim).apply()
+    fun getSelectedSim(context: Context): Int = getPrefs(context).getInt("key_selected_sub_id", -1)
+    fun setSelectedSim(context: Context, subId: Int) = getPrefs(context).edit().putInt("key_selected_sub_id", subId).apply()
 
     fun getDefaultSendingTime(context: Context): String = getPrefs(context).getString(KEY_DEFAULT_SENDING_TIME, "10:00") ?: "10:00"
     fun setDefaultSendingTime(context: Context, time: String) = getPrefs(context).edit().putString(KEY_DEFAULT_SENDING_TIME, time).apply()
+
+    data class SimInfo(
+        val subscriptionId: Int,
+        val slotIndex: Int,
+        val carrierName: String,
+        val number: String
+    )
+
+    fun getAvailableSims(context: Context): List<SimInfo> {
+        val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+            ?: return emptyList()
+        val list = mutableListOf<SimInfo>()
+        try {
+            val activeList = subscriptionManager.activeSubscriptionInfoList
+            if (activeList != null) {
+                for (info in activeList) {
+                    list.add(
+                        SimInfo(
+                            subscriptionId = info.subscriptionId,
+                            slotIndex = info.simSlotIndex,
+                            carrierName = info.carrierName?.toString() ?: "Unknown",
+                            number = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                subscriptionManager.getPhoneNumber(info.subscriptionId) ?: info.number ?: ""
+                            } else {
+                                info.number ?: ""
+                            }
+                        )
+                    )
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot access SubscriptionManager due to security limits: ${e.message}")
+        }
+        return list
+    }
+
 
     fun isRetryFailedEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RETRY_FAILED, true)
     fun setRetryFailedEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RETRY_FAILED, enabled).apply()
@@ -513,8 +549,28 @@ object AutomaticSmsManager {
         mobileNumber: String,
         message: String
     ) {
+        val ispDb = com.example.data.database.IspDatabase.getDatabase(context)
+        val customer = ispDb.customerDao().getCustomerByIdSync(customerId)
+        val bills = ispDb.billDao().getBillsForCustomerSync(customerId)
+        val settings = ispDb.settingsDao().getSettingsSync()
+        
+        val ispName = settings?.ispName ?: "ISP Net"
+        val totalDue = bills?.sumOf { it.dueAmount } ?: 0.0
+        val packageName = customer?.packageName ?: ""
+        val monthlyFee = customer?.monthlyFee?.toString() ?: "0"
+        
+        val processedMessage = processTemplate(
+            template = message,
+            customerName = customerName,
+            monthlyFee = monthlyFee,
+            dueAmount = totalDue.toString(),
+            packageSpeed = packageName,
+            ispName = ispName,
+            customerId = customerId.toString()
+        )
+
         val idKey = "manual_${System.currentTimeMillis()}_${customerId}"
-        enqueueSms(context, customerId, customerName, mobileNumber, message, "general_notice", idKey)
+        enqueueSms(context, customerId, customerName, mobileNumber, processedMessage, "general_notice", idKey)
     }
 
     /**
@@ -530,16 +586,12 @@ object AutomaticSmsManager {
             return@withContext Result.failure(Exception("Permission denied"))
         }
 
-        val selectedSimIndex = getSelectedSim(context) // 0: Default, 1: SIM 1, 2: SIM 2
+        val selectedSubId = getSelectedSim(context) // -1: Default, >0: specific subId
         val smsManager = try {
-            getSmsManagerForIndex(context, selectedSimIndex)
+            getSmsManagerForSubId(context, selectedSubId)
         } catch (e: Exception) {
-            Log.e(TAG, "Error selecting SIM subscription, falling back to default SMS manager: ${e.message}")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                context.getSystemService(SmsManager::class.java)
-            } else {
-                SmsManager.getDefault()
-            }
+            Log.e(TAG, "Error selecting SIM subscription: ${e.message}")
+            return@withContext Result.failure(e)
         }
 
         val sentAction = "SMS_SENT_${System.currentTimeMillis()}_${smsId}"
@@ -621,8 +673,8 @@ object AutomaticSmsManager {
     /**
      * Resolves appropriate SmsManager for Dual SIM slots
      */
-    private fun getSmsManagerForIndex(context: Context, slotIndex: Int): SmsManager {
-        if (slotIndex == 0) {
+    private fun getSmsManagerForSubId(context: Context, subId: Int): SmsManager {
+        if (subId == -1) {
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 context.getSystemService(SmsManager::class.java)
             } else {
@@ -635,29 +687,25 @@ object AutomaticSmsManager {
             try {
                 val activeList = subscriptionManager.activeSubscriptionInfoList
                 if (activeList != null) {
-                    val targetSlot = slotIndex - 1 // convert 1/2 selection to 0/1 index
-                    val matchedSub = activeList.firstOrNull { it.simSlotIndex == targetSlot } 
-                        ?: activeList.getOrNull(targetSlot) 
-                        ?: activeList.firstOrNull()
-
-                    if (matchedSub != null) {
-                        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            context.getSystemService(SmsManager::class.java).createForSubscriptionId(matchedSub.subscriptionId)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
-                        }
+                    val matchedSub = activeList.firstOrNull { it.subscriptionId == subId }
+                    if (matchedSub == null) {
+                        throw IllegalStateException("Selected SIM (SubID: $subId) is not available.")
                     }
+                    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        context.getSystemService(SmsManager::class.java).createForSubscriptionId(matchedSub.subscriptionId)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
+                    }
+                } else {
+                    throw IllegalStateException("No active SIM cards found.")
                 }
             } catch (e: SecurityException) {
                 Log.w(TAG, "Cannot access SubscriptionManager due to security limits: ${e.message}")
+                throw e
             }
         }
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            context.getSystemService(SmsManager::class.java)
-        } else {
-            SmsManager.getDefault()
-        }
+        throw IllegalStateException("SubscriptionManager is not available on this device.")
     }
 }
