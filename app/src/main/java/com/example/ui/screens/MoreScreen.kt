@@ -1668,7 +1668,15 @@ fun BulkSmsTemplateDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(
-                        onClick = { showSaveCustomDialog = true }
+                        onClick = { 
+                            if (selectedTemplateId?.startsWith("custom_") == true) {
+                                val selectedTitle = customTemplates.find { it.id == selectedTemplateId }?.title ?: ""
+                                customTitleInput = selectedTitle
+                            } else {
+                                customTitleInput = ""
+                            }
+                            showSaveCustomDialog = true 
+                        }
                     ) {
                         Text("➕ কাস্টম হিসাবে সংরক্ষণ", fontSize = 11.sp)
                     }
@@ -1756,10 +1764,12 @@ fun BulkSmsTemplateDialog(
                 Button(
                     onClick = {
                         if (customTitleInput.isNotBlank()) {
+                            val existingId = if (selectedTemplateId?.startsWith("custom_") == true) selectedTemplateId else null
                             val saved = com.example.util.SmsTemplateManager.saveCustomTemplate(
                                 context,
                                 customTitleInput.trim(),
-                                templateText
+                                templateText,
+                                existingId
                             )
                             customTemplates = com.example.util.SmsTemplateManager.getCustomTemplates(context)
                             selectedTemplateId = saved.id
