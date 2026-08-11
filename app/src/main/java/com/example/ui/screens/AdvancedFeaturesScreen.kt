@@ -61,15 +61,6 @@ fun AdvancedFeaturesScreen(
     var showWifiAnalyzer by remember { mutableStateOf(false) }
     var showImportCustomers by remember { mutableStateOf(false) }
     var showAutomaticSms by remember { mutableStateOf(false) }
-    var showNetworkDiagram by remember { mutableStateOf(false) }
-
-    if (showNetworkDiagram) {
-        NetworkDiagramScreen(
-            onBackClick = { showNetworkDiagram = false },
-            viewModel = viewModel
-        )
-        return
-    }
 
     if (showAutomaticSms) {
         AutomaticSmsScreen(
@@ -327,68 +318,7 @@ fun AdvancedFeaturesScreen(
                 }
             }
             
-            // Network Diagram Feature Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showNetworkDiagram = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Dns,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.network_diagram),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.network_diagram_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
+
 
             // Network Tools Feature Entry
             item {
