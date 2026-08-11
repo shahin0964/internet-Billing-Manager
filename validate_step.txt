@@ -1,0 +1,41 @@
+58:      - name: Validate Keystore Integrity
+59-        if: ${{ env.KEYSTORE_BASE64 != '' }}
+60-        run: |
+61-          echo "Validating Keystore Integrity..."
+62-          if ! keytool -list -v -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" > /dev/null 2>&1; then
+63-            echo "::error::KEYSTORE VALIDATION FAILED! The STORE_PASSWORD is wrong, or KEYSTORE_BASE64 is corrupted."
+64-            exit 1
+65-          fi
+66-          
+67-          TARGET_ALIAS="${{ env.KEY_ALIAS }}"
+68-          ALIAS_EXISTS=false
+69-          
+70-          if [ -n "$TARGET_ALIAS" ]; then
+71-            if keytool -list -v -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" | grep -q -i "Alias name: $TARGET_ALIAS"; then
+72-              ALIAS_EXISTS=true
+73-            fi
+74-          fi
+75-          
+76-          if [ "$ALIAS_EXISTS" = true ]; then
+77-            echo "Keystore validation passed. Configured alias '$TARGET_ALIAS' found."
+78-          else
+79-            if [ -n "$TARGET_ALIAS" ]; then
+80-              echo "::error::Configured KEY_ALIAS was not found in the keystore"
+81-              echo "The alias provided in GitHub Secrets does not exist in the keystore."
+82-              echo "Attempting to auto-detect the correct alias to fix the build..."
+83-            else
+84-              echo "KEY_ALIAS is not set. Attempting to auto-detect..."
+85-            fi
+86-            
+87-            ACTUAL_ALIAS=$(keytool -list -v -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" | grep -i "Alias name:" | head -n 1 | awk -F': ' '{print $2}' | xargs)
+88-            
+89-            if [ -z "$ACTUAL_ALIAS" ]; then
+90-              echo "::error::Failed to extract any alias from the keystore!"
+91-              exit 1
+92-            fi
+93-            
+94-            echo "::notice::Auto-detected and applying alias: '$ACTUAL_ALIAS'"
+95-            echo "KEY_ALIAS=$ACTUAL_ALIAS" >> $GITHUB_ENV
+96-          fi
+97-            
+98-            if ! keytool -list -v -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" | grep -q -i "Alias name: $TARGET_ALIAS"; then

@@ -94,16 +94,6 @@ jobs:
             echo "::notice::Auto-detected and applying alias: '$ACTUAL_ALIAS'"
             echo "KEY_ALIAS=$ACTUAL_ALIAS" >> $GITHUB_ENV
           fi
-            
-            if ! keytool -list -v -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" | grep -q -i "Alias name: $TARGET_ALIAS"; then
-              echo "::error::Configured KEY_ALIAS was not found in the keystore"
-              echo "Error: Alias '$TARGET_ALIAS' not found."
-              echo "Available aliases in keystore:"
-              keytool -list -v -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" | grep -i "Alias name:" || true
-              exit 1
-            fi
-            echo "Keystore validation passed. Alias '$TARGET_ALIAS' found."
-          fi
 
       - name: Determine Versioning
         id: versioning
