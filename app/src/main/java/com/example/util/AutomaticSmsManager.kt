@@ -28,6 +28,7 @@ import com.example.data.model.SmsQueueEntity
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
@@ -259,12 +260,15 @@ object AutomaticSmsManager {
         return template
             // New user requested placeholders
             .replace("{customer_name}", customerName)
+            .replace("{billing_month}", billMonth)
             .replace("{bill_month}", billMonth)
             .replace("{bill_amount}", monthlyFee)
+            .replace("{monthly_bill}", monthlyFee)
             .replace("{due_amount}", dueAmount)
             .replace("{due_date}", dueDate)
             .replace("{payment_date}", paymentDate)
             .replace("{customer_id}", customerId)
+            .replace("{company_name}", ispName)
             // Legacy placeholders
             .replace("[Customer Name]", customerName)
             .replace("[Customer]", customerName)
@@ -550,22 +554,28 @@ object AutomaticSmsManager {
         message: String
     ) {
         val ispDb = com.example.data.database.IspDatabase.getDatabase(context)
-        val customer = ispDb.customerDao().getCustomerByIdSync(customerId)
-        val bills = ispDb.billDao().getBillsForCustomerSync(customerId)
-        val settings = ispDb.settingsDao().getSettingsSync()
+        val customer = ispDb.customerDao().getCustomerById(customerId).firstOrNull()
+        val bills = ispDb.billDao().getBillsForCustomer(customerId).firstOrNull() ?: emptyList()
+        val settings = ispDb.settingsDao().getSettings().firstOrNull()
         
         val ispName = settings?.ispName ?: "ISP Net"
-        val totalDue = bills?.sumOf { it.dueAmount } ?: 0.0
+        val totalDue = bills.sumOf { it.dueAmount }
         val packageName = customer?.packageName ?: ""
         val monthlyFee = customer?.monthlyFee?.toString() ?: "0"
+        
+        val currentBill = bills.firstOrNull()
+        val billMonth = currentBill?.billingMonth ?: java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale("bn", "BD")).format(java.util.Date())
+        val dueDate = currentBill?.dueDate ?: ""
         
         val processedMessage = processTemplate(
             template = message,
             customerName = customerName,
             monthlyFee = monthlyFee,
             dueAmount = totalDue.toString(),
+            dueDate = dueDate,
             packageSpeed = packageName,
             ispName = ispName,
+            billMonth = billMonth,
             customerId = customerId.toString()
         )
 

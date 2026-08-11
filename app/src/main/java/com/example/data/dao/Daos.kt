@@ -23,6 +23,7 @@ interface CustomerDao {
     @Query("SELECT * FROM customers WHERE id = :id")
     fun getCustomerById(id: Long): Flow<CustomerEntity?>
 
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCustomer(customer: CustomerEntity): Long
 
@@ -70,6 +71,7 @@ interface BillDao {
 
     @Query("SELECT * FROM bills WHERE customerId = :customerId ORDER BY id DESC")
     fun getBillsForCustomer(customerId: Long): Flow<List<BillEntity>>
+
 
     @Query("SELECT * FROM bills WHERE customerId = :customerId ORDER BY id DESC")
     suspend fun getBillsListForCustomer(customerId: Long): List<BillEntity>
@@ -145,6 +147,7 @@ interface PaymentDao {
 interface BusinessSettingsDao {
     @Query("SELECT * FROM business_settings WHERE id = 1 LIMIT 1")
     fun getSettings(): Flow<BusinessSettingsEntity?>
+
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateSettings(settings: BusinessSettingsEntity)
