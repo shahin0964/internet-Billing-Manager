@@ -55,6 +55,21 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > ${{ github.workspace }}/release.keystore
           echo "KEYSTORE_PATH=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
+      - name: Validate Keystore Integrity
+        if: ${{ env.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "Validating Keystore Integrity..."
+          if ! keytool -list -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" > /dev/null 2>&1; then
+            echo "::warning::KEYSTORE VALIDATION FAILED! The STORE_PASSWORD is wrong, or KEYSTORE_BASE64 is corrupted. Falling back to Debug Keystore to prevent build failure."
+            rm -f ${{ github.workspace }}/release.keystore
+            echo "KEYSTORE_PATH=" >> $GITHUB_ENV
+          else
+            if [ -n "${{ env.KEY_ALIAS }}" ]; then
+              if ! keytool -list -keystore ${{ github.workspace }}/release.keystore -storepass "${{ env.STORE_PASSWORD }}" | grep -q -i "Alias name: ${{ env.KEY_ALIAS }}"; then
+                echo "::warning::KEY_ALIAS '${{ env.KEY_ALIAS }}' not found in keystore. Signing might fail."
+              fi
+            fi
+          fi
 
       - name: Determine Versioning
         id: versioning
@@ -214,9 +229,6 @@ jobs:
           VERSION_CODE: ${{ env.VERSION_CODE }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            export KEYSTORE_PATH="${{ github.workspace }}/release.keystore"
-          fi
           if [ -f "./gradlew" ]; then
             ./gradlew :app:assembleRelease -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}" --stacktrace
           else
