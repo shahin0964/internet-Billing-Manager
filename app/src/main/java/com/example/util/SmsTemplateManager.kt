@@ -95,14 +95,28 @@ object SmsTemplateManager {
     }
 
     fun saveCustomTemplate(context: Context, title: String, content: String): SmsTemplateItem {
+        return saveCustomTemplate(context, title, content, null)
+    }
+
+    fun saveCustomTemplate(context: Context, title: String, content: String, existingId: String?): SmsTemplateItem {
         val currentList = getCustomTemplates(context).toMutableList()
+        val id = existingId ?: ("custom_" + System.currentTimeMillis())
         val newItem = SmsTemplateItem(
-            id = "custom_" + System.currentTimeMillis(),
+            id = id,
             title = title.ifBlank { "Custom Template" },
             content = content,
             isBuiltIn = false
         )
-        currentList.add(newItem)
+        if (existingId != null) {
+            val index = currentList.indexOfFirst { it.id == existingId }
+            if (index != -1) {
+                currentList[index] = newItem
+            } else {
+                currentList.add(newItem)
+            }
+        } else {
+            currentList.add(newItem)
+        }
         saveCustomTemplatesList(context, currentList)
         return newItem
     }
@@ -124,22 +138,60 @@ object SmsTemplateManager {
         getPrefs(context).edit().putString(KEY_CUSTOM_TEMPLATES, jsonArray.toString()).apply()
     }
 
+    fun getDynamicBillingMonth(isBn: Boolean): String {
+        val calendar = java.util.Calendar.getInstance()
+        val year = calendar.get(java.util.Calendar.YEAR)
+        val monthIdx = calendar.get(java.util.Calendar.MONTH)
+        if (isBn) {
+            val bnMonths = arrayOf("জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন", "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর")
+            val bnYear = year.toString()
+                .replace("0", "০").replace("1", "১").replace("2", "২").replace("3", "৩").replace("4", "৪")
+                .replace("5", "৫").replace("6", "৬").replace("7", "৭").replace("8", "৮").replace("9", "৯")
+            return "${bnMonths[monthIdx]} $bnYear"
+        } else {
+            val enMonths = arrayOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+            return "${enMonths[monthIdx]} $year"
+        }
+    }
+
     fun replaceVariables(
         template: String,
-        customerName: String,
-        monthlyFee: String,
-        dueAmount: String,
-        packageName: String,
-        phone: String,
-        ispName: String
+        customerName: String = "",
+        monthlyFee: String = "",
+        dueAmount: String = "",
+        packageName: String = "",
+        phone: String = "",
+        ispName: String = "",
+        dueDate: String = "",
+        paymentDate: String = "",
+        customerId: String = ""
     ): String {
+        val isBn = java.util.Locale.getDefault().language == "bn"
+        val dynamicMonth = getDynamicBillingMonth(isBn)
+        
+        val cleanMonthlyFee = monthlyFee.replace("৳", "").trim()
+        val cleanDueAmount = dueAmount.replace("৳", "").trim()
+
         return template
+            // User requested format placeholders
+            .replace("{customer_name}", customerName.ifBlank { "" })
+            .replace("{billing_month}", dynamicMonth)
+            .replace("{bill_month}", dynamicMonth)
+            .replace("{monthly_bill}", cleanMonthlyFee.ifBlank { "0" })
+            .replace("{bill_amount}", cleanMonthlyFee.ifBlank { "0" })
+            .replace("{due_amount}", cleanDueAmount.ifBlank { "0" })
+            .replace("{due_date}", dueDate.ifBlank { "" })
+            .replace("{company_name}", ispName.ifBlank { "" })
+            .replace("{payment_date}", paymentDate.ifBlank { "" })
+            .replace("{customer_id}", customerId.ifBlank { "" })
+            
+            // Legacy / Old UI placeholders
             .replace("[Customer Name]", customerName)
             .replace("[গ্রাহকের নাম]", customerName)
-            .replace("[Monthly Fee]", monthlyFee.replace("৳", "").trim())
-            .replace("[মাসিক বিল]", monthlyFee.replace("৳", "").trim())
-            .replace("[Due Amount]", dueAmount.replace("৳", "").trim())
-            .replace("[বকেয়া পরিমাণ]", dueAmount.replace("৳", "").trim())
+            .replace("[Monthly Fee]", cleanMonthlyFee)
+            .replace("[মাসিক বিল]", cleanMonthlyFee)
+            .replace("[Due Amount]", cleanDueAmount)
+            .replace("[বকেয়া পরিমাণ]", cleanDueAmount)
             .replace("[Package/Speed]", packageName)
             .replace("[প্যাকেজ]", packageName)
             .replace("[Phone Number]", phone)
@@ -148,3 +200,4 @@ object SmsTemplateManager {
             .replace("[আইএসপি নাম]", ispName)
     }
 }
+
