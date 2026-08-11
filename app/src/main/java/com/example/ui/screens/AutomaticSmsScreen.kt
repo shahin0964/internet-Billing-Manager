@@ -63,12 +63,17 @@ fun AutomaticSmsScreen(
     val smsList by smsDb.smsQueueDao().getAllSmsFlow().collectAsState(initial = emptyList())
     val customerList by ispDb.customerDao().getAllCustomers().collectAsState(initial = emptyList())
 
+    // Run migration
+    LaunchedEffect(Unit) {
+        AutomaticSmsManager.migratePendingSms(context)
+    }
+
     // Tabs
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = if (isBn) {
-        listOf("ড্যাশবোর্ড", "নিয়ম ও সেটিংস", "টেমপ্লেট", "ইতিহাস")
+        listOf("ড্যাশবোর্ড", "নিয়ম ও সেটিংস", "ইতিহাস")
     } else {
-        listOf("Dashboard", "Settings & Rules", "Templates", "History")
+        listOf("Dashboard", "Settings & Rules", "History")
     }
 
     // Permission States
@@ -216,10 +221,6 @@ fun AutomaticSmsScreen(
                     )
                     1 -> SmsSettingsTab(
                         context = context,
-                        isBn = isBn
-                    )
-                    2 -> SmsTemplatesTab(
-                        context = context,
                         isBn = isBn,
                         onEditTemplate = { key, title, currentVal ->
                             editingTemplateKey = key
@@ -227,11 +228,17 @@ fun AutomaticSmsScreen(
                             editingTemplateContent = currentVal
                         }
                     )
-                    3 -> SmsHistoryTab(
+                    2 -> SmsHistoryTab(
                         context = context,
                         isBn = isBn,
                         smsList = smsList,
-                        onOpenManualSms = { showManualSmsDialog = true }
+                        onOpenManualSms = { showManualSmsDialog = true },
+                        onDeleteSms = { sms ->
+                            coroutineScope.launch {
+                                smsDb.smsQueueDao().deleteSms(sms)
+                                Toast.makeText(context, if (isBn) "এসএমএসটি ডিলিট করা হয়েছে!" else "SMS deleted successfully!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     )
                 }
             }
@@ -273,14 +280,13 @@ fun AutomaticSmsScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     val placeholders = listOf(
-                        "[Customer Name]" to (if (isBn) "গ্রাহকের নাম" else "Name"),
-                        "[Monthly Fee]" to (if (isBn) "মাসিক ফি" else "Fee"),
-                        "[Due Amount]" to (if (isBn) "বকেয়া ফি" else "Due"),
-                        "[Due Date]" to (if (isBn) "বিল পরিশোধের শেষ সময়" else "Due Date"),
-                        "[Payment Amount]" to (if (isBn) "পেমেন্ট পরিমাণ" else "Paid Amt"),
-                        "[Payment Date]" to (if (isBn) "পেমেন্ট ডেট" else "Paid Date"),
-                        "[Package/Speed]" to (if (isBn) "প্যাকেজ স্পিড" else "Package"),
-                        "[ISP Name]" to (if (isBn) "আইএসপি নাম" else "ISP Name")
+                        "{customer_name}" to (if (isBn) "গ্রাহকের নাম" else "Name"),
+                        "{bill_month}" to (if (isBn) "মাসের নাম" else "Month"),
+                        "{bill_amount}" to (if (isBn) "মাসিক ফি" else "Fee"),
+                        "{due_amount}" to (if (isBn) "বকেয়া ফি" else "Due"),
+                        "{due_date}" to (if (isBn) "বিল পরিশোধের শেষ সময়" else "Due Date"),
+                        "{payment_date}" to (if (isBn) "পেমেন্ট ডেট" else "Paid Date"),
+                        "{customer_id}" to (if (isBn) "গ্রাহক আইডি" else "Customer ID")
                     )
 
                     androidx.compose.foundation.lazy.LazyRow(
@@ -302,11 +308,11 @@ fun AutomaticSmsScreen(
                 Button(
                     onClick = {
                         when (key) {
-                            "bill_generated" -> AutomaticSmsManager.setTemplateBillGenerated(context, editingTemplateContent)
-                            "due_reminder" -> AutomaticSmsManager.setTemplateDueReminder(context, editingTemplateContent)
-                            "overdue" -> AutomaticSmsManager.setTemplateOverdue(context, editingTemplateContent)
                             "payment_confirmation" -> AutomaticSmsManager.setTemplatePaymentConfirmation(context, editingTemplateContent)
-                            "general_notice" -> AutomaticSmsManager.setTemplateGeneralNotice(context, editingTemplateContent)
+                            "due_reminder" -> AutomaticSmsManager.setTemplateDueReminder(context, editingTemplateContent)
+                            "warning_1" -> AutomaticSmsManager.setTemplateWarning1(context, editingTemplateContent)
+                            "warning_2" -> AutomaticSmsManager.setTemplateWarning2(context, editingTemplateContent)
+                            "warning_3" -> AutomaticSmsManager.setTemplateWarning3(context, editingTemplateContent)
                         }
                         editingTemplateKey = null
                         Toast.makeText(context, if (isBn) "টেমপ্লেট সংরক্ষণ করা হয়েছে!" else "Template saved successfully!", Toast.LENGTH_SHORT).show()
@@ -728,375 +734,29 @@ fun StatusRow(
 @Composable
 fun SmsSettingsTab(
     context: Context,
-    isBn: Boolean
-) {
-    // Settings States
-    var selectedSim by remember { mutableStateOf(AutomaticSmsManager.getSelectedSim(context)) }
-    var defaultSendingTime by remember { mutableStateOf(AutomaticSmsManager.getDefaultSendingTime(context)) }
-    var retryFailed by remember { mutableStateOf(AutomaticSmsManager.isRetryFailedEnabled(context)) }
-    var maxRetryCount by remember { mutableStateOf(AutomaticSmsManager.getMaxRetryCount(context)) }
-
-    // Rules States
-    var ruleBillGen by remember { mutableStateOf(AutomaticSmsManager.isRuleBillGeneratedEnabled(context)) }
-    var ruleDueReminder by remember { mutableStateOf(AutomaticSmsManager.isRuleDueReminderEnabled(context)) }
-    var ruleOverdue by remember { mutableStateOf(AutomaticSmsManager.isRuleOverdueEnabled(context)) }
-    var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymentConfirmationEnabled(context)) }
-    var ruleGeneralNotice by remember { mutableStateOf(AutomaticSmsManager.isRuleGeneralNoticeEnabled(context)) }
-
-    // Timing offset state
-    var dueReminderOffset by remember { mutableStateOf(AutomaticSmsManager.getDueReminderOffset(context)) }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Hardware Config
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = if (isBn) "হার্ডওয়্যার সেটিংস" else "Hardware Settings",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-
-                    // SIM dropdown selector row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(text = if (isBn) "সিম কার্ড সিলেক্ট করুন" else "Select Send SIM", fontWeight = FontWeight.Bold)
-                            Text(
-                                text = if (isBn) "মেসেজ পাঠানোর জন্য ব্যবহৃত সিম" else "The SIM card to deliver text alerts",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        var simExpanded by remember { mutableStateOf(false) }
-                        Box {
-                            Button(onClick = { simExpanded = true }) {
-                                Text(
-                                    text = when (selectedSim) {
-                                        1 -> "SIM 1"
-                                        2 -> "SIM 2"
-                                        else -> if (isBn) "ডিফল্ট" else "Default"
-                                    }
-                                )
-                            }
-                            DropdownMenu(expanded = simExpanded, onDismissRequest = { simExpanded = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(if (isBn) "ডিফল্ট (সিস্টেম নির্বাচিত)" else "Default (OS Selected)") },
-                                    onClick = {
-                                        selectedSim = 0
-                                        AutomaticSmsManager.setSelectedSim(context, 0)
-                                        simExpanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("SIM 1") },
-                                    onClick = {
-                                        selectedSim = 1
-                                        AutomaticSmsManager.setSelectedSim(context, 1)
-                                        simExpanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("SIM 2") },
-                                    onClick = {
-                                        selectedSim = 2
-                                        AutomaticSmsManager.setSelectedSim(context, 2)
-                                        simExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Time config
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(text = if (isBn) "ডিফল্ট পাঠানোর সময়" else "Default sending time", fontWeight = FontWeight.Bold)
-                            Text(
-                                text = if (isBn) "মেসেজ পাঠানোর আদর্শ সময়কাল" else "Target hour of day to process alerts",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = defaultSendingTime,
-                            onValueChange = {
-                                defaultSendingTime = it
-                                AutomaticSmsManager.setDefaultSendingTime(context, it)
-                            },
-                            modifier = Modifier.width(90.dp),
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center)
-                        )
-                    }
-
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Retry failed toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(text = if (isBn) "ব্যর্থ মেসেজ পুনরায় চেষ্টা করুন" else "Retry failed SMS", fontWeight = FontWeight.Bold)
-                            Text(
-                                text = if (isBn) "মেসেজ ব্যর্থ হলে পুনরায় পাঠানোর চেষ্টা করা হবে" else "Attempt redelivery of failed messages",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = retryFailed,
-                            onCheckedChange = {
-                                retryFailed = it
-                                AutomaticSmsManager.setRetryFailedEnabled(context, it)
-                            }
-                        )
-                    }
-
-                    if (retryFailed) {
-                        Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text(text = if (isBn) "সর্বোচ্চ ট্রাই কাউন্ট" else "Maximum retry count", fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = if (isBn) "একটি মেসেজ কতবার ট্রাই করা হবে" else "Max attempts allowed per SMS",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(
-                                    onClick = {
-                                        if (maxRetryCount > 1) {
-                                            maxRetryCount--
-                                            AutomaticSmsManager.setMaxRetryCount(context, maxRetryCount)
-                                        }
-                                    }
-                                ) {
-                                    Text("-", style = MaterialTheme.typography.titleLarge)
-                                }
-                                Text(
-                                    text = maxRetryCount.toString(),
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 12.dp)
-                                )
-                                TextButton(
-                                    onClick = {
-                                        if (maxRetryCount < 10) {
-                                            maxRetryCount++
-                                            AutomaticSmsManager.setMaxRetryCount(context, maxRetryCount)
-                                        }
-                                    }
-                                ) {
-                                    Text("+", style = MaterialTheme.typography.titleLarge)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Automatic SMS rules
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = if (isBn) "এসএমএস ডেলিভারি নিয়মসমূহ" else "Automatic SMS Delivery Rules",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-
-                    // Rule 1: Bill Generated
-                    RuleSwitchRow(
-                        title = if (isBn) "📄 বিল তৈরি করা হলে (Bill Generated)" else "📄 Bill Generated Notification",
-                        subtitle = if (isBn) "নতুন মাসের বিল জেনারেট হলে স্বয়ংক্রিয় মেসেজ যাবে" else "Send alert as soon as the monthly bill is created",
-                        checked = ruleBillGen,
-                        onCheckedChange = {
-                            ruleBillGen = it
-                            AutomaticSmsManager.setRuleBillGeneratedEnabled(context, it)
-                        }
-                    )
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Rule 2: Due Reminder
-                    RuleSwitchRow(
-                        title = if (isBn) "⏰ বিল পরিশোধের রিমাইন্ডার (Due Reminder)" else "⏰ Bill Due Reminder Alert",
-                        subtitle = if (isBn) "বিল পরিশোধের শেষ সময় অনুযায়ী রিমাইন্ডার পাঠাবে" else "Notify client relative to the billing due date",
-                        checked = ruleDueReminder,
-                        onCheckedChange = {
-                            ruleDueReminder = it
-                            AutomaticSmsManager.setRuleDueReminderEnabled(context, it)
-                        }
-                    )
-
-                    if (ruleDueReminder) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        // Show offset timing selector
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = if (isBn) "রিমাইন্ডার পাঠানোর সময়:" else "Reminder Send Timing Offset:",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            var offsetExpanded by remember { mutableStateOf(false) }
-                            Box {
-                                TextButton(onClick = { offsetExpanded = true }) {
-                                    Text(
-                                        text = when (dueReminderOffset) {
-                                            -3 -> if (isBn) "৩ দিন আগে" else "3 Days Before"
-                                            -1 -> if (isBn) "১ দিন আগে" else "1 Day Before"
-                                            0 -> if (isBn) "নির্ধারিত দিনে" else "On Due Date"
-                                            1 -> if (isBn) "১ দিন পরে" else "1 Day After"
-                                            3 -> if (isBn) "৩ দিন পরে" else "3 Days After"
-                                            else -> "On Due Date"
-                                        }
-                                    )
-                                }
-                                DropdownMenu(expanded = offsetExpanded, onDismissRequest = { offsetExpanded = false }) {
-                                    listOf(-3, -1, 0, 1, 3).forEach { offset ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = when (offset) {
-                                                        -3 -> if (isBn) "৩ দিন আগে" else "3 Days Before"
-                                                        -1 -> if (isBn) "১ দিন আগে" else "1 Day Before"
-                                                        0 -> if (isBn) "নির্ধারিত দিনে" else "On Due Date"
-                                                        1 -> if (isBn) "১ দিন পরে" else "1 Day After"
-                                                        3 -> if (isBn) "৩ দিন পরে" else "3 Days After"
-                                                        else -> ""
-                                                    }
-                                                )
-                                            },
-                                            onClick = {
-                                                dueReminderOffset = offset
-                                                AutomaticSmsManager.setDueReminderOffset(context, offset)
-                                                offsetExpanded = false
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Rule 3: Overdue
-                    RuleSwitchRow(
-                        title = if (isBn) "⚠️ বকেয়া বিলের সতর্কবার্তা (Overdue)" else "⚠️ Overdue Payment Warning",
-                        subtitle = if (isBn) "বিল বকেয়া থাকলে গ্রাহককে সংযোগ বিচ্ছিন্নকরণ সতর্কতা পাঠাবে" else "Deliver suspension warnings on pending overdues",
-                        checked = ruleOverdue,
-                        onCheckedChange = {
-                            ruleOverdue = it
-                            AutomaticSmsManager.setRuleOverdueEnabled(context, it)
-                        }
-                    )
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Rule 4: Payment Confirmation
-                    RuleSwitchRow(
-                        title = if (isBn) "✅ বিল পরিশোধের নিশ্চয়তা (Payment Confirmation)" else "✅ Payment Confirmation Receipt",
-                        subtitle = if (isBn) "বিল সফলভাবে জমা হলে ধন্যবাদ বার্তা পাঠানো হবে" else "Text digital receipts immediately upon payment",
-                        checked = rulePayConfirm,
-                        onCheckedChange = {
-                            rulePayConfirm = it
-                            AutomaticSmsManager.setRulePaymentConfirmationEnabled(context, it)
-                        }
-                    )
-                    Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-                    // Rule 5: General Notice
-                    RuleSwitchRow(
-                        title = if (isBn) "🔧 সাধারণ নোটিশ (General Notice)" else "🔧 General Notice Broadcaster",
-                        subtitle = if (isBn) "সেবা সাময়িক বিঘ্নিত হলে বা অন্যান্য নোটিশে এসএমএস ব্যবহার করা হবে" else "Enable service maintenance and notice alerts",
-                        checked = ruleGeneralNotice,
-                        onCheckedChange = {
-                            ruleGeneralNotice = it
-                            AutomaticSmsManager.setRuleGeneralNoticeEnabled(context, it)
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun RuleSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-fun SmsTemplatesTab(
-    context: Context,
     isBn: Boolean,
     onEditTemplate: (key: String, title: String, currentVal: String) -> Unit
 ) {
-    val billGenVal = AutomaticSmsManager.getTemplateBillGenerated(context)
-    val dueRemVal = AutomaticSmsManager.getTemplateDueReminder(context)
-    val overdueVal = AutomaticSmsManager.getTemplateOverdue(context)
-    val payConfirmVal = AutomaticSmsManager.getTemplatePaymentConfirmation(context)
-    val generalNoticeVal = AutomaticSmsManager.getTemplateGeneralNotice(context)
+var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymentConfirmationEnabled(context)) }
+    var ruleDueReminder by remember { mutableStateOf(AutomaticSmsManager.isRuleDueReminderEnabled(context)) }
+    var ruleBillGenerated by remember { mutableStateOf(AutomaticSmsManager.isRuleBillGeneratedEnabled(context)) }
+    var ruleOverdue by remember { mutableStateOf(AutomaticSmsManager.isRuleOverdueEnabled(context)) }
+
+    var ruleGeneralNotice by remember { mutableStateOf(AutomaticSmsManager.isRuleGeneralNoticeEnabled(context)) }
+
+    var dueOffset by remember { mutableStateOf(AutomaticSmsManager.getDueReminderOffset(context)) }
+    var selectedSim by remember { mutableStateOf(AutomaticSmsManager.getSelectedSim(context)) }
+
+
+    
+    var ruleWarning1 by remember { mutableStateOf(AutomaticSmsManager.isRuleWarning1Enabled(context)) }
+    var dateWarning1 by remember { mutableStateOf(AutomaticSmsManager.getDateWarning1(context)) }
+    
+    var ruleWarning2 by remember { mutableStateOf(AutomaticSmsManager.isRuleWarning2Enabled(context)) }
+    var dateWarning2 by remember { mutableStateOf(AutomaticSmsManager.getDateWarning2(context)) }
+    
+    var ruleWarning3 by remember { mutableStateOf(AutomaticSmsManager.isRuleWarning3Enabled(context)) }
+    var dateWarning3 by remember { mutableStateOf(AutomaticSmsManager.getDateWarning3(context)) }
 
     LazyColumn(
         modifier = Modifier
@@ -1104,115 +764,305 @@ fun SmsTemplatesTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Explanatory Intro Card
+// Bill Generated
+        item {
+            RuleCard(
+                title = if (isBn) "📝 বিল তৈরির বার্তা (Bill Generated Message)" else "📝 Bill Generated Message",
+                checked = ruleBillGenerated,
+                onCheckedChange = {
+                    ruleBillGenerated = it
+                    AutomaticSmsManager.setRuleBillGeneratedEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("bill_generated", if (isBn) "বিল তৈরির বার্তা" else "Bill Generated Message", AutomaticSmsManager.getTemplateBillGenerated(context))
+                },
+                isBn = isBn
+            )
+        }
+
+        // Overdue Bill
+        item {
+            RuleCard(
+                title = if (isBn) "🚫 বকেয়া নোটিশ (Overdue Notice)" else "🚫 Overdue Notice",
+                checked = ruleOverdue,
+                onCheckedChange = {
+                    ruleOverdue = it
+                    AutomaticSmsManager.setRuleOverdueEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("overdue", if (isBn) "বকেয়া নোটিশ" else "Overdue Notice", AutomaticSmsManager.getTemplateOverdue(context))
+                },
+                isBn = isBn
+            )
+        }
+
+        // General Notice
+        item {
+            RuleCard(
+                title = if (isBn) "📢 সাধারণ নোটিশ (General Notice)" else "📢 General Notice",
+                checked = ruleGeneralNotice,
+                onCheckedChange = {
+                    ruleGeneralNotice = it
+                    AutomaticSmsManager.setRuleGeneralNoticeEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("general_notice", if (isBn) "সাধারণ নোটিশ" else "General Notice", AutomaticSmsManager.getTemplateGeneralNotice(context))
+                },
+                isBn = isBn
+            )
+        }
+
+        // Bill Paid
+        item {
+            RuleCard(
+                title = if (isBn) "✅ বিল পরিশোধের বার্তা (Bill Paid Message)" else "✅ Bill Paid Message",
+                checked = rulePayConfirm,
+                onCheckedChange = {
+                    rulePayConfirm = it
+                    AutomaticSmsManager.setRulePaymentConfirmationEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("payment_confirmation", if (isBn) "বিল পরিশোধের বার্তা" else "Bill Paid Message", AutomaticSmsManager.getTemplatePaymentConfirmation(context))
+                },
+                isBn = isBn
+            )
+        }
+        
+// Due Offset Selection
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(12.dp)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = if (isBn) "এখানে বিভিন্ন ইভেন্টের জন্য পাঠানো এসএমএস এর টেমপ্লেট পরিবর্তন করতে পারবেন। ডায়নামিক মানগুলো যেমন [Customer Name] বা [Due Amount] স্বয়ংক্রিয়ভাবে পরিবর্তিত হয়ে কাস্টমার ডাটা বসাবে।"
-                        else "Customize the text content of your automatic SMS alerts here. Placeholders like [Customer Name] or [Due Amount] will be populated automatically with corresponding client data.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        text = if (isBn) "বকেয়া বিলের মেসেজ পাঠানোর সময়" else "Due Reminder Timing",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
+                    Text(
+                        text = if (isBn) "বকেয়া বিলের মেসেজ কবে পাঠানো হবে তা নির্বাচন করুন:" else "Select when the due reminder should be sent:",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    
+                    var expandedOffset by remember { mutableStateOf(false) }
+                    val offsetLabel = when (dueOffset) {
+                        -3 -> if (isBn) "বিলের শেষ তারিখের ৩ দিন আগে" else "3 days before due date"
+                        -1 -> if (isBn) "বিলের শেষ তারিখের ১ দিন আগে" else "1 day before due date"
+                        0 -> if (isBn) "বিলের শেষ তারিখে" else "On due date"
+                        1 -> if (isBn) "বিলের শেষ তারিখের ১ দিন পর" else "1 day after due date"
+                        3 -> if (isBn) "বিলের শেষ তারিখের ৩ দিন পর" else "3 days after due date"
+                        else -> if (isBn) "বিলের শেষ তারিখে" else "On due date"
+                    }
+                    
+                    Box {
+                        OutlinedButton(onClick = { expandedOffset = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(text = offsetLabel)
+                        }
+                        DropdownMenu(expanded = expandedOffset, onDismissRequest = { expandedOffset = false }) {
+                            val options = listOf(-3, -1, 0, 1, 3)
+                            options.forEach { opt ->
+                                val lbl = when (opt) {
+                                    -3 -> if (isBn) "বিলের শেষ তারিখের ৩ দিন আগে" else "3 days before due date"
+                                    -1 -> if (isBn) "বিলের শেষ তারিখের ১ দিন আগে" else "1 day before due date"
+                                    0 -> if (isBn) "বিলের শেষ তারিখে" else "On due date"
+                                    1 -> if (isBn) "বিলের শেষ তারিখের ১ দিন পর" else "1 day after due date"
+                                    3 -> if (isBn) "বিলের শেষ তারিখের ৩ দিন পর" else "3 days after due date"
+                                    else -> ""
+                                }
+                                DropdownMenuItem(
+                                    text = { Text(text = lbl) },
+                                    onClick = {
+                                        dueOffset = opt
+                                        AutomaticSmsManager.setDueReminderOffset(context, opt)
+                                        expandedOffset = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // Templates Cards
+        // Due Bill
         item {
-            TemplateCardItem(
-                title = if (isBn) "📄 বিল তৈরি হওয়ার বার্তা (Bill Generated)" else "📄 Bill Generated Notification",
-                content = billGenVal,
-                onEdit = {
-                    onEditTemplate("bill_generated", if (isBn) "বিল জেনারেট টেমপ্লেট" else "Bill Generated Template", billGenVal)
-                }
+            RuleCard(
+                title = if (isBn) "⏰ বকেয়া বিলের বার্তা (Due Bill Message)" else "⏰ Due Bill Message",
+                checked = ruleDueReminder,
+                onCheckedChange = {
+                    ruleDueReminder = it
+                    AutomaticSmsManager.setRuleDueReminderEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("due_reminder", if (isBn) "বকেয়া বিলের বার্তা" else "Due Bill Message", AutomaticSmsManager.getTemplateDueReminder(context))
+                },
+                isBn = isBn
             )
         }
 
+        // Warning 1
         item {
-            TemplateCardItem(
-                title = if (isBn) "⏰ বিল পরিশোধের শেষ রিমাইন্ডার (Due Reminder)" else "⏰ Due Payment Reminder Alert",
-                content = dueRemVal,
-                onEdit = {
-                    onEditTemplate("due_reminder", if (isBn) "ডিউ রিমাইন্ডার টেমপ্লেট" else "Due Reminder Template", dueRemVal)
-                }
+            WarningCard(
+                title = if (isBn) "⚠️ পেমেন্ট ওয়ার্নিং ১ (Payment Warning 1)" else "⚠️ Payment Warning 1",
+                checked = ruleWarning1,
+                date = dateWarning1,
+                onCheckedChange = {
+                    ruleWarning1 = it
+                    AutomaticSmsManager.setRuleWarning1Enabled(context, it)
+                },
+                onDateChange = {
+                    dateWarning1 = it
+                    AutomaticSmsManager.setDateWarning1(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("warning_1", if (isBn) "পেমেন্ট ওয়ার্নিং ১" else "Payment Warning 1", AutomaticSmsManager.getTemplateWarning1(context))
+                },
+                isBn = isBn
             )
         }
 
+        // Warning 2
         item {
-            TemplateCardItem(
-                title = if (isBn) "⚠️ সংযোগ বিচ্ছিন্ন সতর্কবার্তা (Overdue Reminder)" else "⚠️ Overdue Payment Warning Alert",
-                content = overdueVal,
-                onEdit = {
-                    onEditTemplate("overdue", if (isBn) "ওভারডিউ সতর্কবার্তা টেমপ্লেট" else "Overdue Template", overdueVal)
-                }
+            WarningCard(
+                title = if (isBn) "⚠️ পেমেন্ট ওয়ার্নিং ২ (Payment Warning 2)" else "⚠️ Payment Warning 2",
+                checked = ruleWarning2,
+                date = dateWarning2,
+                onCheckedChange = {
+                    ruleWarning2 = it
+                    AutomaticSmsManager.setRuleWarning2Enabled(context, it)
+                },
+                onDateChange = {
+                    dateWarning2 = it
+                    AutomaticSmsManager.setDateWarning2(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("warning_2", if (isBn) "পেমেন্ট ওয়ার্নিং ২" else "Payment Warning 2", AutomaticSmsManager.getTemplateWarning2(context))
+                },
+                isBn = isBn
             )
         }
 
+        // Warning 3
         item {
-            TemplateCardItem(
-                title = if (isBn) "✅ বিল পরিশোধের নিশ্চয়তা (Payment Confirmation)" else "✅ Payment Confirmation Receipt Alert",
-                content = payConfirmVal,
-                onEdit = {
-                    onEditTemplate("payment_confirmation", if (isBn) "পেমেন্ট কনফার্মেশন টেমপ্লেট" else "Payment Confirmation Template", payConfirmVal)
-                }
-            )
-        }
-
-        item {
-            TemplateCardItem(
-                title = if (isBn) "🔧 সাধারণ নোটিশ ও মেসেজ (General Notice)" else "🔧 General Maintenance / Notice Alert",
-                content = generalNoticeVal,
-                onEdit = {
-                    onEditTemplate("general_notice", if (isBn) "সাধারণ নোটিশ টেমপ্লেট" else "General Notice Template", generalNoticeVal)
-                }
+            WarningCard(
+                title = if (isBn) "⚠️ পেমেন্ট ওয়ার্নিং ৩ (Payment Warning 3)" else "⚠️ Payment Warning 3",
+                checked = ruleWarning3,
+                date = dateWarning3,
+                onCheckedChange = {
+                    ruleWarning3 = it
+                    AutomaticSmsManager.setRuleWarning3Enabled(context, it)
+                },
+                onDateChange = {
+                    dateWarning3 = it
+                    AutomaticSmsManager.setDateWarning3(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("warning_3", if (isBn) "পেমেন্ট ওয়ার্নিং ৩" else "Payment Warning 3", AutomaticSmsManager.getTemplateWarning3(context))
+                },
+                isBn = isBn
             )
         }
     }
 }
 
 @Composable
-fun TemplateCardItem(
+fun RuleCard(
     title: String,
-    content: String,
-    onEdit: () -> Unit
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onEditClick: () -> Unit,
+    isBn: Boolean
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(text = title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                IconButton(onClick = onEdit) {
-                    Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                Text(text = title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Switch(checked = checked, onCheckedChange = onCheckedChange)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(onClick = onEditClick, modifier = Modifier.fillMaxWidth()) {
+                Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = if (isBn) "টেমপ্লেট এডিট করুন" else "Edit Template")
+            }
+        }
+    }
+}
+
+@Composable
+fun WarningCard(
+    title: String,
+    checked: Boolean,
+    date: Int,
+    onCheckedChange: (Boolean) -> Unit,
+    onDateChange: (Int) -> Unit,
+    onEditClick: () -> Unit,
+    isBn: Boolean
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Switch(checked = checked, onCheckedChange = onCheckedChange)
+            }
+            
+            if (checked) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = if (isBn) "পাঠানোর তারিখ:" else "Send Date:", style = MaterialTheme.typography.bodyMedium)
+                    
+                    Box {
+                        TextButton(onClick = { expanded = true }) {
+                            Text(text = if (isBn) "মাসের $date তারিখ" else "$date of month")
+                        }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            for (i in 1..31) {
+                                DropdownMenuItem(
+                                    text = { Text(text = "$i") },
+                                    onClick = {
+                                        onDateChange(i)
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                    .padding(12.dp)
-                    .clip(RoundedCornerShape(8.dp))
-            ) {
-                Text(
-                    text = content,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(onClick = onEditClick, modifier = Modifier.fillMaxWidth()) {
+                Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = if (isBn) "টেমপ্লেট এডিট করুন" else "Edit Template")
             }
         }
     }
@@ -1223,7 +1073,8 @@ fun SmsHistoryTab(
     context: Context,
     isBn: Boolean,
     smsList: List<SmsQueueEntity>,
-    onOpenManualSms: () -> Unit
+    onOpenManualSms: () -> Unit,
+    onDeleteSms: (SmsQueueEntity) -> Unit
 ) {
     var selectedFilter by remember { mutableStateOf("ALL") } // ALL, PENDING, SENT, FAILED
     var searchKeyword by remember { mutableStateOf("") }
@@ -1337,7 +1188,7 @@ fun SmsHistoryTab(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(filteredList) { sms ->
-                    SmsHistoryItemCard(sms = sms, isBn = isBn)
+                    SmsHistoryItemCard(sms = sms, isBn = isBn, onDelete = { onDeleteSms(sms) })
                 }
             }
         }
@@ -1347,7 +1198,8 @@ fun SmsHistoryTab(
 @Composable
 fun SmsHistoryItemCard(
     sms: SmsQueueEntity,
-    isBn: Boolean
+    isBn: Boolean,
+    onDelete: () -> Unit
 ) {
     val dateStr = try {
         val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
@@ -1432,6 +1284,18 @@ fun SmsHistoryItemCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            // If PENDING, SENDING, or FAILED display Delete/Cancel option
+            if (sms.status == "PENDING" || sms.status == "SENDING" || sms.status == "FAILED") {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDelete) {
+                        Icon(imageVector = Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = if (isBn) "বাতিল/মুছুন" else "Cancel/Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
 
             // If Failed, display error reason logs

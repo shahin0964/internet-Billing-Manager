@@ -490,4 +490,11 @@
     <string name="selected_counter_label">নির্বাচিত: %1$d / %2$d জন</string>
     <string name="bulk_sms_title">💬 বাল্ক এসএমএস (Bulk SMS)</string>
     <string name="bulk_sms_subtitle">নির্বাচিত গ্রাহকদের একসাথে এসএমএস পাঠান</string>
+
+    <!-- Security Status -->
+    <string name="security">নিরাপত্তা</string>
+    <string name="security_status_checking">পরীক্ষা চলছে...</string>
+    <string name="security_status_done">✓ সম্পন্ন</string>
+    <string name="security_status_issue">⚠️ সমস্যা পাওয়া গেছে</string>
+    <string name="security_status_not_checked">পরীক্ষা করা হয়নি</string>
 </resources>

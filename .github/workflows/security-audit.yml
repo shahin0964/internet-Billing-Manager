@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   security_audit:
@@ -23,6 +23,24 @@ jobs:
           python-version: '3.x'
 
       - name: Run Security Audit Script
+        id: audit
         run: |
           chmod +x scripts/security_audit.py
           python scripts/security_audit.py
+        continue-on-error: true
+
+      - name: Publish Public Status
+        run: |
+          cp security_status.json /tmp/security_status.json || echo '{ "status": "failed" }' > /tmp/security_status.json
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan security-status
+          git rm -rf . || true
+          cp /tmp/security_status.json ./
+          git add security_status.json
+          git commit -m "Update security status" || true
+          git push origin HEAD:security-status --force
+          
+      - name: Fail if audit failed
+        if: steps.audit.outcome != 'success'
+        run: exit 1

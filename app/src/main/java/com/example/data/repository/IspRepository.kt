@@ -143,6 +143,12 @@ class IspRepository(
         customerDao.deleteCustomer(customer)
 
         context?.let { ctx ->
+            try {
+                com.example.data.database.SmsDatabase.getDatabase(ctx).smsQueueDao().deleteSmsByCustomerId(customer.id.toString())
+            } catch (e: Exception) {
+                Log.e("IspRepository", "Failed to delete pending SMS for customer: ${e.message}")
+            }
+
             bills.forEach { bill ->
                 com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "bills", bill.id.toString())
             }

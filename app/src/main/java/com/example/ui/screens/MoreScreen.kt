@@ -72,6 +72,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,6 +115,11 @@ fun MoreScreen(
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showAccountScreen by remember { mutableStateOf(false) }
+    var securityAuditState by remember { mutableStateOf(SecurityAuditState.CHECKING) }
+
+    LaunchedEffect(Unit) {
+        securityAuditState = fetchSecurityStatus()
+    }
 
     if (showAccountScreen) {
         androidx.compose.ui.window.Dialog(
@@ -1031,7 +1037,44 @@ tonalElevation = 2.dp,
             }
         }
 
-
+        // Security Status Item (Read-only)
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 6.dp,
+                tonalElevation = 3.dp,
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    SectionHeader(
+                        title = "🛡️ ${androidx.compose.ui.res.stringResource(com.example.R.string.security)}",
+                        subtitle = when (securityAuditState) {
+                            SecurityAuditState.CHECKING -> androidx.compose.ui.res.stringResource(com.example.R.string.security_status_checking)
+                            SecurityAuditState.PASSED -> androidx.compose.ui.res.stringResource(com.example.R.string.security_status_done)
+                            SecurityAuditState.FAILED -> androidx.compose.ui.res.stringResource(com.example.R.string.security_status_issue)
+                            SecurityAuditState.UNKNOWN -> androidx.compose.ui.res.stringResource(com.example.R.string.security_status_not_checked)
+                        }
+                    )
+                }
+            }
+        }
 
         item { Spacer(modifier = Modifier.height(30.dp)) }
     }

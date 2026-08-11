@@ -53,6 +53,13 @@ object AutomaticSmsManager {
     private const val KEY_RULE_PAYMENT_CONFIRMATION = "rule_payment_confirmation"
     private const val KEY_RULE_GENERAL_NOTICE = "rule_general_notice"
 
+    private const val KEY_RULE_WARNING_1 = "rule_warning_1"
+    private const val KEY_RULE_WARNING_2 = "rule_warning_2"
+    private const val KEY_RULE_WARNING_3 = "rule_warning_3"
+    private const val KEY_DATE_WARNING_1 = "date_warning_1"
+    private const val KEY_DATE_WARNING_2 = "date_warning_2"
+    private const val KEY_DATE_WARNING_3 = "date_warning_3"
+
     // Due Reminder Offset Key
     private const val KEY_DUE_REMINDER_OFFSET = "due_reminder_offset" // e.g. -3, -1, 0, 1, 3
 
@@ -63,12 +70,20 @@ object AutomaticSmsManager {
     private const val KEY_TEMPLATE_PAYMENT_CONFIRMATION = "template_payment_confirmation"
     private const val KEY_TEMPLATE_GENERAL_NOTICE = "template_general_notice"
 
+    private const val KEY_TEMPLATE_WARNING_1 = "template_warning_1"
+    private const val KEY_TEMPLATE_WARNING_2 = "template_warning_2"
+    private const val KEY_TEMPLATE_WARNING_3 = "template_warning_3"
+
     // Defaults (Bengali and English fallback default templates)
-    private const val DEFAULT_TEMPLATE_BILL_GENERATED = "প্রিয় [Customer Name],\nআপনার [Package/Speed] ইন্টারনেট বিল ৳[Monthly Fee] তৈরি করা হয়েছে। পরিশোধের শেষ সময়: [Due Date]। ধন্যবাদ।"
-    private const val DEFAULT_TEMPLATE_DUE_REMINDER = "প্রিয় [Customer Name],\nআপনার ইন্টারনেট বিল ৳[Due Amount] পরিশোধের শেষ তারিখ: [Due Date]। সংযোগ সচল রাখতে অনুগ্রহ করে দ্রুত বিল পরিশোধ করুন।"
-    private const val DEFAULT_TEMPLATE_OVERDUE = "প্রিয় [Customer Name],\nআপনার ইন্টারনেট বিল ৳[Due Amount] বকেয়া রয়েছে। সংযোগ বিচ্ছিন্ন হওয়া এড়াতে দয়া করে এখনই বিল পরিশোধ করুন।"
-    private const val DEFAULT_TEMPLATE_PAYMENT_CONFIRMATION = "প্রিয় [Customer Name],\nআপনার বিল বাবদ ৳[Payment Amount] পরিশোধ সফলভাবে গ্রহণ করা হয়েছে। ধন্যবাদ।"
-    private const val DEFAULT_TEMPLATE_GENERAL_NOTICE = "প্রিয় [Customer Name],\nআমাদের সেবা সাময়িক বিঘ্নিত হতে পারে। সাময়িক অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত।"
+    private const val DEFAULT_TEMPLATE_BILL_GENERATED = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল তৈরি করা হয়েছে। বিল: ৳{bill_amount}। পরিশোধের শেষ সময়: {due_date}। ধন্যবাদ।"
+    private const val DEFAULT_TEMPLATE_DUE_REMINDER = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল এখনো বকেয়া রয়েছে। বকেয়া বিল: ৳{due_amount}।"
+    private const val DEFAULT_TEMPLATE_OVERDUE = "প্রিয় {customer_name},\nআপনার ইন্টারনেট বিল ৳{due_amount} বকেয়া রয়েছে। সংযোগ বিচ্ছিন্ন হওয়া এড়াতে দয়া করে এখনই বিল পরিশোধ করুন।"
+    private const val DEFAULT_TEMPLATE_PAYMENT_CONFIRMATION = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল পরিশোধ সম্পন্ন হয়েছে। ধন্যবাদ।"
+    private const val DEFAULT_TEMPLATE_GENERAL_NOTICE = "প্রিয় {customer_name},\nআমাদের সেবা সাময়িক বিঘ্নিত হতে পারে। সাময়িক অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত।"
+
+    private const val DEFAULT_TEMPLATE_WARNING_1 = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল এখনো বকেয়া রয়েছে। বকেয়া বিল: ৳{due_amount}।"
+    private const val DEFAULT_TEMPLATE_WARNING_2 = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল এখনো বকেয়া রয়েছে। সংযোগ সচল রাখতে দ্রুত ৳{due_amount} পরিশোধ করুন।"
+    private const val DEFAULT_TEMPLATE_WARNING_3 = "জরুরী নোটিশ: প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল ৳{due_amount} পরিশোধ না করায় সংযোগ বিচ্ছিন্ন করা হতে পারে।"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -106,6 +121,21 @@ object AutomaticSmsManager {
     fun isRuleGeneralNoticeEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_GENERAL_NOTICE, true)
     fun setRuleGeneralNoticeEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_GENERAL_NOTICE, enabled).apply()
 
+    fun isRuleWarning1Enabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_WARNING_1, false)
+    fun setRuleWarning1Enabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_WARNING_1, enabled).apply()
+    fun getDateWarning1(context: Context): Int = getPrefs(context).getInt(KEY_DATE_WARNING_1, 5)
+    fun setDateWarning1(context: Context, date: Int) = getPrefs(context).edit().putInt(KEY_DATE_WARNING_1, date).apply()
+
+    fun isRuleWarning2Enabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_WARNING_2, false)
+    fun setRuleWarning2Enabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_WARNING_2, enabled).apply()
+    fun getDateWarning2(context: Context): Int = getPrefs(context).getInt(KEY_DATE_WARNING_2, 10)
+    fun setDateWarning2(context: Context, date: Int) = getPrefs(context).edit().putInt(KEY_DATE_WARNING_2, date).apply()
+
+    fun isRuleWarning3Enabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_WARNING_3, false)
+    fun setRuleWarning3Enabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_WARNING_3, enabled).apply()
+    fun getDateWarning3(context: Context): Int = getPrefs(context).getInt(KEY_DATE_WARNING_3, 15)
+    fun setDateWarning3(context: Context, date: Int) = getPrefs(context).edit().putInt(KEY_DATE_WARNING_3, date).apply()
+
     // Offset Getters & Setters
     fun getDueReminderOffset(context: Context): Int = getPrefs(context).getInt(KEY_DUE_REMINDER_OFFSET, 0)
     fun setDueReminderOffset(context: Context, offset: Int) = getPrefs(context).edit().putInt(KEY_DUE_REMINDER_OFFSET, offset).apply()
@@ -125,6 +155,15 @@ object AutomaticSmsManager {
 
     fun getTemplateGeneralNotice(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_GENERAL_NOTICE, DEFAULT_TEMPLATE_GENERAL_NOTICE) ?: DEFAULT_TEMPLATE_GENERAL_NOTICE
     fun setTemplateGeneralNotice(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_GENERAL_NOTICE, t).apply()
+
+    fun getTemplateWarning1(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_WARNING_1, DEFAULT_TEMPLATE_WARNING_1) ?: DEFAULT_TEMPLATE_WARNING_1
+    fun setTemplateWarning1(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_WARNING_1, t).apply()
+
+    fun getTemplateWarning2(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_WARNING_2, DEFAULT_TEMPLATE_WARNING_2) ?: DEFAULT_TEMPLATE_WARNING_2
+    fun setTemplateWarning2(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_WARNING_2, t).apply()
+
+    fun getTemplateWarning3(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_WARNING_3, DEFAULT_TEMPLATE_WARNING_3) ?: DEFAULT_TEMPLATE_WARNING_3
+    fun setTemplateWarning3(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_WARNING_3, t).apply()
 
     // Permission check
     fun isSmsPermissionGranted(context: Context): Boolean {
@@ -177,9 +216,20 @@ object AutomaticSmsManager {
         paymentAmount: String = "",
         paymentDate: String = "",
         packageSpeed: String = "",
-        ispName: String = ""
+        ispName: String = "",
+        billMonth: String = "",
+        customerId: String = ""
     ): String {
         return template
+            // New user requested placeholders
+            .replace("{customer_name}", customerName)
+            .replace("{bill_month}", billMonth)
+            .replace("{bill_amount}", monthlyFee)
+            .replace("{due_amount}", dueAmount)
+            .replace("{due_date}", dueDate)
+            .replace("{payment_date}", paymentDate)
+            .replace("{customer_id}", customerId)
+            // Legacy placeholders
             .replace("[Customer Name]", customerName)
             .replace("[Customer]", customerName)
             .replace("[Bill Amount]", monthlyFee)
@@ -190,6 +240,51 @@ object AutomaticSmsManager {
             .replace("[Payment Date]", paymentDate)
             .replace("[Package/Speed]", packageSpeed)
             .replace("[ISP Name]", ispName)
+    }
+
+    /**
+     * Migrate old pending SMS records to use current phone numbers
+     */
+    suspend fun migratePendingSms(context: Context) = withContext(Dispatchers.IO) {
+        try {
+            val db = SmsDatabase.getDatabase(context)
+            val dao = db.smsQueueDao()
+            val ispDb = IspDatabase.getDatabase(context)
+            val customerDao = ispDb.customerDao()
+
+            val pendingList = dao.getSmsByStatus("PENDING") + dao.getSmsByStatus("FAILED")
+            for (sms in pendingList) {
+                var newNumber = sms.mobileNumber
+                var customerId = sms.customerReferenceId.toLongOrNull()
+
+                // Try to recover customer ID by matching name and phone if ID is missing or invalid
+                if (customerId == null) {
+                    val allCustomers = customerDao.getAllCustomers().first()
+                    val matchedCustomer = allCustomers.firstOrNull { it.name == sms.customerName && it.phone.trim().replace(" ", "") == sms.mobileNumber }
+                    if (matchedCustomer != null) {
+                        customerId = matchedCustomer.id
+                    }
+                }
+
+                if (customerId != null) {
+                    val customer = customerDao.getCustomerById(customerId).first()
+                    if (customer != null && customer.phone.isNotBlank()) {
+                        val cleanNumber = customer.phone.trim().replace(" ", "").replace("-", "")
+                        if (cleanNumber != sms.mobileNumber || sms.customerReferenceId != customerId.toString()) {
+                            Log.d(TAG, "Migrating SMS ID ${sms.id} for customer $customerId to new number $cleanNumber")
+                            dao.updateSms(
+                                sms.copy(
+                                    mobileNumber = cleanNumber,
+                                    customerReferenceId = customerId.toString()
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to migrate pending SMS: ${e.message}")
+        }
     }
 
     /**
@@ -239,6 +334,96 @@ object AutomaticSmsManager {
         triggerSmsWorker(context)
     }
 
+    /**
+     * Hook to evaluate daily warnings for unpaid bills
+     */
+    suspend fun evaluateDailyWarnings(context: Context) {
+        if (!isSmsEnabled(context)) return
+
+        val ispDb = IspDatabase.getDatabase(context)
+        val billDao = ispDb.billDao()
+        val customerDao = ispDb.customerDao()
+        val settingsDao = ispDb.settingsDao()
+        
+        val settings = settingsDao.getSettings().first()
+        val ispName = settings?.ispName ?: "ISP"
+
+        val sendWarning1 = isRuleWarning1Enabled(context)
+        val dateWarning1 = getDateWarning1(context)
+        
+        val sendWarning2 = isRuleWarning2Enabled(context)
+        val dateWarning2 = getDateWarning2(context)
+        
+        val sendWarning3 = isRuleWarning3Enabled(context)
+        val dateWarning3 = getDateWarning3(context)
+
+        // Only evaluate if at least one is enabled
+        if (!sendWarning1 && !sendWarning2 && !sendWarning3) return
+
+        // Get unpaid bills
+        val unpaidBills = billDao.getAllBills().first().filter { it.dueAmount > 0.0 }
+        
+        val calendar = java.util.Calendar.getInstance()
+        val todayDate = calendar.get(java.util.Calendar.DAY_OF_MONTH)
+
+        for (bill in unpaidBills) {
+            val customer = customerDao.getCustomerById(bill.customerId).first() ?: continue
+            
+            // Check Warning 1
+            if (sendWarning1 && todayDate == dateWarning1) {
+                val template = getTemplateWarning1(context)
+                val msg = processTemplate(
+                    template = template,
+                    customerName = customer.name,
+                    monthlyFee = bill.amount.toString(),
+                    dueAmount = bill.dueAmount.toString(),
+                    dueDate = bill.dueDate,
+                    packageSpeed = customer.packageName,
+                    ispName = ispName,
+                    billMonth = bill.billingMonth,
+                    customerId = customer.id.toString()
+                )
+                val idKey = "bill_${bill.id}_warning_1"
+                enqueueSms(context, customer.id, customer.name, customer.phone, msg, "warning_1", idKey)
+            }
+            
+            // Check Warning 2
+            if (sendWarning2 && todayDate == dateWarning2) {
+                val template = getTemplateWarning2(context)
+                val msg = processTemplate(
+                    template = template,
+                    customerName = customer.name,
+                    monthlyFee = bill.amount.toString(),
+                    dueAmount = bill.dueAmount.toString(),
+                    dueDate = bill.dueDate,
+                    packageSpeed = customer.packageName,
+                    ispName = ispName,
+                    billMonth = bill.billingMonth,
+                    customerId = customer.id.toString()
+                )
+                val idKey = "bill_${bill.id}_warning_2"
+                enqueueSms(context, customer.id, customer.name, customer.phone, msg, "warning_2", idKey)
+            }
+            
+            // Check Warning 3
+            if (sendWarning3 && todayDate == dateWarning3) {
+                val template = getTemplateWarning3(context)
+                val msg = processTemplate(
+                    template = template,
+                    customerName = customer.name,
+                    monthlyFee = bill.amount.toString(),
+                    dueAmount = bill.dueAmount.toString(),
+                    dueDate = bill.dueDate,
+                    packageSpeed = customer.packageName,
+                    ispName = ispName,
+                    billMonth = bill.billingMonth,
+                    customerId = customer.id.toString()
+                )
+                val idKey = "bill_${bill.id}_warning_3"
+                enqueueSms(context, customer.id, customer.name, customer.phone, msg, "warning_3", idKey)
+            }
+        }
+    }
     /**
      * Hooks for Bill Generation Event
      */

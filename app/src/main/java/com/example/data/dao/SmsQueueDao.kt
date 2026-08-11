@@ -35,6 +35,9 @@ interface SmsQueueDao {
     @Delete
     suspend fun deleteSms(sms: SmsQueueEntity)
 
+    @Query("DELETE FROM sms_queue WHERE customerReferenceId = :customerId")
+    suspend fun deleteSmsByCustomerId(customerId: String)
+
     @Query("DELETE FROM sms_queue")
     suspend fun clearAll()
 }

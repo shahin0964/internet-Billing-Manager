@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.flow.first
 import com.example.data.database.SmsDatabase
 
 class SmsQueueWorker(
@@ -30,8 +31,16 @@ class SmsQueueWorker(
             return Result.failure()
         }
 
+        // Migrate first to ensure data consistency
+        AutomaticSmsManager.migratePendingSms(context)
+        
+        // Evaluate daily warnings
+        AutomaticSmsManager.evaluateDailyWarnings(context)
+
         val db = SmsDatabase.getDatabase(context)
         val dao = db.smsQueueDao()
+        val ispDb = com.example.data.database.IspDatabase.getDatabase(context)
+        val customerDao = ispDb.customerDao()
 
         // 3. Fetch all pending SMS
         val pendingList = dao.getSmsByStatus("PENDING")
@@ -49,28 +58,57 @@ class SmsQueueWorker(
             // Mark as SENDING so other workers won't touch it
             dao.updateSms(sms.copy(status = "SENDING"))
 
+            val customerId = sms.customerReferenceId.toLongOrNull()
+            val customer = if (customerId != null) {
+                customerDao.getCustomerById(customerId).first()
+            } else null
+
+            if (customer == null) {
+                Log.e(TAG, "Failed to send SMS ID ${sms.id}: Customer Not Found (ID: ${sms.customerReferenceId})")
+                dao.updateSms(
+                    sms.copy(
+                        status = "FAILED",
+                        lastError = "Customer Not Found"
+                    )
+                )
+                continue
+            }
+
+            val cleanNumber = customer.phone.trim().replace(" ", "").replace("-", "")
+            if (cleanNumber.isBlank()) {
+                Log.e(TAG, "Failed to send SMS ID ${sms.id}: Customer phone is empty")
+                dao.updateSms(
+                    sms.copy(
+                        status = "FAILED",
+                        lastError = "Invalid/Empty Phone Number"
+                    )
+                )
+                continue
+            }
+
             val sendResult = try {
                 AutomaticSmsManager.sendSingleSms(
                     context = context,
-                    mobileNumber = sms.mobileNumber,
+                    mobileNumber = cleanNumber,
                     message = sms.message,
                     smsId = sms.id
                 )
             } catch (e: Exception) {
-                kotlin.Result.failure(e)
+                kotlin.Result.failure<Unit>(e)
             }
 
             if (sendResult.isSuccess) {
-                Log.d(TAG, "Successfully sent SMS ID ${sms.id} to ${sms.mobileNumber}")
+                Log.d(TAG, "Successfully sent SMS ID ${sms.id} to $cleanNumber")
                 dao.updateSms(
                     sms.copy(
                         status = "SENT",
-                        lastError = null
+                        lastError = null,
+                        mobileNumber = cleanNumber // Update to the actual number sent to
                     )
                 )
             } else {
                 val errorMsg = sendResult.exceptionOrNull()?.message ?: "Unknown SMS sending error"
-                Log.e(TAG, "Failed to send SMS ID ${sms.id} to ${sms.mobileNumber}: $errorMsg")
+                Log.e(TAG, "Failed to send SMS ID ${sms.id} to $cleanNumber: $errorMsg")
 
                 val currentRetry = sms.retryCount
                 if (retryEnabled && currentRetry < maxRetryCount) {
@@ -80,7 +118,8 @@ class SmsQueueWorker(
                         sms.copy(
                             status = "PENDING",
                             retryCount = nextRetry,
-                            lastError = errorMsg
+                            lastError = errorMsg,
+                            mobileNumber = cleanNumber // Update to the current number
                         )
                     )
                 } else {
@@ -88,7 +127,8 @@ class SmsQueueWorker(
                     dao.updateSms(
                         sms.copy(
                             status = "FAILED",
-                            lastError = errorMsg
+                            lastError = errorMsg,
+                            mobileNumber = cleanNumber
                         )
                     )
                 }

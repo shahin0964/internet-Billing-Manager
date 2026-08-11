@@ -367,8 +367,21 @@ def generate_reports(findings, checked_files_count):
         
     print(f"{Colors.HEADER}{Colors.BOLD}=================================================={Colors.ENDC}")
     
+    # 3. JSON STATUS (For App)
+    import json
+    from datetime import datetime, timezone
+    
+    is_failed = critical_count > 0 or high_count > 0
+    json_status = {
+        "status": "failed" if is_failed else "passed",
+        "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    }
+    with open("security_status.json", "w", encoding="utf-8") as f:
+        json.dump(json_status, f, indent=2)
+    print("ℹ️ Minimal public security status written to security_status.json")
+
     # Exit with non-zero code if CRITICAL or HIGH findings exist to fail the workflow
-    if critical_count > 0 or high_count > 0:
+    if is_failed:
         print(f"{Colors.FAIL}Audit failed due to CRITICAL or HIGH severity security issues.{Colors.ENDC}")
         sys.exit(1)
     else:
