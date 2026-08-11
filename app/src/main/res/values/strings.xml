@@ -516,4 +516,31 @@
     <string name="security_status_done">✓ Done</string>
     <string name="security_status_issue">⚠️ Issue Found</string>
     <string name="security_status_not_checked">Not checked / Last known status</string>
+
+    <!-- Network Diagram -->
+    <string name="network_diagram">Network Diagram</string>
+    <string name="network_diagram_subtitle">Interactive ISP network topology map</string>
+    <string name="add_device">Add Device</string>
+    <string name="edit_device">Edit Device</string>
+    <string name="device_name">Device Name</string>
+    <string name="device_type">Device Type</string>
+    <string name="ip_address">IP Address</string>
+    <string name="mac_address">MAC Address</string>
+    <string name="location">Location</string>
+    <string name="status">Status</string>
+    <string name="link_customer">Link Customer</string>
+    <string name="linked_customer">Linked Customer</string>
+    <string name="no_customer_linked">No customer linked</string>
+    <string name="add_connection">Add Connection</string>
+    <string name="from_device">From Device</string>
+    <string name="to_device">To Device</string>
+    <string name="connection_label">Connection Label (e.g. Port / Fiber)</string>
+    <string name="delete_device">Delete Device</string>
+    <string name="delete_connection">Delete Connection</string>
+    <string name="delete_device_confirm">Are you sure you want to delete this device and its connections?</string>
+    <string name="reset_view">Reset View</string>
+    <string name="connections">Connections</string>
+    <string name="no_devices_added">No network devices added yet. Tap + to add devices to your diagram.</string>
+    <string name="node_details">Node Details</string>
+    <string name="view_customer">View Customer Details</string>
 </resources>

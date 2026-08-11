@@ -497,4 +497,31 @@
     <string name="security_status_done">✓ সম্পন্ন</string>
     <string name="security_status_issue">⚠️ সমস্যা পাওয়া গেছে</string>
     <string name="security_status_not_checked">পরীক্ষা করা হয়নি</string>
+
+    <!-- Network Diagram -->
+    <string name="network_diagram">নেটওয়ার্ক ডায়াগ্রাম</string>
+    <string name="network_diagram_subtitle">ইন্টারেক্টিভ আইএসপি নেটওয়ার্ক টপোলজি ম্যাপ</string>
+    <string name="add_device">ডিভাইস যোগ করুন</string>
+    <string name="edit_device">ডিভাইস এডিট করুন</string>
+    <string name="device_name">ডিভাইসের নাম</string>
+    <string name="device_type">ডিভাইসের ধরণ</string>
+    <string name="ip_address">আইপি অ্যাড্রেস</string>
+    <string name="mac_address">ম্যাক অ্যাড্রেস</string>
+    <string name="location">লোকেশন</string>
+    <string name="status">স্ট্যাটাস</string>
+    <string name="link_customer">গ্রাহক লিঙ্ক করুন</string>
+    <string name="linked_customer">লিঙ্ককৃত গ্রাহক</string>
+    <string name="no_customer_linked">কোন গ্রাহক লিঙ্ক করা হয়নি</string>
+    <string name="add_connection">সংযোগ যোগ করুন</string>
+    <string name="from_device">শুরুর ডিভাইস</string>
+    <string name="to_device">গন্তব্য ডিভাইস</string>
+    <string name="connection_label">সংযোগের লেবেল (যেমন পোর্ট / ফাইবার)</string>
+    <string name="delete_device">ডিভাইস মুছুন</string>
+    <string name="delete_connection">সংযোগ মুছুন</string>
+    <string name="delete_device_confirm">আপনি কি এই ডিভাইসটি এবং এর সকল সংযোগ মুছে ফেলতে চান?</string>
+    <string name="reset_view">ভিউ রিসেট করুন</string>
+    <string name="connections">সংযোগসমূহ</string>
+    <string name="no_devices_added">এখনও কোনো নেটওয়ার্ক ডিভাইস যোগ করা হয়নি। ডায়াগ্রামে ডিভাইস যোগ করতে + চাপুন।</string>
+    <string name="node_details">নোডের বিস্তারিত</string>
+    <string name="view_customer">গ্রাহকের বিস্তারিত দেখুন</string>
 </resources>
