@@ -399,19 +399,26 @@ fun MainAppContent(
                                 .addOnFailureListener { e ->
                                     val rawMsg = e.localizedMessage ?: e.message ?: ""
                                     val friendlyMsg = when {
+                                        rawMsg.contains("supplied auth credential", ignoreCase = true) ||
+                                        rawMsg.contains("malformed", ignoreCase = true) ||
+                                        rawMsg.contains("expired", ignoreCase = true) ->
+                                            "Your login session has expired. Please sign in again."
                                         rawMsg.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) ||
                                         rawMsg.contains("INVALID_CREDENTIALS", ignoreCase = true) ||
                                         rawMsg.contains("WRONG_PASSWORD", ignoreCase = true) ||
                                         rawMsg.contains("INVALID_PASSWORD", ignoreCase = true) ->
-                                            "Incorrect email or password. Please check your credentials."
+                                            "Email or password is incorrect."
                                         rawMsg.contains("USER_NOT_FOUND", ignoreCase = true) ||
                                         rawMsg.contains("no user record", ignoreCase = true) ->
-                                            "No account found with this email. Please sign up first."
+                                            "No account was found with this email."
                                         rawMsg.contains("TOO_MANY_ATTEMPTS", ignoreCase = true) ||
                                         rawMsg.contains("TOO_MANY_REQUESTS", ignoreCase = true) ->
-                                            "Too many failed login attempts. Please try again later."
+                                            "Too many login attempts. Please try again later."
                                         rawMsg.contains("USER_DISABLED", ignoreCase = true) ->
                                             "This user account has been disabled."
+                                        rawMsg.contains("network", ignoreCase = true) ||
+                                        rawMsg.contains("UNAVAILABLE", ignoreCase = true) ->
+                                            "Please check your internet connection and try again."
                                         rawMsg.contains("API keys are not supported", ignoreCase = true) ||
                                         rawMsg.contains("internal error", ignoreCase = true) ->
                                             "Unable to connect to authentication server. Please try again or continue as guest."

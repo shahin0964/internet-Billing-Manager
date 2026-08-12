@@ -639,7 +639,7 @@ fun PinRecoveryDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val email = emailInput.trim()
+                    val email = emailInput.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
                     if (email.isBlank() || !email.contains("@")) {
                         errorMessage = "Please enter a valid account email"
                         return@Button

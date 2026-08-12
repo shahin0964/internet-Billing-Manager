@@ -33,7 +33,7 @@ class IspApplication : Application() {
     companion object {
         private const val TAG = "IspApplication"
         private const val FIREBASE_API_KEY = "AIzaSyAeWGj18zHcQXBIhYV_2mA9yeSwWWZ4s1o"
-        private const val FIREBASE_APP_ID = "1:5791179901:android:e7eaaa4cbf2e26f3017d14"
+        private const val FIREBASE_APP_ID = "1:5791179901:android:42984c6ab35fa812017d14"
         private const val FIREBASE_PROJECT_ID = "isp-billing-b04b3"
         private const val FIREBASE_SENDER_ID = "5791179901"
         private const val FIREBASE_DB_URL = "https://isp-billing-b04b3-default-rtdb.asia-southeast1.firebasedatabase.app"
@@ -57,10 +57,11 @@ class IspApplication : Application() {
             try {
                 if (FirebaseApp.getApps(appContext).isNotEmpty()) {
                     val currentApp = FirebaseApp.getInstance()
-                    val currentKey = currentApp.options.apiKey
-                    // If initialized with an invalid key (such as Gemini key starting with AQ or different key), delete and re-init
-                    if (currentKey != FIREBASE_API_KEY && (currentKey.startsWith("AQ") || currentKey.startsWith("YOUR_"))) {
-                        Log.w(TAG, "Re-initializing FirebaseApp due to invalid key ($currentKey)")
+                    val currentOptions = currentApp.options
+                    // If initialized with wrong key or mismatched App ID, delete and re-init
+                    if (currentOptions.applicationId != FIREBASE_APP_ID || 
+                        (currentOptions.apiKey.startsWith("AQ") || currentOptions.apiKey.startsWith("YOUR_"))) {
+                        Log.w(TAG, "Re-initializing FirebaseApp due to mismatched App ID or invalid key (${currentOptions.applicationId})")
                         currentApp.delete()
                     }
                 }
@@ -72,8 +73,8 @@ class IspApplication : Application() {
                         null
                     }
 
-                    if (defaultOptions != null && defaultOptions.apiKey == FIREBASE_API_KEY) {
-                        FirebaseApp.initializeApp(appContext)
+                    if (defaultOptions != null && defaultOptions.applicationId == FIREBASE_APP_ID) {
+                        FirebaseApp.initializeApp(appContext, defaultOptions)
                         Log.d(TAG, "FirebaseApp initialized successfully from default resources")
                     } else {
                         val options = FirebaseOptions.Builder()
