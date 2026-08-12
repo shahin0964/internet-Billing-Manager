@@ -595,7 +595,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearAllLocalData() {
         viewModelScope.launch {
-            repository.clearAllLocalData()
+            try {
+                repository.clearAllLocalData()
+            } catch (e: Throwable) {
+                android.util.Log.e("IspViewModel", "Failed to clear all local data safely: ${e.message}", e)
+            }
         }
     }
 }

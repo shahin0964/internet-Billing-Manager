@@ -340,7 +340,8 @@ fun MainAppContent(
                     try {
                         com.example.IspApplication.ensureFirebaseInitialized(context)
                         val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
-                        auth.createUserWithEmailAndPassword(email.trim(), pass)
+                        val normalizedEmail = email.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
+                        auth.createUserWithEmailAndPassword(normalizedEmail, pass)
                             .addOnSuccessListener { result ->
                                 val user = result.user
                                 if (user != null && name.isNotBlank()) {
@@ -352,7 +353,7 @@ fun MainAppContent(
                                 com.example.IspApplication.setLoggedIn(context, true)
                                 isGuestMode = false
                                 isAuthChosen = true
-                                viewModel.showToast("Account created for ${name.ifBlank { email }}")
+                                viewModel.showToast("Account created for ${name.ifBlank { normalizedEmail }}")
                                 onSuccess()
                             }
                             .addOnFailureListener { e ->
@@ -385,14 +386,14 @@ fun MainAppContent(
                     try {
                         com.example.IspApplication.ensureFirebaseInitialized(context)
                         val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
-                        val trimmedId = identifier.trim()
-                        if (trimmedId.contains("@")) {
-                            auth.signInWithEmailAndPassword(trimmedId, pass)
+                        val normalizedId = identifier.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
+                        if (normalizedId.contains("@") && android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedId).matches()) {
+                            auth.signInWithEmailAndPassword(normalizedId, pass)
                                 .addOnSuccessListener { result ->
                                     com.example.IspApplication.setLoggedIn(context, true)
                                     isGuestMode = false
                                     isAuthChosen = true
-                                    viewModel.showToast("Logged in as ${result.user?.email ?: trimmedId}")
+                                    viewModel.showToast("Logged in as ${result.user?.email ?: normalizedId}")
                                     onSuccess()
                                 }
                                 .addOnFailureListener { e ->
@@ -436,8 +437,8 @@ fun MainAppContent(
                     try {
                         com.example.IspApplication.ensureFirebaseInitialized(context)
                         val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
-                        val email = identifier.trim()
-                        if (!email.contains("@")) {
+                        val email = identifier.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
+                        if (!email.contains("@") || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
                             onError("Please enter a valid Gmail / Email address to receive password reset link.")
                         } else {
                             auth.sendPasswordResetEmail(email)

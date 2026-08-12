@@ -824,24 +824,22 @@ class IspRepository(
                 )
             }
 
-            db.runInTransaction {
-                kotlinx.coroutines.runBlocking {
-                    customerDao.deleteAllCustomers()
-                    packageDao.deleteAllPackages()
-                    billDao.deleteAllBills()
-                    paymentDao.deleteAllPayments()
-                    expenseDao.deleteAllExpenses()
-                    expenseDao.deleteAllCategories()
-                    settingsDao.deleteSettings()
+            db.withTransaction {
+                customerDao.deleteAllCustomers()
+                packageDao.deleteAllPackages()
+                billDao.deleteAllBills()
+                paymentDao.deleteAllPayments()
+                expenseDao.deleteAllExpenses()
+                expenseDao.deleteAllCategories()
+                settingsDao.deleteSettings()
 
-                    if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
-                    if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
-                    if (billList.isNotEmpty()) billDao.insertBills(billList)
-                    if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
-                    if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
-                    if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
-                    if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
-                }
+                if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
+                if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
+                if (billList.isNotEmpty()) billDao.insertBills(billList)
+                if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
+                if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
+                if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
+                if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
             }
 
             if (root.has("appLanguage")) {
@@ -1006,38 +1004,34 @@ class IspRepository(
                 logoUri = obj.optString("logoUri", "").ifEmpty { null }
             )
         }
-        db.runInTransaction {
-            kotlinx.coroutines.runBlocking {
-                customerDao.deleteAllCustomers()
-                packageDao.deleteAllPackages()
-                billDao.deleteAllBills()
-                paymentDao.deleteAllPayments()
-                expenseDao.deleteAllExpenses()
-                expenseDao.deleteAllCategories()
-                settingsDao.deleteSettings()
+        db.withTransaction {
+            customerDao.deleteAllCustomers()
+            packageDao.deleteAllPackages()
+            billDao.deleteAllBills()
+            paymentDao.deleteAllPayments()
+            expenseDao.deleteAllExpenses()
+            expenseDao.deleteAllCategories()
+            settingsDao.deleteSettings()
 
-                if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
-                if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
-                if (billList.isNotEmpty()) billDao.insertBills(billList)
-                if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
-                if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
-                if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
-                if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
-            }
+            if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
+            if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
+            if (billList.isNotEmpty()) billDao.insertBills(billList)
+            if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
+            if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
+            if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
+            if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
         }
     }
 
     suspend fun clearAllLocalData() {
-        db.runInTransaction {
-            kotlinx.coroutines.runBlocking {
-                customerDao.deleteAllCustomers()
-                packageDao.deleteAllPackages()
-                billDao.deleteAllBills()
-                paymentDao.deleteAllPayments()
-                expenseDao.deleteAllExpenses()
-                expenseDao.deleteAllCategories()
-                settingsDao.deleteSettings()
-            }
+        db.withTransaction {
+            customerDao.deleteAllCustomers()
+            packageDao.deleteAllPackages()
+            billDao.deleteAllBills()
+            paymentDao.deleteAllPayments()
+            expenseDao.deleteAllExpenses()
+            expenseDao.deleteAllCategories()
+            settingsDao.deleteSettings()
         }
     }
 }
