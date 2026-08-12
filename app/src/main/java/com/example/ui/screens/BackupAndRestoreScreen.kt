@@ -69,15 +69,25 @@ fun BackupAndRestoreScreen(
     val createDocLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        if (uri != null && latestCreatedFile != null && latestCreatedFile!!.exists()) {
+        if (uri != null && latestCreatedFile != null && latestCreatedFile!!.exists() && latestCreatedFile!!.length() > 0) {
             try {
-                context.contentResolver.openOutputStream(uri)?.use { os ->
-                    os.write(latestCreatedFile!!.readBytes())
+                val os = context.contentResolver.openOutputStream(uri)
+                if (os != null) {
+                    val bytes = latestCreatedFile!!.readBytes()
+                    os.use { stream ->
+                        stream.write(bytes)
+                        stream.flush()
+                    }
+                    viewModel.showToast(context.getString(R.string.backup_created_success))
+                } else {
+                    viewModel.showToast("Backup failed: Unable to open output file")
                 }
-                viewModel.showToast(context.getString(R.string.backup_created_success))
             } catch (e: Exception) {
                 e.printStackTrace()
+                viewModel.showToast("Backup failed: ${e.localizedMessage ?: "Export error"}")
             }
+        } else if (uri != null) {
+            viewModel.showToast("Backup failed: Backup file is empty or missing")
         }
     }
 
@@ -293,10 +303,18 @@ fun BackupAndRestoreScreen(
                                     if (!isCloudSyncing) {
                                         isCloudSyncing = true
                                         coroutineScope.launch {
-                                            com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
-                                            kotlinx.coroutines.delay(1500)
+                                            val success = com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
                                             isCloudSyncing = false
-                                            viewModel.showToast("Cloud backup synced successfully")
+                                            if (success) {
+                                                viewModel.showToast("Cloud backup successful")
+                                            } else {
+                                                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                                                if (uid.isNullOrBlank()) {
+                                                    viewModel.showToast("Authentication required")
+                                                } else {
+                                                    viewModel.showToast("Cloud backup failed")
+                                                }
+                                            }
                                         }
                                     }
                                 },
@@ -537,12 +555,11 @@ fun BackupAndRestoreScreen(
                         showCloudRestoreConfirmDialog = false
                         isProcessing = true
                         coroutineScope.launch {
-                            val success = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
+                            val (success, message) = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
                             isProcessing = false
+                            viewModel.showToast(message)
                             if (success) {
-                                viewModel.showToast("Cloud restore successful")
-                            } else {
-                                viewModel.showToast("Cloud restore failed or no data found")
+                                localBackups = viewModel.getLocalBackupFiles()
                             }
                         }
                     },

@@ -340,6 +340,15 @@
     <string name="invalid_backup_error">This backup is invalid, corrupted, or the password is incorrect.</string>
     <string name="backup_created_success">Encrypted backup created successfully</string>
     <string name="backup_restored_success">App data restored successfully</string>
+    <string name="msg_backup_failed">Backup failed</string>
+    <string name="msg_restore_failed">Restore failed</string>
+    <string name="msg_incorrect_password">Incorrect backup password</string>
+    <string name="msg_invalid_or_corrupted_backup">Invalid or corrupted backup file</string>
+    <string name="msg_cloud_backup_successful">Cloud backup successful</string>
+    <string name="msg_cloud_backup_failed">Cloud backup failed</string>
+    <string name="msg_cloud_restore_failed">Cloud restore failed</string>
+    <string name="msg_no_cloud_backup_found">No cloud backup found</string>
+    <string name="msg_auth_required">Authentication required</string>
     <string name="passwords_do_not_match">Passwords do not match</string>
     <string name="password_too_short">Password must be at least 4 characters</string>
     <string name="encrypt_and_save">Encrypt &amp; Save</string>

@@ -19,6 +19,7 @@ import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
+import androidx.room.withTransaction
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -132,8 +133,8 @@ object FirestoreSyncManager {
         com.example.IspApplication.ensureFirebaseInitialized(context)
         val uid = getCurrentUid(context)
         if (uid.isNullOrBlank()) {
-            Log.d(TAG, "Sync skipped: User is guest or unauthenticated.")
-            return@withContext true
+            Log.d(TAG, "Sync failed: User is guest or unauthenticated.")
+            return@withContext false
         }
 
         try {
@@ -382,12 +383,12 @@ object FirestoreSyncManager {
     /**
      * Restores cloud data from Firestore for the current authenticated user into local Room DB.
      */
-    suspend fun restoreCloudToLocal(context: Context): Boolean = withContext(Dispatchers.IO) {
+    suspend fun restoreCloudToLocal(context: Context): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         com.example.IspApplication.ensureFirebaseInitialized(context)
         val uid = getCurrentUid(context)
         if (uid.isNullOrBlank()) {
             Log.d(TAG, "Restore skipped: User is guest or unauthenticated.")
-            return@withContext false
+            return@withContext Pair(false, "Authentication required")
         }
 
         try {
@@ -515,52 +516,59 @@ object FirestoreSyncManager {
                 )
             } else null
 
-            db.runInTransaction {
-                kotlinx.coroutines.runBlocking {
-                    db.customerDao().deleteAllCustomers()
-                    db.packageDao().deleteAllPackages()
-                    db.billDao().deleteAllBills()
-                    db.paymentDao().deleteAllPayments()
-                    db.expenseDao().deleteAllExpenses()
-                    db.expenseDao().deleteAllCategories()
-                    db.settingsDao().deleteSettings()
+            if (restoredCustomers.isEmpty() && restoredPackages.isEmpty() &&
+                restoredBills.isEmpty() && restoredPayments.isEmpty() &&
+                restoredExpenses.isEmpty() && restoredCategories.isEmpty() &&
+                restoredSettings == null) {
+                Log.w(TAG, "No cloud backup found for UID: $uid")
+                return@withContext Pair(false, "No cloud backup found")
+            }
 
-                    if (restoredCustomers.isNotEmpty()) {
-                        db.customerDao().insertCustomers(restoredCustomers)
-                    }
-                    if (restoredPackages.isNotEmpty()) {
-                        db.packageDao().insertPackages(restoredPackages)
-                    }
-                    if (restoredBills.isNotEmpty()) {
-                        db.billDao().insertBills(restoredBills)
-                    }
-                    if (restoredPayments.isNotEmpty()) {
-                        db.paymentDao().insertPayments(restoredPayments)
-                    }
-                    if (restoredExpenses.isNotEmpty()) {
-                        db.expenseDao().insertExpenses(restoredExpenses)
-                    }
-                    if (restoredCategories.isNotEmpty()) {
-                        db.expenseDao().insertCategories(restoredCategories)
-                    }
-                    if (restoredSettings != null) {
-                        db.settingsDao().insertOrUpdateSettings(restoredSettings)
-                    }
+            db.withTransaction {
+                db.customerDao().deleteAllCustomers()
+                db.packageDao().deleteAllPackages()
+                db.billDao().deleteAllBills()
+                db.paymentDao().deleteAllPayments()
+                db.expenseDao().deleteAllExpenses()
+                db.expenseDao().deleteAllCategories()
+                db.settingsDao().deleteSettings()
+
+                if (restoredCustomers.isNotEmpty()) {
+                    db.customerDao().insertCustomers(restoredCustomers)
+                }
+                if (restoredPackages.isNotEmpty()) {
+                    db.packageDao().insertPackages(restoredPackages)
+                }
+                if (restoredBills.isNotEmpty()) {
+                    db.billDao().insertBills(restoredBills)
+                }
+                if (restoredPayments.isNotEmpty()) {
+                    db.paymentDao().insertPayments(restoredPayments)
+                }
+                if (restoredExpenses.isNotEmpty()) {
+                    db.expenseDao().insertExpenses(restoredExpenses)
+                }
+                if (restoredCategories.isNotEmpty()) {
+                    db.expenseDao().insertCategories(restoredCategories)
+                }
+                if (restoredSettings != null) {
+                    db.settingsDao().insertOrUpdateSettings(restoredSettings)
                 }
             }
 
             Log.i(TAG, "Successfully restored data from Firestore for UID: $uid")
-            true
+            Pair(true, "Cloud restore successful")
         } catch (e: FirebaseFirestoreException) {
-            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                Log.w(TAG, "Firestore restore skipped (Permission Denied): Check Firestore security rules or authentication status.")
+            val msg = if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                "Cloud restore failed: Permission denied"
             } else {
-                Log.w(TAG, "Firestore error restoring cloud data: ${e.message}")
+                "Cloud restore failed"
             }
-            false
+            Log.w(TAG, "Firestore error restoring cloud data: ${e.message}")
+            Pair(false, msg)
         } catch (e: Exception) {
             Log.w(TAG, "Error restoring from Firestore: ${e.message}")
-            false
+            Pair(false, "Cloud restore failed")
         }
     }
 }

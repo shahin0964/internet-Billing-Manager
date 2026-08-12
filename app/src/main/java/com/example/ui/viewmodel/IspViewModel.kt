@@ -473,10 +473,16 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createEncryptedBackup(password: String, onComplete: (java.io.File?) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val app = getApplication<Application>()
             try {
-                val app = getApplication<Application>()
                 val jsonPayload = repository.generateFullBackupJson(app)
+                if (jsonPayload.isBlank()) {
+                    throw IllegalStateException("Generated backup payload is empty")
+                }
                 val encryptedBytes = com.example.util.BackupEncryptionManager.encryptPayload(jsonPayload, password)
+                if (encryptedBytes.isEmpty()) {
+                    throw IllegalStateException("Encrypted payload is empty")
+                }
 
                 val backupDir = java.io.File(app.filesDir, "backups")
                 if (!backupDir.exists()) backupDir.mkdirs()
@@ -485,6 +491,10 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 val backupFile = java.io.File(backupDir, "ISP-Billing-Backup-$timeStamp.ispbackup")
                 backupFile.writeBytes(encryptedBytes)
 
+                if (!backupFile.exists() || backupFile.length() == 0L) {
+                    throw IllegalStateException("Backup file write failed")
+                }
+
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     _toastMessage.value = app.getString(com.example.R.string.backup_created_success)
                     onComplete(backupFile)
@@ -492,6 +502,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 e.printStackTrace()
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    _toastMessage.value = app.getString(com.example.R.string.msg_backup_failed)
                     onComplete(null)
                 }
             }
@@ -508,10 +519,26 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             val app = getApplication<Application>()
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
-                val bytes = inputStream?.readBytes() ?: throw IllegalArgumentException("Cannot read file")
-                inputStream.close()
+                    ?: throw IllegalArgumentException("Cannot open file")
+                val bytes = inputStream.use { it.readBytes() }
+                if (bytes.isEmpty()) {
+                    throw IllegalArgumentException("File is empty")
+                }
 
-                val jsonPayload = com.example.util.BackupEncryptionManager.decryptPayload(bytes, password)
+                val jsonPayload = try {
+                    com.example.util.BackupEncryptionManager.decryptPayload(bytes, password)
+                } catch (e: javax.crypto.AEADBadTagException) {
+                    throw IllegalArgumentException("INCORRECT_PASSWORD")
+                } catch (e: Exception) {
+                    val msg = e.message ?: ""
+                    if (msg.contains("Tag mismatch", ignoreCase = true) || msg.contains("cipher", ignoreCase = true)) {
+                        throw IllegalArgumentException("INCORRECT_PASSWORD")
+                    } else if (msg.contains("header", ignoreCase = true) || msg.contains("too small", ignoreCase = true) || msg.contains("ciphertext", ignoreCase = true)) {
+                        throw IllegalArgumentException("CORRUPTED_FILE")
+                    }
+                    throw e
+                }
+
                 val success = repository.restoreFromFullBackupJson(context, jsonPayload)
 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -519,14 +546,19 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                         _toastMessage.value = app.getString(com.example.R.string.backup_restored_success)
                         onResult(true)
                     } else {
-                        _toastMessage.value = app.getString(com.example.R.string.invalid_backup_error)
+                        _toastMessage.value = app.getString(com.example.R.string.msg_restore_failed)
                         onResult(false)
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                val errorMsg = when (e.message) {
+                    "INCORRECT_PASSWORD" -> app.getString(com.example.R.string.msg_incorrect_password)
+                    "CORRUPTED_FILE" -> app.getString(com.example.R.string.msg_invalid_or_corrupted_backup)
+                    else -> app.getString(com.example.R.string.msg_restore_failed)
+                }
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    _toastMessage.value = app.getString(com.example.R.string.invalid_backup_error)
+                    _toastMessage.value = errorMsg
                     onResult(false)
                 }
             }
@@ -542,8 +574,28 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val app = getApplication<Application>()
             try {
+                if (!file.exists() || file.length() == 0L) {
+                    throw IllegalArgumentException("CORRUPTED_FILE")
+                }
                 val bytes = file.readBytes()
-                val jsonPayload = com.example.util.BackupEncryptionManager.decryptPayload(bytes, password)
+                if (bytes.isEmpty()) {
+                    throw IllegalArgumentException("CORRUPTED_FILE")
+                }
+
+                val jsonPayload = try {
+                    com.example.util.BackupEncryptionManager.decryptPayload(bytes, password)
+                } catch (e: javax.crypto.AEADBadTagException) {
+                    throw IllegalArgumentException("INCORRECT_PASSWORD")
+                } catch (e: Exception) {
+                    val msg = e.message ?: ""
+                    if (msg.contains("Tag mismatch", ignoreCase = true) || msg.contains("cipher", ignoreCase = true)) {
+                        throw IllegalArgumentException("INCORRECT_PASSWORD")
+                    } else if (msg.contains("header", ignoreCase = true) || msg.contains("too small", ignoreCase = true) || msg.contains("ciphertext", ignoreCase = true)) {
+                        throw IllegalArgumentException("CORRUPTED_FILE")
+                    }
+                    throw e
+                }
+
                 val success = repository.restoreFromFullBackupJson(context, jsonPayload)
 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -551,14 +603,19 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                         _toastMessage.value = app.getString(com.example.R.string.backup_restored_success)
                         onResult(true)
                     } else {
-                        _toastMessage.value = app.getString(com.example.R.string.invalid_backup_error)
+                        _toastMessage.value = app.getString(com.example.R.string.msg_restore_failed)
                         onResult(false)
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                val errorMsg = when (e.message) {
+                    "INCORRECT_PASSWORD" -> app.getString(com.example.R.string.msg_incorrect_password)
+                    "CORRUPTED_FILE" -> app.getString(com.example.R.string.msg_invalid_or_corrupted_backup)
+                    else -> app.getString(com.example.R.string.msg_restore_failed)
+                }
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    _toastMessage.value = app.getString(com.example.R.string.invalid_backup_error)
+                    _toastMessage.value = errorMsg
                     onResult(false)
                 }
             }

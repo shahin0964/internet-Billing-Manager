@@ -13,9 +13,13 @@ class IspApplication : Application() {
         // Handle GMS and Firebase related background thread crashes gracefully
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            val isGmsSecurityException = throwable is SecurityException && 
-                (throwable.message?.contains("com.google.android.gms") == true || 
-                 throwable.message?.contains("GoogleApiManager") == true)
+            val message = throwable.message ?: ""
+            val stackTraceStr = Log.getStackTraceString(throwable)
+            val isGmsSecurityException = (throwable is SecurityException || stackTraceStr.contains("SecurityException")) && 
+                (message.contains("com.google.android.gms") || 
+                 message.contains("GoogleApiManager") ||
+                 stackTraceStr.contains("com.google.android.gms") ||
+                 stackTraceStr.contains("GoogleApiManager"))
                  
             if (isGmsSecurityException) {
                 Log.e(TAG, "Caught background GMS SecurityException gracefully in thread ${thread.name}: ${throwable.message}")
@@ -24,9 +28,7 @@ class IspApplication : Application() {
             }
         }
 
-        if (isLoggedIn(this)) {
-            ensureFirebaseInitialized(this)
-        }
+        ensureFirebaseInitialized(this)
         com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
     }
 
