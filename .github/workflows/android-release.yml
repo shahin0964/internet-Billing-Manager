@@ -44,10 +44,67 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Cache Gradle Wrapper Distributions
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/wrapper/dists
+          key: ${{ runner.os }}-gradle-wrapper-9.3.1-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-wrapper-9.3.1-
+
       - name: Grant Execute Permission for Gradle Wrapper
         run: |
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
+          fi
+
+      - name: Ensure Gradle Wrapper Distribution (with Retry)
+        run: |
+          echo "=== Verifying / Fetching Gradle 9.3.1 Wrapper Distribution ==="
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
+
+          MAX_ATTEMPTS=5
+          ATTEMPT=1
+          SUCCESS=false
+
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Attempt $ATTEMPT of $MAX_ATTEMPTS: Initializing Gradle Wrapper..."
+            if [ -f "./gradlew" ]; then
+              if ./gradlew --version; then
+                SUCCESS=true
+                echo "Gradle Wrapper 9.3.1 verified successfully."
+                break
+              fi
+            else
+              if gradle --version; then
+                SUCCESS=true
+                echo "System Gradle verified successfully."
+                break
+              fi
+            fi
+
+            echo "Attempt $ATTEMPT failed. Cleaning temporary download artifacts..."
+            rm -rf ~/.gradle/wrapper/dists/*/*.zip.part 2>/dev/null || true
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              SLEEP_TIME=$((ATTEMPT * 10))
+              echo "Retrying Gradle distribution download in $SLEEP_TIME seconds..."
+              sleep $SLEEP_TIME
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          if [ "$SUCCESS" = "false" ]; then
+            echo "::warning::Gradle Wrapper download failed via gradlew. Attempting direct fallback download with curl..."
+            DIST_URL="https://services.gradle.org/distributions/gradle-9.3.1-bin.zip"
+            TARGET_DIR="$HOME/.gradle/wrapper/dists/gradle-9.3.1-bin/download"
+            mkdir -p "$TARGET_DIR"
+            curl -fSL --retry 5 --retry-delay 5 --retry-connrefused -L "$DIST_URL" -o "$TARGET_DIR/gradle-9.3.1-bin.zip" || true
+            if [ -f "./gradlew" ]; then
+              ./gradlew --version || true
+            fi
           fi
 
       - name: Decode Keystore
@@ -253,10 +310,35 @@ jobs:
           VERSION_CODE: ${{ env.VERSION_CODE }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew :app:assembleRelease -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}" --stacktrace
-          else
-            gradle :app:assembleRelease -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}" --stacktrace
+          BUILD_CMD="./gradlew :app:assembleRelease -PversionName=\"${VERSION_NAME}\" -PversionCode=\"${VERSION_CODE}\" --stacktrace"
+          if [ ! -f "./gradlew" ]; then
+            BUILD_CMD="gradle :app:assembleRelease -PversionName=\"${VERSION_NAME}\" -PversionCode=\"${VERSION_CODE}\" --stacktrace"
+          fi
+
+          MAX_ATTEMPTS=3
+          ATTEMPT=1
+          SUCCESS=false
+
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "=== Executing Gradle Release Build (Attempt $ATTEMPT of $MAX_ATTEMPTS) ==="
+            if eval $BUILD_CMD; then
+              SUCCESS=true
+              echo "Gradle release build completed successfully on attempt $ATTEMPT."
+              break
+            fi
+
+            echo "Gradle release build failed on attempt $ATTEMPT."
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              SLEEP_TIME=$((ATTEMPT * 15))
+              echo "Retrying Gradle build in $SLEEP_TIME seconds..."
+              sleep $SLEEP_TIME
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          if [ "$SUCCESS" = "false" ]; then
+            echo "ERROR: Gradle release build failed after $MAX_ATTEMPTS attempts."
+            exit 1
           fi
 
       - name: Locate and Prepare Output APK
