@@ -293,82 +293,114 @@ fun BackupAndRestoreScreen(
                     }
                 }
 
-                // Cloud Sync Card (Visible only if logged in)
-                if (currentUid != null) {
-                    item {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (!isCloudSyncing) {
-                                        isCloudSyncing = true
-                                        coroutineScope.launch {
-                                            val success = com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
-                                            isCloudSyncing = false
-                                            if (success) {
-                                                viewModel.showToast("Cloud backup successful")
-                                            } else {
-                                                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
-                                                if (uid.isNullOrBlank()) {
-                                                    viewModel.showToast("Authentication required")
-                                                } else {
-                                                    viewModel.showToast("Cloud backup failed")
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 3.dp,
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                            )
-                        ) {
+                // Cloud Sync Card
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 3.dp,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Row(
-                                modifier = Modifier.padding(16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(48.dp)
+                                        .size(44.dp)
                                         .clip(CircleShape)
                                         .background(MaterialTheme.colorScheme.tertiaryContainer),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (isCloudSyncing) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
+                                            modifier = Modifier.size(22.dp),
                                             color = MaterialTheme.colorScheme.tertiary,
                                             strokeWidth = 2.dp
                                         )
                                     } else {
                                         Icon(
-                                            imageVector = Icons.Default.CloudUpload,
+                                            imageVector = Icons.Default.Cloud,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.tertiary
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(16.dp))
+                                Spacer(modifier = Modifier.width(14.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "Cloud Auto-Backup",
                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                     )
                                     Text(
-                                        text = "Tap to sync manually. Your data is securely stored in your account.",
+                                        text = "Backup and restore your data securely with your account",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                IconButton(onClick = { showCloudRestoreConfirmDialog = true }) {
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                                        if (uid.isNullOrBlank()) {
+                                            viewModel.showToast("Authentication required")
+                                        } else if (!isCloudSyncing) {
+                                            isCloudSyncing = true
+                                            coroutineScope.launch {
+                                                val success = com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
+                                                isCloudSyncing = false
+                                                if (success) {
+                                                    viewModel.showToast("Cloud backup successful")
+                                                } else {
+                                                    viewModel.showToast("Cloud backup failed")
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !isCloudSyncing && !isProcessing,
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudUpload,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Backup to Cloud", fontSize = 12.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                                        if (uid.isNullOrBlank()) {
+                                            viewModel.showToast("Authentication required")
+                                        } else {
+                                            showCloudRestoreConfirmDialog = true
+                                        }
+                                    },
+                                    enabled = !isCloudSyncing && !isProcessing,
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
                                     Icon(
                                         imageVector = Icons.Default.CloudDownload,
-                                        contentDescription = "Restore from Cloud",
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
                                         tint = MaterialTheme.colorScheme.tertiary
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Restore from Cloud", fontSize = 12.sp, color = MaterialTheme.colorScheme.tertiary)
                                 }
                             }
                         }
@@ -547,19 +579,24 @@ fun BackupAndRestoreScreen(
                 )
             },
             text = {
-                Text(text = "This will overwrite your local database with the data from your cloud account. Are you sure you want to continue?")
+                Text(text = "This will replace your current local data with the backup from your cloud account. Your existing local data should be backed up before continuing. Do you want to continue?")
             },
             confirmButton = {
                 Button(
                     onClick = {
                         showCloudRestoreConfirmDialog = false
-                        isProcessing = true
-                        coroutineScope.launch {
-                            val (success, message) = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
-                            isProcessing = false
-                            viewModel.showToast(message)
-                            if (success) {
-                                localBackups = viewModel.getLocalBackupFiles()
+                        val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                        if (uid.isNullOrBlank()) {
+                            viewModel.showToast("Authentication required")
+                        } else {
+                            isProcessing = true
+                            coroutineScope.launch {
+                                val (success, message) = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
+                                isProcessing = false
+                                viewModel.showToast(message)
+                                if (success) {
+                                    localBackups = viewModel.getLocalBackupFiles()
+                                }
                             }
                         }
                     },
