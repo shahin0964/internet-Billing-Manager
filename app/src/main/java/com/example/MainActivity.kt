@@ -70,6 +70,7 @@ import android.os.Build
 import com.example.data.model.BillEntity
 import com.example.data.model.CustomerEntity
 import com.example.data.model.IspPackageEntity
+import com.example.data.model.PaymentEntity
 import com.example.data.model.PreviousDueItem
 import com.example.ui.components.AppUpdateDialog
 import com.example.util.AppUpdateManager
@@ -210,6 +211,10 @@ fun MainAppContent(
     var preSelectedPaymentBill by remember { mutableStateOf<BillEntity?>(null) }
     var showEditBillDialog by remember { mutableStateOf(false) }
     var billToEdit by remember { mutableStateOf<BillEntity?>(null) }
+
+    var showPostPaymentReceiptPrompt by remember { mutableStateOf(false) }
+    var activeReceiptPayment by remember { mutableStateOf<PaymentEntity?>(null) }
+    var showReceiptModal by remember { mutableStateOf(false) }
 
     var showPackageDialog by remember { mutableStateOf(false) }
     var packageToEdit by remember { mutableStateOf<IspPackageEntity?>(null) }
@@ -714,7 +719,11 @@ fun MainAppContent(
                                 showPaymentDialog = true
                             }
                         },
-                        ispName = settings.ispName
+                        ispName = settings.ispName,
+                        onViewReceiptClick = { payment ->
+                            activeReceiptPayment = payment
+                            showReceiptModal = true
+                        }
                     )
                 }
 
@@ -762,6 +771,10 @@ fun MainAppContent(
                             runAction {
                                 viewModel.deletePayment(payment)
                             }
+                        },
+                        onViewReceiptClick = { payment ->
+                            activeReceiptPayment = payment
+                            showReceiptModal = true
                         }
                     )
                 }
@@ -957,8 +970,46 @@ fun MainAppContent(
             currencySymbol = settings.currencySymbol,
             onDismiss = { showPaymentDialog = false },
             onRecordPayment = { billId, customerId, amount, method, notes ->
-                viewModel.recordPayment(billId, customerId, amount, method, notes)
+                viewModel.recordPayment(billId, customerId, amount, method, notes) { newPayment ->
+                    activeReceiptPayment = newPayment
+                    showPostPaymentReceiptPrompt = true
+                }
                 showPaymentDialog = false
+            }
+        )
+    }
+
+    val currentReceiptPayment = activeReceiptPayment
+    if (showPostPaymentReceiptPrompt && currentReceiptPayment != null) {
+        val linkedBill = bills.find { it.id == currentReceiptPayment.billId } ?: bills.find { it.customerId == currentReceiptPayment.customerId }
+        val linkedCustomer = customers.find { it.id == currentReceiptPayment.customerId }
+        com.example.ui.components.PostPaymentReceiptPromptDialog(
+            payment = currentReceiptPayment,
+            bill = linkedBill,
+            customer = linkedCustomer,
+            settings = settings,
+            onViewReceipt = {
+                showPostPaymentReceiptPrompt = false
+                showReceiptModal = true
+            },
+            onDismiss = {
+                showPostPaymentReceiptPrompt = false
+                activeReceiptPayment = null
+            }
+        )
+    }
+
+    if (showReceiptModal && currentReceiptPayment != null) {
+        val linkedBill = bills.find { it.id == currentReceiptPayment.billId } ?: bills.find { it.customerId == currentReceiptPayment.customerId }
+        val linkedCustomer = customers.find { it.id == currentReceiptPayment.customerId }
+        com.example.ui.components.PaymentReceiptModal(
+            payment = currentReceiptPayment,
+            bill = linkedBill,
+            customer = linkedCustomer,
+            settings = settings,
+            onDismiss = {
+                showReceiptModal = false
+                activeReceiptPayment = null
             }
         )
     }

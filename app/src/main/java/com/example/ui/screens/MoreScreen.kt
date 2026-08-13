@@ -107,6 +107,7 @@ fun MoreScreen(
 
     var ispName by remember(settings) { mutableStateOf(settings.ispName) }
     var hotline by remember(settings) { mutableStateOf(settings.hotline) }
+    var email by remember(settings) { mutableStateOf(settings.email) }
     var address by remember(settings) { mutableStateOf(settings.address) }
     var currencySymbol by remember(settings) { mutableStateOf(settings.currencySymbol) }
     var networkStatus by remember(settings) { mutableStateOf(settings.networkStatus) }
@@ -372,6 +373,14 @@ tonalElevation = 3.dp,
                             }
 
                             OutlinedTextField(
+                                value = email,
+                                onValueChange = { email = it },
+                                label = { Text("Company Email / ইমেইল") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            OutlinedTextField(
                                 value = address,
                                 onValueChange = { address = it },
                                 label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.office_address)) },
@@ -403,6 +412,7 @@ tonalElevation = 3.dp,
                                 val updated = settings.copy(
                                     ispName = ispName.trim(),
                                     hotline = hotline.trim(),
+                                    email = email.trim(),
                                     address = address.trim(),
                                     currencySymbol = currencySymbol.trim(),
                                     networkStatus = networkStatus,

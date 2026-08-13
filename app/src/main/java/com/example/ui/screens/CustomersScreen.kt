@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material3.AlertDialog
@@ -101,7 +102,8 @@ fun CustomersScreen(
     onDeleteCustomerClick: (CustomerEntity) -> Unit,
     onToggleStatusClick: (CustomerEntity) -> Unit,
     onCollectPaymentForCustomer: (CustomerEntity) -> Unit,
-    ispName: String = ""
+    ispName: String = "",
+    onViewReceiptClick: ((PaymentEntity) -> Unit)? = null
 ) {
     var previewCustomerState by remember { mutableStateOf<CustomerEntity?>(null) }
     var customerToDelete by remember { mutableStateOf<CustomerEntity?>(null) }
@@ -196,7 +198,8 @@ fun CustomersScreen(
             onBackClick = { previewCustomerState = null },
             onEditClick = { onEditCustomerClick(currentPreviewCustomer) },
             onDeleteClick = { customerToDelete = currentPreviewCustomer },
-            onCollectPaymentClick = { onCollectPaymentForCustomer(currentPreviewCustomer) }
+            onCollectPaymentClick = { onCollectPaymentForCustomer(currentPreviewCustomer) },
+            onViewReceiptClick = onViewReceiptClick
         )
     } else {
         // Customer List Screen
@@ -595,7 +598,8 @@ fun CustomerPreviewScreen(
     onBackClick: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onCollectPaymentClick: () -> Unit
+    onCollectPaymentClick: () -> Unit,
+    onViewReceiptClick: ((PaymentEntity) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val totalDue = bills.sumOf { it.dueAmount }
@@ -982,7 +986,7 @@ tonalElevation = 3.dp,
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "${payment.paymentDate} • ${payment.paymentMethod}",
                                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
@@ -994,11 +998,26 @@ tonalElevation = 3.dp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Text(
-                                    text = "+$currencySymbol${payment.amount.formatAmount()}",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "+$currencySymbol${payment.amount.formatAmount()}",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    if (onViewReceiptClick != null) {
+                                        IconButton(
+                                            onClick = { onViewReceiptClick(payment) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = androidx.compose.material.icons.Icons.Default.Receipt,
+                                                contentDescription = "View Receipt",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

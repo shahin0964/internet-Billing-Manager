@@ -74,17 +74,23 @@ object AutomaticSmsManager {
     private const val KEY_TEMPLATE_WARNING_1 = "template_warning_1"
     private const val KEY_TEMPLATE_WARNING_2 = "template_warning_2"
     private const val KEY_TEMPLATE_WARNING_3 = "template_warning_3"
+    private const val KEY_TEMPLATE_EXPIRY_WARNING = "template_expiry_warning"
+    private const val KEY_TEMPLATE_CONNECTION_SUSPEND = "template_connection_suspend"
+    private const val KEY_TEMPLATE_CONNECTION_RESUME = "template_connection_resume"
 
     // Defaults (Bengali and English fallback default templates)
     private const val DEFAULT_TEMPLATE_BILL_GENERATED = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল তৈরি করা হয়েছে। বিল: ৳{bill_amount}। পরিশোধের শেষ সময়: {due_date}। ধন্যবাদ।"
     private const val DEFAULT_TEMPLATE_DUE_REMINDER = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল এখনো বকেয়া রয়েছে। বকেয়া বিল: ৳{due_amount}।"
     private const val DEFAULT_TEMPLATE_OVERDUE = "প্রিয় {customer_name},\nআপনার ইন্টারনেট বিল ৳{due_amount} বকেয়া রয়েছে। সংযোগ বিচ্ছিন্ন হওয়া এড়াতে দয়া করে এখনই বিল পরিশোধ করুন।"
-    private const val DEFAULT_TEMPLATE_PAYMENT_CONFIRMATION = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল পরিশোধ সম্পন্ন হয়েছে। ধন্যবাদ।"
+    private const val DEFAULT_TEMPLATE_PAYMENT_CONFIRMATION = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল ৳{paid_amount} পরিশোধ সম্পন্ন হয়েছে (রশিদ নং: {receipt_no})। ধন্যবাদ।"
     private const val DEFAULT_TEMPLATE_GENERAL_NOTICE = "প্রিয় {customer_name},\nআমাদের সেবা সাময়িক বিঘ্নিত হতে পারে। সাময়িক অসুবিধার জন্য আমরা আন্তরিকভাবে দুঃখিত।"
 
     private const val DEFAULT_TEMPLATE_WARNING_1 = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল এখনো বকেয়া রয়েছে। বকেয়া বিল: ৳{due_amount}।"
     private const val DEFAULT_TEMPLATE_WARNING_2 = "প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল এখনো বকেয়া রয়েছে। সংযোগ সচল রাখতে দ্রুত ৳{due_amount} পরিশোধ করুন।"
     private const val DEFAULT_TEMPLATE_WARNING_3 = "জরুরী নোটিশ: প্রিয় {customer_name},\nআপনার {bill_month} মাসের বিল ৳{due_amount} পরিশোধ না করায় সংযোগ বিচ্ছিন্ন করা হতে পারে।"
+    private const val DEFAULT_TEMPLATE_EXPIRY_WARNING = "প্রিয় {customer_name},\nআপনার ইন্টারনেট সার্ভিসের মেয়াদ {due_date} তারিখে শেষ হবে। নিরবচ্ছিন্ন সেবা পেতে দ্রুত ৳{due_amount} পরিশোধ করুন।"
+    private const val DEFAULT_TEMPLATE_CONNECTION_SUSPEND = "প্রিয় {customer_name},\nবকেয়া বিল ৳{due_amount} পরিশোধ না করায় আপনার ইন্টারনেট সংযোগ সাময়িকভাবে বিচ্ছিন্ন করা হয়েছে।"
+    private const val DEFAULT_TEMPLATE_CONNECTION_RESUME = "প্রিয় {customer_name},\nআপনার ইন্টারনেট সংযোগ পুনরায় চালু করা হয়েছে। আমাদের সাথে থাকার জন্য ধন্যবাদ।"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -202,6 +208,15 @@ object AutomaticSmsManager {
     fun getTemplateWarning3(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_WARNING_3, DEFAULT_TEMPLATE_WARNING_3) ?: DEFAULT_TEMPLATE_WARNING_3
     fun setTemplateWarning3(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_WARNING_3, t).apply()
 
+    fun getTemplateExpiryWarning(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_EXPIRY_WARNING, DEFAULT_TEMPLATE_EXPIRY_WARNING) ?: DEFAULT_TEMPLATE_EXPIRY_WARNING
+    fun setTemplateExpiryWarning(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_EXPIRY_WARNING, t).apply()
+
+    fun getTemplateConnectionSuspend(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_CONNECTION_SUSPEND, DEFAULT_TEMPLATE_CONNECTION_SUSPEND) ?: DEFAULT_TEMPLATE_CONNECTION_SUSPEND
+    fun setTemplateConnectionSuspend(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_CONNECTION_SUSPEND, t).apply()
+
+    fun getTemplateConnectionResume(context: Context): String = getPrefs(context).getString(KEY_TEMPLATE_CONNECTION_RESUME, DEFAULT_TEMPLATE_CONNECTION_RESUME) ?: DEFAULT_TEMPLATE_CONNECTION_RESUME
+    fun setTemplateConnectionResume(context: Context, t: String) = getPrefs(context).edit().putString(KEY_TEMPLATE_CONNECTION_RESUME, t).apply()
+
     // Permission check
     fun isSmsPermissionGranted(context: Context): Boolean {
         return ContextCompat.checkSelfPermission(context, android.Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
@@ -255,7 +270,11 @@ object AutomaticSmsManager {
         packageSpeed: String = "",
         ispName: String = "",
         billMonth: String = "",
-        customerId: String = ""
+        customerId: String = "",
+        receiptNo: String = "",
+        phoneNumber: String = "",
+        paymentStatus: String = "",
+        remainingDue: String = ""
     ): String {
         return template
             // New user requested placeholders
@@ -269,6 +288,13 @@ object AutomaticSmsManager {
             .replace("{payment_date}", paymentDate)
             .replace("{customer_id}", customerId)
             .replace("{company_name}", ispName)
+            .replace("{package_name}", packageSpeed)
+            .replace("{phone_number}", phoneNumber)
+            .replace("{payment_status}", paymentStatus)
+            .replace("{paid_amount}", paymentAmount.ifBlank { monthlyFee })
+            .replace("{receipt_no}", receiptNo)
+            .replace("{invoice_no}", receiptNo)
+            .replace("{remaining_due}", remainingDue.ifBlank { dueAmount })
             // Legacy placeholders
             .replace("[Customer Name]", customerName)
             .replace("[Customer]", customerName)
@@ -581,6 +607,116 @@ object AutomaticSmsManager {
 
         val idKey = "manual_${System.currentTimeMillis()}_${customerId}"
         enqueueSms(context, customerId, customerName, mobileNumber, processedMessage, "general_notice", idKey)
+    }
+
+    suspend fun logAuditActivity(
+        context: Context,
+        action: String,
+        details: String,
+        status: String = "SUCCESS",
+        actionType: String = "SMS_GATEWAY"
+    ) = withContext(Dispatchers.IO) {
+        try {
+            val db = com.example.data.database.IspDatabase.getDatabase(context)
+            val log = com.example.data.model.AuditLogEntity(
+                action = action,
+                actionType = actionType,
+                details = details,
+                status = status,
+                timestamp = System.currentTimeMillis()
+            )
+            db.auditLogDao().insertLog(log)
+        } catch (e: Exception) {
+            Log.e("AutomaticSmsManager", "Error logging audit activity: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Directly sends a test SMS using the real SMS Gateway and logs it in Audit Log.
+     */
+    suspend fun sendDirectTestSms(
+        context: Context,
+        testType: String, // "DUE_BILL", "BILL_PAID", or "CUSTOM"
+        customerId: Long,
+        customerName: String,
+        mobileNumber: String,
+        message: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val cleanNumber = mobileNumber.trim().replace(" ", "").replace("-", "")
+        if (cleanNumber.isBlank()) {
+            val err = Exception("Mobile number is empty")
+            logAuditActivity(context, "SMS_TEST_FAILED", "Failed to send $testType Test SMS: Mobile number is empty", "FAILED")
+            return@withContext Result.failure(err)
+        }
+
+        if (!isSmsPermissionGranted(context)) {
+            val err = Exception("SMS Permission not granted")
+            logAuditActivity(context, "SMS_TEST_FAILED", "Failed to send $testType Test SMS to $cleanNumber: Permission denied", "FAILED")
+            return@withContext Result.failure(err)
+        }
+
+        val tempSmsId = System.currentTimeMillis()
+        val db = SmsDatabase.getDatabase(context)
+        val dao = db.smsQueueDao()
+
+        val selectedSubId = getSelectedSim(context)
+        val availableSims = getAvailableSims(context)
+        val simLabel = if (selectedSubId == -1) "OS Default SIM" else {
+            val simInfo = availableSims.find { it.subscriptionId == selectedSubId }
+            if (simInfo != null) "SIM ${simInfo.slotIndex + 1} (${simInfo.carrierName})" else "SIM SubID $selectedSubId"
+        }
+
+        val queueEntity = SmsQueueEntity(
+            id = tempSmsId,
+            customerReferenceId = customerId.toString(),
+            customerName = if (customerName.isNotBlank()) customerName else "Manual Test",
+            mobileNumber = cleanNumber,
+            message = message,
+            status = "SENDING",
+            smsType = testType.lowercase(),
+            createdTime = System.currentTimeMillis(),
+            scheduledTime = System.currentTimeMillis(),
+            lastError = "Sending via $simLabel..."
+        )
+        dao.insertSms(queueEntity)
+
+        val sendResult = sendSingleSms(
+            context = context,
+            mobileNumber = cleanNumber,
+            message = message,
+            smsId = tempSmsId
+        )
+
+        if (sendResult.isSuccess) {
+            dao.updateSms(
+                queueEntity.copy(
+                    status = "SENT",
+                    lastError = "Sent via $simLabel"
+                )
+            )
+            logAuditActivity(
+                context = context,
+                action = "SMS_TEST_SENT",
+                details = "Successfully sent $testType Test SMS to $cleanNumber ($customerName) via $simLabel",
+                status = "SUCCESS"
+            )
+            Result.success(Unit)
+        } else {
+            val errorMsg = sendResult.exceptionOrNull()?.message ?: "SMS delivery failed"
+            dao.updateSms(
+                queueEntity.copy(
+                    status = "FAILED",
+                    lastError = errorMsg
+                )
+            )
+            logAuditActivity(
+                context = context,
+                action = "SMS_TEST_FAILED",
+                details = "Failed to send $testType Test SMS to $cleanNumber ($customerName) via $simLabel: $errorMsg",
+                status = "FAILED"
+            )
+            Result.failure(Exception(errorMsg))
+        }
     }
 
     /**

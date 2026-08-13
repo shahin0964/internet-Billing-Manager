@@ -437,14 +437,14 @@ class IspRepository(
         amount: Double,
         paymentMethod: String,
         notes: String
-    ): Boolean {
+    ): PaymentEntity? {
         // Find ALL unpaid bills for this customer, sorted chronologically (assuming older generatedDate or ID is older)
         val allBills = bills.first()
         val customerUnpaidBills = allBills.filter { 
             it.customerId == customerId && it.dueAmount > 0 
         }.sortedBy { it.id } // Sort by ID to pay oldest first
 
-        if (customerUnpaidBills.isEmpty()) return false
+        if (customerUnpaidBills.isEmpty()) return null
 
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val todayStr = sdf.format(Date())
@@ -499,9 +499,10 @@ class IspRepository(
         } catch (e: Exception) {
             Log.e("IspRepository", "Failed to queue payment SMS: ${e.message}")
         }
+        val createdPayment = payment.copy(id = pId)
         notifyCloudSync()
 
-        return true
+        return createdPayment
     }
 
     suspend fun deletePayment(payment: PaymentEntity): Boolean {

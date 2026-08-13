@@ -68,7 +68,8 @@ fun CollectionScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onCollectPaymentClick: () -> Unit,
-    onDeletePaymentClick: (PaymentEntity) -> Unit = {}
+    onDeletePaymentClick: (PaymentEntity) -> Unit = {},
+    onViewReceiptClick: ((PaymentEntity) -> Unit)? = null
 ) {
     val sdfMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
     var monthOffset by remember { mutableIntStateOf(0) }
@@ -350,7 +351,8 @@ tonalElevation = 2.dp,
                 PaymentReceiptCard(
                     payment = payment,
                     currencySymbol = currencySymbol,
-                    onDeleteClick = { paymentToDelete = payment }
+                    onDeleteClick = { paymentToDelete = payment },
+                    onViewReceiptClick = { onViewReceiptClick?.invoke(payment) }
                 )
             }
         }
@@ -376,13 +378,14 @@ tonalElevation = 2.dp,
 fun PaymentReceiptCard(
     payment: PaymentEntity,
     currencySymbol: String,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onViewReceiptClick: (() -> Unit)? = null
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
-shadowElevation = 3.dp,
-tonalElevation = 2.dp,
+        shadowElevation = 3.dp,
+        tonalElevation = 2.dp,
         color = MaterialTheme.colorScheme.surface,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
@@ -434,8 +437,8 @@ tonalElevation = 2.dp,
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-shadowElevation = 3.dp,
-tonalElevation = 2.dp,
+                        shadowElevation = 3.dp,
+                        tonalElevation = 2.dp,
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Text(
@@ -443,6 +446,20 @@ tonalElevation = 2.dp,
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (onViewReceiptClick != null) {
+                    IconButton(
+                        onClick = onViewReceiptClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.Receipt,
+                            contentDescription = "View Receipt",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }

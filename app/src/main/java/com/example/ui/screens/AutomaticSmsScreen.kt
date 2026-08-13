@@ -308,14 +308,20 @@ fun AutomaticSmsScreen(
                 Button(
                     onClick = {
                         when (key) {
-                            "payment_confirmation" -> AutomaticSmsManager.setTemplatePaymentConfirmation(context, editingTemplateContent)
+                            "bill_generated" -> AutomaticSmsManager.setTemplateBillGenerated(context, editingTemplateContent)
                             "due_reminder" -> AutomaticSmsManager.setTemplateDueReminder(context, editingTemplateContent)
+                            "overdue" -> AutomaticSmsManager.setTemplateOverdue(context, editingTemplateContent)
+                            "payment_confirmation" -> AutomaticSmsManager.setTemplatePaymentConfirmation(context, editingTemplateContent)
+                            "general_notice" -> AutomaticSmsManager.setTemplateGeneralNotice(context, editingTemplateContent)
                             "warning_1" -> AutomaticSmsManager.setTemplateWarning1(context, editingTemplateContent)
                             "warning_2" -> AutomaticSmsManager.setTemplateWarning2(context, editingTemplateContent)
                             "warning_3" -> AutomaticSmsManager.setTemplateWarning3(context, editingTemplateContent)
+                            "expiry_warning" -> AutomaticSmsManager.setTemplateExpiryWarning(context, editingTemplateContent)
+                            "connection_suspend" -> AutomaticSmsManager.setTemplateConnectionSuspend(context, editingTemplateContent)
+                            "connection_resume" -> AutomaticSmsManager.setTemplateConnectionResume(context, editingTemplateContent)
                         }
                         editingTemplateKey = null
-                        Toast.makeText(context, if (isBn) "টেমপ্লেট সংরক্ষণ করা হয়েছে!" else "Template saved successfully!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (isBn) "টেমপ্লেট সফলভাবে সংরক্ষণ করা হয়েছে!" else "Template saved successfully!", Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text(text = if (isBn) "সংরক্ষণ করুন" else "Save")
@@ -329,25 +335,73 @@ fun AutomaticSmsScreen(
         )
     }
 
-    // Manual SMS Dialog
+    // Manual / Test SMS Dialog
     if (showManualSmsDialog) {
         var selectedCustomer by remember { mutableStateOf<CustomerEntity?>(null) }
         var dropdownExpanded by remember { mutableStateOf(false) }
         var customNumber by remember { mutableStateOf("") }
         var customMessage by remember { mutableStateOf("") }
         var searchQuery by remember { mutableStateOf("") }
+        var testType by remember { mutableStateOf("DUE_BILL") } // "DUE_BILL", "BILL_PAID", "CUSTOM"
+        var isSendingDirect by remember { mutableStateOf(false) }
 
-        val filteredCustomers = customerList.filter {
-            it.name.contains(searchQuery, ignoreCase = true) ||
-                    it.phone.contains(searchQuery) ||
-                    it.customerCode.contains(searchQuery, ignoreCase = true)
+        // Auto-update message text when customer or test type changes
+        LaunchedEffect(selectedCustomer, testType) {
+            val name = selectedCustomer?.name ?: if (isBn) "রহিম আহমেদ" else "Test Customer"
+            val phone = selectedCustomer?.phone ?: customNumber.ifBlank { "01700000000" }
+            val custId = selectedCustomer?.id?.toString() ?: "101"
+            val monthlyFee = selectedCustomer?.monthlyFee?.toString() ?: "500"
+            val pkgName = selectedCustomer?.packageName ?: "10 Mbps"
+            val monthStr = SimpleDateFormat("MMMM yyyy", Locale("bn", "BD")).format(Date())
+            val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+
+            when (testType) {
+                "DUE_BILL" -> {
+                    val rawTemplate = AutomaticSmsManager.getTemplateDueReminder(context)
+                    customMessage = AutomaticSmsManager.processTemplate(
+                        template = rawTemplate,
+                        customerName = name,
+                        monthlyFee = monthlyFee,
+                        dueAmount = monthlyFee,
+                        dueDate = dateStr,
+                        packageSpeed = pkgName,
+                        billMonth = monthStr,
+                        customerId = custId,
+                        phoneNumber = phone
+                    )
+                }
+                "BILL_PAID" -> {
+                    val rawTemplate = AutomaticSmsManager.getTemplatePaymentConfirmation(context)
+                    customMessage = AutomaticSmsManager.processTemplate(
+                        template = rawTemplate,
+                        customerName = name,
+                        monthlyFee = monthlyFee,
+                        dueAmount = "0",
+                        paymentAmount = monthlyFee,
+                        paymentDate = dateStr,
+                        packageSpeed = pkgName,
+                        billMonth = monthStr,
+                        customerId = custId,
+                        receiptNo = "REC-${System.currentTimeMillis().toString().takeLast(5)}",
+                        phoneNumber = phone
+                    )
+                }
+                "CUSTOM" -> {
+                    if (customMessage.isBlank()) {
+                        customMessage = if (isBn) "প্রিয় $name, ইন্টারনেট বিল পরিশোধের জন্য ধন্যবাদ।" else "Dear $name, thank you for paying your internet bill."
+                    }
+                }
+            }
+            if (selectedCustomer != null && customNumber.isBlank()) {
+                customNumber = selectedCustomer?.phone ?: ""
+            }
         }
 
         AlertDialog(
-            onDismissRequest = { showManualSmsDialog = false },
+            onDismissRequest = { if (!isSendingDirect) showManualSmsDialog = false },
             title = {
                 Text(
-                    text = if (isBn) "ম্যানুয়াল এসএমএস পাঠান" else "Send Manual SMS",
+                    text = if (isBn) "টেস্ট ও ম্যানুয়াল এসএমএস পাঠান" else "Send Test & Manual SMS",
                     fontWeight = FontWeight.Bold
                 )
             },
@@ -358,7 +412,37 @@ fun AutomaticSmsScreen(
                         .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 ) {
                     Text(
-                        text = if (isBn) "গ্রাহক নির্বাচন করুন:" else "Select Customer:",
+                        text = if (isBn) "এসএমএস টাইপ নির্বাচন করুন:" else "Select SMS Type:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = testType == "DUE_BILL",
+                            onClick = { testType = "DUE_BILL" },
+                            label = { Text(text = if (isBn) "⏰ বকেয়া বিল" else "Due Bill") }
+                        )
+                        FilterChip(
+                            selected = testType == "BILL_PAID",
+                            onClick = { testType = "BILL_PAID" },
+                            label = { Text(text = if (isBn) "✅ বিল পরিশোধ" else "Bill Paid") }
+                        )
+                        FilterChip(
+                            selected = testType == "CUSTOM",
+                            onClick = { testType = "CUSTOM" },
+                            label = { Text(text = if (isBn) "✉️ কাস্টম" else "Custom") }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = if (isBn) "গ্রাহক নির্বাচন করুন (ঐচ্ছিক):" else "Select Customer (Optional):",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
@@ -370,7 +454,6 @@ fun AutomaticSmsScreen(
                                 searchQuery = it
                                 if (selectedCustomer != null && it != selectedCustomer?.name) {
                                     selectedCustomer = null
-                                    customNumber = ""
                                 }
                                 dropdownExpanded = true
                             },
@@ -382,16 +465,21 @@ fun AutomaticSmsScreen(
                                 }
                             }
                         )
-                        
+
                         androidx.compose.animation.AnimatedVisibility(visible = dropdownExpanded) {
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 250.dp)
+                                    .heightIn(max = 200.dp)
                                     .padding(top = 4.dp),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
+                                val filteredCustomers = customerList.filter {
+                                    it.name.contains(searchQuery, ignoreCase = true) ||
+                                            it.phone.contains(searchQuery) ||
+                                            it.customerCode.contains(searchQuery, ignoreCase = true)
+                                }
                                 if (filteredCustomers.isEmpty()) {
                                     Text(
                                         text = if (isBn) "কোনো গ্রাহক পাওয়া যায়নি" else "No customers found",
@@ -413,7 +501,7 @@ fun AutomaticSmsScreen(
                                                         dropdownExpanded = false
                                                         searchQuery = customer.name
                                                     }
-                                                    .padding(16.dp)
+                                                    .padding(12.dp)
                                             ) {
                                                 Column {
                                                     Text(text = customer.name, fontWeight = FontWeight.Bold)
@@ -433,22 +521,25 @@ fun AutomaticSmsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = if (isBn) "মোবাইল নম্বর:" else "Mobile Number:",
+                        text = if (isBn) "প্রাপকের মোবাইল নম্বর:" else "Recipient Mobile Number:",
                         style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                     OutlinedTextField(
                         value = customNumber,
                         onValueChange = { customNumber = it },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        placeholder = { Text("01700000000") }
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = if (isBn) "এসএমএস বার্তা:" else "Message Body:",
+                        text = if (isBn) "এসএমএস মেসেজ বডি (এডিটেবল):" else "SMS Message Body (Editable):",
                         style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                     OutlinedTextField(
@@ -456,38 +547,88 @@ fun AutomaticSmsScreen(
                         onValueChange = { customMessage = it },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(120.dp),
-                        placeholder = { Text(if (isBn) "আপনার বার্তাটি লিখুন..." else "Type your message here...") }
+                            .height(130.dp),
+                        placeholder = { Text(if (isBn) "বার্তা লিখুন..." else "Type message...") }
                     )
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        if (customNumber.isBlank() || customMessage.isBlank()) {
-                            Toast.makeText(context, if (isBn) "নম্বর এবং বার্তা দুটোই আবশ্যক!" else "Number and message are both required!", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        coroutineScope.launch {
-                            val custId = selectedCustomer?.id ?: 0L
-                            val custName = selectedCustomer?.name ?: "Manual Dispatch"
-                            AutomaticSmsManager.queueManualSms(
-                                context = context,
-                                customerId = custId,
-                                customerName = custName,
-                                mobileNumber = customNumber,
-                                message = customMessage
-                            )
-                            showManualSmsDialog = false
-                            Toast.makeText(context, if (isBn) "এসএমএস সফলভাবে লাইনে যুক্ত করা হয়েছে!" else "SMS added to sending queue successfully!", Toast.LENGTH_SHORT).show()
+                Column(horizontalAlignment = Alignment.End) {
+                    Button(
+                        enabled = !isSendingDirect,
+                        onClick = {
+                            if (customNumber.isBlank() || customMessage.isBlank()) {
+                                Toast.makeText(context, if (isBn) "নম্বর এবং বার্তা আবশ্যক!" else "Number and message are required!", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            coroutineScope.launch {
+                                isSendingDirect = true
+                                val custId = selectedCustomer?.id ?: 0L
+                                val custName = selectedCustomer?.name ?: "Test Recipient"
+                                val result = AutomaticSmsManager.sendDirectTestSms(
+                                    context = context,
+                                    testType = testType,
+                                    customerId = custId,
+                                    customerName = custName,
+                                    mobileNumber = customNumber,
+                                    message = customMessage
+                                )
+                                isSendingDirect = false
+                                if (result.isSuccess) {
+                                    Toast.makeText(context, if (isBn) "রিয়েল টেস্ট এসএমএস সফলভাবে পাঠানো হয়েছে!" else "Real Test SMS sent successfully via SMS Gateway!", Toast.LENGTH_LONG).show()
+                                    showManualSmsDialog = false
+                                } else {
+                                    val err = result.exceptionOrNull()?.message ?: "Unknown Error"
+                                    Toast.makeText(context, if (isBn) "এসএমএস পাঠাতে ব্যর্থ: $err" else "Failed to send SMS: $err", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        if (isSendingDirect) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = if (isBn) "পাঠানো হচ্ছে..." else "Sending...")
+                        } else {
+                            Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = if (isBn) "রিয়েল টেস্ট এসএমএস পাঠান" else "Send Real Test SMS")
                         }
                     }
-                ) {
-                    Text(text = if (isBn) "পাঠান" else "Send")
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedButton(
+                        enabled = !isSendingDirect,
+                        onClick = {
+                            if (customNumber.isBlank() || customMessage.isBlank()) {
+                                Toast.makeText(context, if (isBn) "নম্বর এবং বার্তা আবশ্যক!" else "Number and message are required!", Toast.LENGTH_SHORT).show()
+                                return@OutlinedButton
+                            }
+                            coroutineScope.launch {
+                                val custId = selectedCustomer?.id ?: 0L
+                                val custName = selectedCustomer?.name ?: "Manual Queue"
+                                AutomaticSmsManager.queueManualSms(
+                                    context = context,
+                                    customerId = custId,
+                                    customerName = custName,
+                                    mobileNumber = customNumber,
+                                    message = customMessage
+                                )
+                                showManualSmsDialog = false
+                                Toast.makeText(context, if (isBn) "এসএমএস সফলভাবে লাইনে যুক্ত করা হয়েছে!" else "SMS queued successfully!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    ) {
+                        Text(text = if (isBn) "কিউতে যুক্ত করুন (Queue)" else "Add to Queue")
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showManualSmsDialog = false }) {
+                TextButton(
+                    enabled = !isSendingDirect,
+                    onClick = { showManualSmsDialog = false }
+                ) {
                     Text(text = if (isBn) "বাতিল" else "Cancel")
                 }
             }
@@ -863,6 +1004,54 @@ var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymen
                 },
                 onEditClick = {
                     onEditTemplate("overdue", if (isBn) "বকেয়া নোটিশ" else "Overdue Notice", AutomaticSmsManager.getTemplateOverdue(context))
+                },
+                isBn = isBn
+            )
+        }
+
+        // Connection Suspend Notice
+        item {
+            RuleCard(
+                title = if (isBn) "🔌 সংযোগ বিচ্ছিন্ন নোটিশ (Connection Suspend)" else "🔌 Connection Suspend Notice",
+                checked = ruleOverdue,
+                onCheckedChange = {
+                    ruleOverdue = it
+                    AutomaticSmsManager.setRuleOverdueEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("connection_suspend", if (isBn) "সংযোগ বিচ্ছিন্ন নোটিশ" else "Connection Suspend Notice", AutomaticSmsManager.getTemplateConnectionSuspend(context))
+                },
+                isBn = isBn
+            )
+        }
+
+        // Connection Resume Notice
+        item {
+            RuleCard(
+                title = if (isBn) "⚡ সংযোগ পুনরায় চালু নোটিশ (Connection Resume)" else "⚡ Connection Resume Notice",
+                checked = rulePayConfirm,
+                onCheckedChange = {
+                    rulePayConfirm = it
+                    AutomaticSmsManager.setRulePaymentConfirmationEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("connection_resume", if (isBn) "সংযোগ পুনরায় চালু নোটিশ" else "Connection Resume Notice", AutomaticSmsManager.getTemplateConnectionResume(context))
+                },
+                isBn = isBn
+            )
+        }
+
+        // Expiry Warning Notice
+        item {
+            RuleCard(
+                title = if (isBn) "⌛ মেয়াদ শেষের সতর্কবার্তা (Expiry Warning)" else "⌛ Expiry Warning Notice",
+                checked = ruleDueReminder,
+                onCheckedChange = {
+                    ruleDueReminder = it
+                    AutomaticSmsManager.setRuleDueReminderEnabled(context, it)
+                },
+                onEditClick = {
+                    onEditTemplate("expiry_warning", if (isBn) "মেয়াদ শেষের সতর্কবার্তা" else "Expiry Warning Notice", AutomaticSmsManager.getTemplateExpiryWarning(context))
                 },
                 isBn = isBn
             )

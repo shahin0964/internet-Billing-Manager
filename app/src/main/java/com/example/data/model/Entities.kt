@@ -17,7 +17,15 @@ data class CustomerEntity(
     val monthlyFee: Double,
     val status: String = "ACTIVE", // ACTIVE, INACTIVE, SUSPENDED
     val joiningDate: String,
-    val notes: String = ""
+    val notes: String = "",
+    val area: String = "",
+    val zone: String = "",
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val oltName: String = "",
+    val ponPort: String = "",
+    val onuSerial: String = "",
+    val routerName: String = ""
 )
 
 @Entity(tableName = "packages")
@@ -67,7 +75,8 @@ data class BusinessSettingsEntity(
     val currencySymbol: String = "৳",
     val networkStatus: String = "Operational",
     val themeMode: String = "SYSTEM", // SYSTEM, DARK, LIGHT
-    val logoUri: String? = null
+    val logoUri: String? = null,
+    val email: String = ""
 )
 
 @Entity(tableName = "expenses")
