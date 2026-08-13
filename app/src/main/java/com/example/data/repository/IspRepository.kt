@@ -3,19 +3,25 @@ package com.example.data.repository
 import android.content.Context
 import android.util.Log
 import java.io.File
+import com.example.data.dao.AuditLogDao
 import com.example.data.dao.BillDao
 import com.example.data.dao.BusinessSettingsDao
 import com.example.data.dao.CustomerDao
 import com.example.data.dao.ExpenseDao
 import com.example.data.dao.IspPackageDao
+import com.example.data.dao.NetworkDiagramDao
 import com.example.data.dao.PaymentDao
 import com.example.data.database.IspDatabase
+import com.example.data.model.AuditLogEntity
 import com.example.data.model.BillEntity
 import com.example.data.model.BusinessSettingsEntity
 import com.example.data.model.CustomerEntity
 import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
+import com.example.data.model.NetworkConnectionEntity
+import com.example.data.model.NetworkDiagramEntity
+import com.example.data.model.NetworkNodeEntity
 import com.example.data.model.PaymentEntity
 import com.example.data.model.PreviousDueItem
 import androidx.room.withTransaction
@@ -34,6 +40,8 @@ class IspRepository(
     private val paymentDao: PaymentDao,
     private val settingsDao: BusinessSettingsDao,
     private val expenseDao: ExpenseDao,
+    private val networkDiagramDao: NetworkDiagramDao,
+    private val auditLogDao: AuditLogDao,
     private val db: IspDatabase,
     private val context: Context? = null
 ) {
@@ -44,6 +52,45 @@ class IspRepository(
     val settings: Flow<BusinessSettingsEntity?> = settingsDao.getSettings()
     val expenses: Flow<List<ExpenseEntity>> = expenseDao.getAllExpenses()
     val expenseCategories: Flow<List<ExpenseCategoryEntity>> = expenseDao.getAllCategories()
+    val diagrams: Flow<List<NetworkDiagramEntity>> = networkDiagramDao.getAllDiagrams()
+    val auditLogs: Flow<List<AuditLogEntity>> = auditLogDao.getAllAuditLogs()
+
+    suspend fun logActivity(
+        action: String,
+        details: String,
+        actionType: String = "",
+        targetEntity: String = "",
+        targetId: String = "",
+        previousState: String = "",
+        newState: String = "",
+        status: String = "SUCCESS",
+        userEmail: String? = null
+    ): Long {
+        return try {
+            val email = userEmail?.ifBlank { null }
+                ?: runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email }.getOrNull()
+                ?: "admin@isp.com"
+            val log = AuditLogEntity(
+                action = action,
+                actionType = actionType,
+                details = details,
+                userEmail = email,
+                userRole = "Admin",
+                targetEntity = targetEntity,
+                targetId = targetId,
+                previousState = previousState,
+                newState = newState,
+                status = status,
+                timestamp = System.currentTimeMillis()
+            )
+            val id = auditLogDao.insertLog(log)
+            notifyCloudSync()
+            id
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Failed to write activity log: ${e.message}", e)
+            0L
+        }
+    }
 
     fun getCollectedAmountForDate(date: String): Flow<Double> {
         return paymentDao.getCollectedAmountForDate(date)
@@ -60,29 +107,70 @@ class IspRepository(
 
     suspend fun saveExpense(expense: ExpenseEntity): Long {
         val result = expenseDao.insertExpense(expense)
+        logActivity(
+            action = "EXPENSE_ADDED",
+            actionType = "EXPENSE",
+            details = "Added expense: ${expense.title} (৳${expense.amount})",
+            targetEntity = "Expense",
+            targetId = result.toString(),
+            newState = "Amount: ৳${expense.amount}, Category: ${expense.category}"
+        )
         notifyCloudSync()
         return result
     }
 
     suspend fun updateExpense(expense: ExpenseEntity) {
         expenseDao.updateExpense(expense)
+        logActivity(
+            action = "EXPENSE_EDIT",
+            actionType = "EXPENSE",
+            details = "Updated expense: ${expense.title}",
+            targetEntity = "Expense",
+            targetId = expense.id.toString(),
+            newState = "Amount: ৳${expense.amount}, Category: ${expense.category}"
+        )
         notifyCloudSync()
     }
 
     suspend fun deleteExpense(expense: ExpenseEntity) {
         expenseDao.deleteExpense(expense)
         context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "expenses", expense.id.toString()) }
+        logActivity(
+            action = "EXPENSE_DELETED",
+            actionType = "EXPENSE",
+            details = "Deleted expense: ${expense.title}",
+            targetEntity = "Expense",
+            targetId = expense.id.toString(),
+            previousState = "Amount: ৳${expense.amount}, Category: ${expense.category}"
+        )
         notifyCloudSync()
     }
 
     suspend fun saveExpenseCategory(categoryName: String): Long {
         val result = expenseDao.insertCategory(ExpenseCategoryEntity(name = categoryName.trim()))
+        logActivity(
+            action = "EXPENSE_CATEGORY_ADDED",
+            actionType = "EXPENSE",
+            details = "Created expense category: ${categoryName.trim()}",
+            targetEntity = "ExpenseCategory",
+            targetId = result.toString()
+        )
         notifyCloudSync()
         return result
     }
 
     suspend fun saveCustomer(customer: CustomerEntity): Long {
+        val isNew = customer.id == 0L
         val result = customerDao.insertCustomer(customer)
+        val actionName = if (isNew) "CUSTOMER_CREATE" else "CUSTOMER_EDIT"
+        logActivity(
+            action = actionName,
+            actionType = "CUSTOMER",
+            details = if (isNew) "Created customer: ${customer.name} (${customer.pppoeUsername})" else "Updated customer: ${customer.name} (${customer.pppoeUsername})",
+            targetEntity = "Customer",
+            targetId = if (isNew) result.toString() else customer.id.toString(),
+            newState = "Package: ${customer.packageName}, Fee: ৳${customer.monthlyFee}, Status: ${customer.status}"
+        )
         notifyCloudSync()
         return result
     }
@@ -118,12 +206,25 @@ class IspRepository(
         }
         if (newBills.isNotEmpty()) {
             billDao.insertBills(newBills)
+            logActivity(
+                action = "BILL_EDIT",
+                actionType = "BILL",
+                details = "Created ${newBills.size} previous dues bills for customer ${customer.name}",
+                targetEntity = "Customer",
+                targetId = customerId.toString()
+            )
         }
         notifyCloudSync()
     }
 
     suspend fun saveCustomers(customers: List<CustomerEntity>) {
         customerDao.insertCustomers(customers)
+        logActivity(
+            action = "CUSTOMER_CREATE",
+            actionType = "CUSTOMER",
+            details = "Imported ${customers.size} customer records",
+            targetEntity = "Customer"
+        )
         notifyCloudSync()
     }
 
@@ -131,6 +232,14 @@ class IspRepository(
         customerDao.updateCustomer(customer)
         billDao.updateCustomerNameInBills(customer.id, customer.name)
         paymentDao.updateCustomerNameInPayments(customer.id, customer.name)
+        logActivity(
+            action = "CUSTOMER_EDIT",
+            actionType = "CUSTOMER",
+            details = "Updated customer details for ${customer.name} (${customer.pppoeUsername})",
+            targetEntity = "Customer",
+            targetId = customer.id.toString(),
+            newState = "Package: ${customer.packageName}, Fee: ৳${customer.monthlyFee}, Status: ${customer.status}"
+        )
         notifyCloudSync()
     }
 
@@ -157,34 +266,88 @@ class IspRepository(
             }
             com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "customers", customer.id.toString())
         }
+        logActivity(
+            action = "CUSTOMER_DELETE",
+            actionType = "CUSTOMER",
+            details = "Deleted customer ${customer.name} (${customer.pppoeUsername}) and associated billing records",
+            targetEntity = "Customer",
+            targetId = customer.id.toString(),
+            previousState = "Name: ${customer.name}, Mobile: ${customer.phone}, Package: ${customer.packageName}"
+        )
         notifyCloudSync()
     }
 
     suspend fun updateCustomerStatus(id: Long, status: String) {
         customerDao.updateCustomerStatus(id, status)
+        val actionName = when (status.uppercase()) {
+            "EXPIRED", "INACTIVE", "SUSPENDED" -> "SUSPEND_CUSTOMER"
+            "ACTIVE" -> "RESUME_CUSTOMER"
+            else -> "CUSTOMER_EDIT"
+        }
+        logActivity(
+            action = actionName,
+            actionType = "CUSTOMER",
+            details = "Changed customer #$id status to $status",
+            targetEntity = "Customer",
+            targetId = id.toString(),
+            newState = "Status: $status"
+        )
         notifyCloudSync()
     }
 
     suspend fun savePackage(pkg: IspPackageEntity): Long {
+        val isNew = pkg.id == 0L
         val result = packageDao.insertPackage(pkg)
+        logActivity(
+            action = if (isNew) "PACKAGE_CREATE" else "PACKAGE_EDIT",
+            actionType = "PACKAGE",
+            details = if (isNew) "Created ISP package: ${pkg.name} (${pkg.speedMbps} Mbps)" else "Updated ISP package: ${pkg.name}",
+            targetEntity = "IspPackage",
+            targetId = if (isNew) result.toString() else pkg.id.toString(),
+            newState = "Speed: ${pkg.speedMbps} Mbps, Price: ৳${pkg.monthlyPrice}"
+        )
         notifyCloudSync()
         return result
     }
 
     suspend fun updatePackage(pkg: IspPackageEntity) {
         packageDao.updatePackage(pkg)
+        logActivity(
+            action = "PACKAGE_EDIT",
+            actionType = "PACKAGE",
+            details = "Updated ISP package: ${pkg.name}",
+            targetEntity = "IspPackage",
+            targetId = pkg.id.toString(),
+            newState = "Speed: ${pkg.speedMbps} Mbps, Price: ৳${pkg.monthlyPrice}"
+        )
         notifyCloudSync()
     }
 
     suspend fun deletePackage(pkg: IspPackageEntity) {
         packageDao.deletePackage(pkg)
         context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "packages", pkg.id.toString()) }
+        logActivity(
+            action = "PACKAGE_DELETE",
+            actionType = "PACKAGE",
+            details = "Deleted ISP package: ${pkg.name}",
+            targetEntity = "IspPackage",
+            targetId = pkg.id.toString(),
+            previousState = "Name: ${pkg.name}, Price: ৳${pkg.monthlyPrice}"
+        )
         notifyCloudSync()
     }
 
     suspend fun deleteBill(bill: BillEntity) {
         billDao.deleteBill(bill)
         context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "bills", bill.id.toString()) }
+        logActivity(
+            action = "BILL_DELETE",
+            actionType = "BILL",
+            details = "Deleted bill #${bill.billNumber} for ${bill.customerName}",
+            targetEntity = "Bill",
+            targetId = bill.id.toString(),
+            previousState = "Month: ${bill.billingMonth}, Amount: ৳${bill.amount}"
+        )
         notifyCloudSync()
     }
 
@@ -197,6 +360,14 @@ class IspRepository(
         }
         val finalBill = bill.copy(dueAmount = newDue, status = newStatus)
         billDao.updateBill(finalBill)
+        logActivity(
+            action = "BILL_EDIT",
+            actionType = "BILL",
+            details = "Updated bill #${bill.billNumber} for ${bill.customerName}",
+            targetEntity = "Bill",
+            targetId = bill.id.toString(),
+            newState = "Amount: ৳${bill.amount}, Paid: ৳${bill.paidAmount}, Due: ৳${newDue}, Status: ${newStatus}"
+        )
         notifyCloudSync()
     }
 
@@ -244,6 +415,12 @@ class IspRepository(
 
         if (newBills.isNotEmpty()) {
             billDao.insertBills(newBills)
+            logActivity(
+                action = "BILL_EDIT",
+                actionType = "BILL",
+                details = "Generated $generatedCount monthly bills for $billingMonth",
+                targetEntity = "Bill"
+            )
             try {
                 context?.let { com.example.util.AutomaticSmsManager.onBillsGenerated(it, newBills) }
             } catch (e: Exception) {
@@ -297,17 +474,26 @@ class IspRepository(
             billDao.updateBill(updatedBill)
         }
 
+        val custName = customerUnpaidBills.first().customerName
         val payment = PaymentEntity(
             paymentReceiptNo = receiptNo,
             billId = billId, // Use the provided billId or a reference
             customerId = customerId,
-            customerName = customerUnpaidBills.first().customerName,
+            customerName = custName,
             amount = amount,
             paymentDate = todayStr,
             paymentMethod = paymentMethod,
             notes = notes
         )
-        paymentDao.insertPayment(payment)
+        val pId = paymentDao.insertPayment(payment)
+        logActivity(
+            action = "PAYMENT_ADDED",
+            actionType = "PAYMENT",
+            details = "Recorded payment of ৳${amount} for ${custName} via ${paymentMethod}",
+            targetEntity = "Payment",
+            targetId = pId.toString(),
+            newState = "Amount: ৳${amount}, Method: ${paymentMethod}, Receipt: ${receiptNo}"
+        )
         try {
             context?.let { com.example.util.AutomaticSmsManager.onPaymentRecorded(it, payment) }
         } catch (e: Exception) {
@@ -361,6 +547,15 @@ class IspRepository(
                 )
             }
 
+            logActivity(
+                action = "PAYMENT_DELETED",
+                actionType = "PAYMENT",
+                details = "Deleted payment ৳${payment.amount} for ${payment.customerName}",
+                targetEntity = "Payment",
+                targetId = payment.id.toString(),
+                previousState = "Receipt: ${payment.paymentReceiptNo}, Amount: ৳${payment.amount}"
+            )
+
             notifyCloudSync()
             return true
         } catch (e: Exception) {
@@ -371,6 +566,14 @@ class IspRepository(
 
     suspend fun saveSettings(settings: BusinessSettingsEntity) {
         settingsDao.insertOrUpdateSettings(settings)
+        logActivity(
+            action = "SETTINGS_EDIT",
+            actionType = "SETTINGS",
+            details = "Updated business settings for ${settings.ispName.ifBlank { "ISP Control Center" }}",
+            targetEntity = "BusinessSettings",
+            targetId = settings.id.toString(),
+            newState = "ISP: ${settings.ispName}, Hotline: ${settings.hotline}"
+        )
         notifyCloudSync()
     }
 
@@ -1033,5 +1236,111 @@ class IspRepository(
             expenseDao.deleteAllCategories()
             settingsDao.deleteSettings()
         }
+    }
+
+    // Network Diagram helper methods
+    fun getNodesForDiagram(diagramId: Long): Flow<List<NetworkNodeEntity>> =
+        networkDiagramDao.getNodesForDiagram(diagramId)
+
+    fun getConnectionsForDiagram(diagramId: Long): Flow<List<NetworkConnectionEntity>> =
+        networkDiagramDao.getConnectionsForDiagram(diagramId)
+
+    suspend fun getOrCreateDefaultDiagram(): NetworkDiagramEntity {
+        val existing = networkDiagramDao.getAllDiagramsList()
+        if (existing.isNotEmpty()) {
+            return existing.first()
+        }
+        val defaultDiag = NetworkDiagramEntity(
+            name = "Default Network Topology",
+            isDefault = true
+        )
+        val id = networkDiagramDao.insertDiagram(defaultDiag)
+        return defaultDiag.copy(id = id)
+    }
+
+    suspend fun createNewDiagram(name: String): Long {
+        val diag = NetworkDiagramEntity(name = name.ifBlank { "Network Topology" })
+        val id = networkDiagramDao.insertDiagram(diag)
+        logActivity(
+            action = "NETWORK_DIAGRAM_CREATE",
+            actionType = "NETWORK",
+            details = "Created network diagram: ${diag.name}",
+            targetEntity = "NetworkDiagram",
+            targetId = id.toString()
+        )
+        notifyCloudSync()
+        return id
+    }
+
+    suspend fun saveNode(node: NetworkNodeEntity) {
+        networkDiagramDao.insertNode(node)
+        logActivity(
+            action = "NETWORK_DIAGRAM_EDIT",
+            actionType = "NETWORK",
+            details = "Saved network device: ${node.name} (${node.type})",
+            targetEntity = "NetworkNode",
+            targetId = node.id
+        )
+        notifyCloudSync()
+    }
+
+    suspend fun updateNodePosition(nodeId: String, x: Float, y: Float) {
+        networkDiagramDao.updateNodePosition(nodeId, x, y)
+        notifyCloudSync()
+    }
+
+    suspend fun deleteNode(nodeId: String) {
+        networkDiagramDao.deleteConnectionsForNode(nodeId)
+        networkDiagramDao.deleteNodeById(nodeId)
+        context?.let {
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "network_nodes", nodeId)
+        }
+        logActivity(
+            action = "NETWORK_DIAGRAM_EDIT",
+            actionType = "NETWORK",
+            details = "Deleted network node #$nodeId",
+            targetEntity = "NetworkNode",
+            targetId = nodeId
+        )
+        notifyCloudSync()
+    }
+
+    suspend fun saveConnection(connection: NetworkConnectionEntity) {
+        networkDiagramDao.insertConnection(connection)
+        logActivity(
+            action = "NETWORK_DIAGRAM_EDIT",
+            actionType = "NETWORK",
+            details = "Connected network nodes ${connection.fromNodeId} ➔ ${connection.toNodeId}",
+            targetEntity = "NetworkConnection",
+            targetId = connection.id
+        )
+        notifyCloudSync()
+    }
+
+    suspend fun deleteConnection(connectionId: String) {
+        networkDiagramDao.deleteConnectionById(connectionId)
+        context?.let {
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "network_connections", connectionId)
+        }
+        logActivity(
+            action = "NETWORK_DIAGRAM_EDIT",
+            actionType = "NETWORK",
+            details = "Deleted network connection #$connectionId",
+            targetEntity = "NetworkConnection",
+            targetId = connectionId
+        )
+        notifyCloudSync()
+    }
+
+    suspend fun clearDiagram(diagramId: Long) {
+        networkDiagramDao.clearDiagram(diagramId)
+        logActivity(
+            action = "NETWORK_DIAGRAM_DELETE",
+            actionType = "NETWORK",
+            details = "Cleared network diagram #$diagramId topology",
+            targetEntity = "NetworkDiagram",
+            targetId = diagramId.toString()
+        )
+        notifyCloudSync()
     }
 }

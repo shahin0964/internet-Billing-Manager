@@ -635,6 +635,8 @@ object AppUpdateManager {
                 db.paymentDao(),
                 db.settingsDao(),
                 db.expenseDao(),
+                db.networkDiagramDao(),
+                db.auditLogDao(),
                 db,
                 context.applicationContext
             )

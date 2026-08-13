@@ -347,6 +347,83 @@ object FirestoreSyncManager {
                     .set(map, SetOptions.merge()).await()
             }
 
+            // 8. Sync Network Diagrams, Nodes & Connections
+            try {
+                val diagrams = db.networkDiagramDao().getAllDiagramsList()
+                diagrams.forEach { diag ->
+                    val map = mapOf(
+                        "id" to diag.id,
+                        "name" to diag.name,
+                        "isDefault" to diag.isDefault,
+                        "createdAt" to diag.createdAt,
+                        "updatedAt" to diag.updatedAt
+                    )
+                    userRef.collection("network_diagrams").document(diag.id.toString())
+                        .set(map, SetOptions.merge()).await()
+
+                    val nodes = db.networkDiagramDao().getNodesListForDiagram(diag.id)
+                    nodes.forEach { node ->
+                        val nodeMap = mapOf(
+                            "id" to node.id,
+                            "diagramId" to node.diagramId,
+                            "name" to node.name,
+                            "type" to node.type,
+                            "ipAddress" to node.ipAddress,
+                            "location" to node.location,
+                            "areaZone" to node.areaZone,
+                            "portInfo" to node.portInfo,
+                            "customerRef" to node.customerRef,
+                            "customerId" to node.customerId,
+                            "notes" to node.notes,
+                            "positionX" to node.positionX,
+                            "positionY" to node.positionY
+                        )
+                        userRef.collection("network_nodes").document(node.id)
+                            .set(nodeMap, SetOptions.merge()).await()
+                    }
+
+                    val connections = db.networkDiagramDao().getConnectionsListForDiagram(diag.id)
+                    connections.forEach { conn ->
+                        val connMap = mapOf(
+                            "id" to conn.id,
+                            "diagramId" to conn.diagramId,
+                            "fromNodeId" to conn.fromNodeId,
+                            "toNodeId" to conn.toNodeId,
+                            "label" to conn.label,
+                            "notes" to conn.notes
+                        )
+                        userRef.collection("network_connections").document(conn.id)
+                            .set(connMap, SetOptions.merge()).await()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Network diagram sync warning: ${e.message}")
+            }
+
+            try {
+                val auditLogs = db.auditLogDao().getAllAuditLogs().first()
+                for (log in auditLogs) {
+                    val logMap = mapOf(
+                        "id" to log.id,
+                        "action" to log.action,
+                        "actionType" to log.actionType,
+                        "details" to log.details,
+                        "userEmail" to log.userEmail,
+                        "userRole" to log.userRole,
+                        "targetEntity" to log.targetEntity,
+                        "targetId" to log.targetId,
+                        "previousState" to log.previousState,
+                        "newState" to log.newState,
+                        "status" to log.status,
+                        "timestamp" to log.timestamp
+                    )
+                    userRef.collection("audit_logs").document(log.id.toString())
+                        .set(logMap, SetOptions.merge()).await()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Sync: Audit logs sync warning: ${e.message}")
+            }
+
             // Status record
             userRef.collection("sync_meta").document("status").set(
                 mapOf(
@@ -516,10 +593,33 @@ object FirestoreSyncManager {
                 )
             } else null
 
+            // Restore Audit Logs
+            val auditDocs = try {
+                userRef.collection("audit_logs").get().await()
+            } catch (e: Exception) { null }
+            val restoredLogs = auditDocs?.documents?.mapNotNull { doc ->
+                try {
+                    com.example.data.model.AuditLogEntity(
+                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                        action = doc.getString("action") ?: "",
+                        actionType = doc.getString("actionType") ?: "",
+                        details = doc.getString("details") ?: "",
+                        userEmail = doc.getString("userEmail") ?: "",
+                        userRole = doc.getString("userRole") ?: "",
+                        targetEntity = doc.getString("targetEntity") ?: "",
+                        targetId = doc.getString("targetId") ?: "",
+                        previousState = doc.getString("previousState") ?: "",
+                        newState = doc.getString("newState") ?: "",
+                        status = doc.getString("status") ?: "SUCCESS",
+                        timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                    )
+                } catch (e: Exception) { null }
+            } ?: emptyList()
+
             if (restoredCustomers.isEmpty() && restoredPackages.isEmpty() &&
                 restoredBills.isEmpty() && restoredPayments.isEmpty() &&
                 restoredExpenses.isEmpty() && restoredCategories.isEmpty() &&
-                restoredSettings == null) {
+                restoredSettings == null && restoredLogs.isEmpty()) {
                 Log.w(TAG, "No cloud backup found for UID: $uid")
                 return@withContext Pair(false, "No cloud backup found")
             }
@@ -532,6 +632,7 @@ object FirestoreSyncManager {
                 db.expenseDao().deleteAllExpenses()
                 db.expenseDao().deleteAllCategories()
                 db.settingsDao().deleteSettings()
+                db.auditLogDao().deleteAllLogs()
 
                 if (restoredCustomers.isNotEmpty()) {
                     db.customerDao().insertCustomers(restoredCustomers)
@@ -553,6 +654,9 @@ object FirestoreSyncManager {
                 }
                 if (restoredSettings != null) {
                     db.settingsDao().insertOrUpdateSettings(restoredSettings)
+                }
+                if (restoredLogs.isNotEmpty()) {
+                    db.auditLogDao().insertLogs(restoredLogs)
                 }
             }
 

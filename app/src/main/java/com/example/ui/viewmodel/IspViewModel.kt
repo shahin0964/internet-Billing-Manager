@@ -55,6 +55,8 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
 
+    val auditLogs: StateFlow<List<com.example.data.model.AuditLogEntity>>
+
     init {
         val db = IspDatabase.getDatabase(application)
         repository = IspRepository(
@@ -64,6 +66,8 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             db.paymentDao(),
             db.settingsDao(),
             db.expenseDao(),
+            db.networkDiagramDao(),
+            db.auditLogDao(),
             db,
             application
         )
@@ -121,6 +125,10 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         expenseCategories = repository.expenseCategories.stateIn(
+            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+        )
+
+        auditLogs = repository.auditLogs.stateIn(
             viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
         )
 
@@ -657,6 +665,32 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Throwable) {
                 android.util.Log.e("IspViewModel", "Failed to clear all local data safely: ${e.message}", e)
             }
+        }
+    }
+
+    fun logActivity(
+        action: String,
+        details: String,
+        actionType: String = "",
+        targetEntity: String = "",
+        targetId: String = "",
+        previousState: String = "",
+        newState: String = "",
+        status: String = "SUCCESS",
+        userEmail: String? = null
+    ) {
+        viewModelScope.launch {
+            repository.logActivity(
+                action = action,
+                details = details,
+                actionType = actionType,
+                targetEntity = targetEntity,
+                targetId = targetId,
+                previousState = previousState,
+                newState = newState,
+                status = status,
+                userEmail = userEmail
+            )
         }
     }
 }
