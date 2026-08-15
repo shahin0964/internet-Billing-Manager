@@ -84,15 +84,18 @@ fun AutomaticSmsScreen(
     // Permission States
     var hasSmsPermission by remember { mutableStateOf(AutomaticSmsManager.isSmsPermissionGranted(context)) }
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasSmsPermission = isGranted
-        if (isGranted) {
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val smsGranted = permissions[Manifest.permission.SEND_SMS] ?: false
+        hasSmsPermission = smsGranted
+        if (smsGranted) {
             Toast.makeText(context, if (isBn) "এসএমএস অনুমতি দেওয়া হয়েছে!" else "SMS permission granted!", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(context, if (isBn) "এসএমএস অনুমতি দেওয়া হয়নি।" else "SMS permission denied.", Toast.LENGTH_SHORT).show()
         }
     }
+
+    var selectedSim by remember { mutableStateOf(AutomaticSmsManager.getSelectedSim(context)) }
 
     // Dialog state for Template editing
     var editingTemplateKey by remember { mutableStateOf<String?>(null) }
@@ -169,7 +172,12 @@ fun AutomaticSmsScreen(
                         }
                         Button(
                             onClick = {
-                                permissionLauncher.launch(Manifest.permission.SEND_SMS)
+                                permissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.SEND_SMS,
+                                        Manifest.permission.READ_PHONE_STATE
+                                    )
+                                )
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.error,
@@ -218,7 +226,15 @@ fun AutomaticSmsScreen(
                         isBn = isBn,
                         smsList = smsList,
                         hasSmsPermission = hasSmsPermission,
-                        onRequestPermission = { permissionLauncher.launch(Manifest.permission.SEND_SMS) },
+                        selectedSim = selectedSim,
+                        onRequestPermission = {
+                            permissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.SEND_SMS,
+                                    Manifest.permission.READ_PHONE_STATE
+                                )
+                            )
+                        },
                         onTriggerQueue = {
                             AutomaticSmsManager.triggerSmsWorker(context)
                             Toast.makeText(context, if (isBn) "ব্যাকগ্রাউন্ড প্রসেসর সক্রিয় করা হয়েছে!" else "Background processor triggered!", Toast.LENGTH_SHORT).show()
@@ -227,6 +243,12 @@ fun AutomaticSmsScreen(
                     1 -> SmsSettingsTab(
                         context = context,
                         isBn = isBn,
+                        selectedSim = selectedSim,
+                        onSelectedSimChange = { newSim ->
+                            selectedSim = newSim
+                            AutomaticSmsManager.setSelectedSim(context, newSim)
+                        },
+                        hasSmsPermission = hasSmsPermission,
                         onEditTemplate = { key, title, currentVal ->
                             editingTemplateKey = key
                             editingTemplateTitle = title
@@ -825,6 +847,7 @@ fun SmsDashboardTab(
     isBn: Boolean,
     smsList: List<SmsQueueEntity>,
     hasSmsPermission: Boolean,
+    selectedSim: Int,
     onRequestPermission: () -> Unit,
     onTriggerQueue: () -> Unit
 ) {
@@ -834,8 +857,7 @@ fun SmsDashboardTab(
     val sentCount = smsList.count { it.status == "SENT" }
     val failedCount = smsList.count { it.status == "FAILED" }
 
-    val selectedSim = AutomaticSmsManager.getSelectedSim(context)
-    val availableSims = remember { AutomaticSmsManager.getAvailableSims(context) }
+    val availableSims = remember(hasSmsPermission) { AutomaticSmsManager.getAvailableSims(context) }
     val simLabel = if (selectedSim == -1) {
         if (isBn) "সিস্টেম ডিফল্ট সিম" else "OS Default SIM"
     } else {
@@ -1079,6 +1101,9 @@ fun StatusRow(
 fun SmsSettingsTab(
     context: Context,
     isBn: Boolean,
+    selectedSim: Int,
+    onSelectedSimChange: (Int) -> Unit,
+    hasSmsPermission: Boolean,
     onEditTemplate: (key: String, title: String, currentVal: String) -> Unit
 ) {
 var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymentConfirmationEnabled(context)) }
@@ -1089,7 +1114,6 @@ var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymen
     var ruleGeneralNotice by remember { mutableStateOf(AutomaticSmsManager.isRuleGeneralNoticeEnabled(context)) }
 
     var dueOffset by remember { mutableStateOf(AutomaticSmsManager.getDueReminderOffset(context)) }
-    var selectedSim by remember { mutableStateOf(AutomaticSmsManager.getSelectedSim(context)) }
 
 
     
@@ -1110,7 +1134,7 @@ var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymen
     ) {
 
         item {
-            val availableSims = remember { AutomaticSmsManager.getAvailableSims(context) }
+            val availableSims = remember(hasSmsPermission) { AutomaticSmsManager.getAvailableSims(context) }
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(12.dp),
@@ -1139,8 +1163,7 @@ var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymen
                             DropdownMenuItem(
                                 text = { Text(if (isBn) "সিস্টেম ডিফল্ট সিম" else "System Default SIM") },
                                 onClick = {
-                                    selectedSim = -1
-                                    AutomaticSmsManager.setSelectedSim(context, -1)
+                                    onSelectedSimChange(-1)
                                     expandedSim = false
                                 }
                             )
@@ -1148,8 +1171,7 @@ var rulePayConfirm by remember { mutableStateOf(AutomaticSmsManager.isRulePaymen
                                 DropdownMenuItem(
                                     text = { Text("SIM ${sim.slotIndex + 1} - ${sim.carrierName} - ${sim.number}") },
                                     onClick = {
-                                        selectedSim = sim.subscriptionId
-                                        AutomaticSmsManager.setSelectedSim(context, sim.subscriptionId)
+                                        onSelectedSimChange(sim.subscriptionId)
                                         expandedSim = false
                                     }
                                 )

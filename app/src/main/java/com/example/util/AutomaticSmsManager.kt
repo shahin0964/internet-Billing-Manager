@@ -26,9 +26,11 @@ import com.example.data.model.BillEntity
 import com.example.data.model.PaymentEntity
 import com.example.data.model.SmsQueueEntity
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
@@ -236,6 +238,141 @@ object AutomaticSmsManager {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to enqueue SmsQueueWorker: ${e.message}")
+        }
+
+        // Trigger immediate direct queue processing on IO Thread so it is sent instantly without waiting
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                processSmsQueueDirect(context)
+            } catch (e: Exception) {
+                Log.e(TAG, "Direct SMS queue processing failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Directly processes the pending SMS queue asynchronously
+     */
+    suspend fun processSmsQueueDirect(context: Context) {
+        if (!isSmsEnabled(context)) {
+            Log.d(TAG, "Direct SMS queue stopped: Automatic SMS feature is disabled")
+            return
+        }
+
+        if (!isSmsPermissionGranted(context)) {
+            Log.w(TAG, "Direct SMS queue stopped: SEND_SMS permission is not granted")
+            return
+        }
+
+        // Ensure data consistency
+        migratePendingSms(context)
+        evaluateDailyWarnings(context)
+
+        val db = SmsDatabase.getDatabase(context)
+        val dao = db.smsQueueDao()
+        val ispDb = com.example.data.database.IspDatabase.getDatabase(context)
+        val customerDao = ispDb.customerDao()
+
+        val pendingList = dao.getSmsByStatus("PENDING")
+        if (pendingList.isEmpty()) {
+            Log.d(TAG, "Direct SMS queue finished: No pending SMS")
+            return
+        }
+
+        Log.d(TAG, "Direct SMS queue: Processing ${pendingList.size} pending SMS...")
+
+        val retryEnabled = isRetryFailedEnabled(context)
+        val maxRetryCount = getMaxRetryCount(context)
+
+        for (sms in pendingList) {
+            // Check status again in case another thread processed it
+            val currentSms = dao.getSmsById(sms.id) ?: continue
+            if (currentSms.status != "PENDING") continue
+
+            dao.updateSms(sms.copy(status = "SENDING"))
+
+            val customerId = sms.customerReferenceId.toLongOrNull()
+            val customer = if (customerId != null) {
+                customerDao.getCustomerById(customerId).first()
+            } else null
+
+            if (customer == null) {
+                Log.e(TAG, "Failed to send SMS ID ${sms.id}: Customer Not Found (ID: ${sms.customerReferenceId})")
+                dao.updateSms(
+                    sms.copy(
+                        status = "FAILED",
+                        lastError = "Customer Not Found"
+                    )
+                )
+                continue
+            }
+
+            val cleanNumber = customer.phone.trim().replace(" ", "").replace("-", "")
+            if (cleanNumber.isBlank()) {
+                Log.e(TAG, "Failed to send SMS ID ${sms.id}: Customer phone is empty")
+                dao.updateSms(
+                    sms.copy(
+                        status = "FAILED",
+                        lastError = "Invalid/Empty Phone Number"
+                    )
+                )
+                continue
+            }
+
+            val sendResult = try {
+                sendSingleSms(
+                    context = context,
+                    mobileNumber = cleanNumber,
+                    message = sms.message,
+                    smsId = sms.id
+                )
+            } catch (e: Exception) {
+                Result.failure<Unit>(e)
+            }
+
+            if (sendResult.isSuccess) {
+                Log.d(TAG, "Successfully sent SMS ID ${sms.id} to $cleanNumber")
+                val selectedSubId = getSelectedSim(context)
+                val availableSims = getAvailableSims(context)
+                val simLabel = if (selectedSubId == -1) "OS Default SIM" else {
+                    val simInfo = availableSims.find { it.subscriptionId == selectedSubId }
+                    if (simInfo != null) "SIM ${simInfo.slotIndex + 1}" else "Unknown SIM"
+                }
+                
+                dao.updateSms(
+                    sms.copy(
+                        status = "SENT",
+                        lastError = "Sent via $simLabel",
+                        mobileNumber = cleanNumber
+                    )
+                )
+            } else {
+                val errorMsg = sendResult.exceptionOrNull()?.message ?: "Unknown SMS sending error"
+                Log.e(TAG, "Failed to send SMS ID ${sms.id} to $cleanNumber: $errorMsg")
+
+                val currentRetry = sms.retryCount
+                if (retryEnabled && currentRetry < maxRetryCount) {
+                    val nextRetry = currentRetry + 1
+                    Log.d(TAG, "Re-queuing SMS ID ${sms.id} (Retry count $nextRetry / $maxRetryCount)")
+                    dao.updateSms(
+                        sms.copy(
+                            status = "PENDING",
+                            retryCount = nextRetry,
+                            lastError = errorMsg,
+                            mobileNumber = cleanNumber
+                        )
+                    )
+                } else {
+                    Log.d(TAG, "Sms ID ${sms.id} reached maximum retries or retry disabled. Marked as FAILED.")
+                    dao.updateSms(
+                        sms.copy(
+                            status = "FAILED",
+                            lastError = errorMsg,
+                            mobileNumber = cleanNumber
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -907,8 +1044,9 @@ object AutomaticSmsManager {
     private fun getSmsManagerForSubId(context: Context, subId: Int): SmsManager {
         if (subId == -1) {
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                context.getSystemService(SmsManager::class.java)
+                context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
             } else {
+                @Suppress("DEPRECATION")
                 SmsManager.getDefault()
             }
         }
@@ -919,24 +1057,28 @@ object AutomaticSmsManager {
                 val activeList = subscriptionManager.activeSubscriptionInfoList
                 if (activeList != null) {
                     val matchedSub = activeList.firstOrNull { it.subscriptionId == subId }
-                    if (matchedSub == null) {
-                        throw IllegalStateException("Selected SIM (SubID: $subId) is not available.")
+                    if (matchedSub != null) {
+                        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            val sm = context.getSystemService(SmsManager::class.java)
+                            sm?.createForSubscriptionId(matchedSub.subscriptionId) ?: SmsManager.getDefault()
+                        } else {
+                            @Suppress("DEPRECATION")
+                            SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
+                        }
                     }
-                    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        context.getSystemService(SmsManager::class.java).createForSubscriptionId(matchedSub.subscriptionId)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
-                    }
-                } else {
-                    throw IllegalStateException("No active SIM cards found.")
                 }
             } catch (e: SecurityException) {
                 Log.w(TAG, "Cannot access SubscriptionManager due to security limits: ${e.message}")
-                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Error matching Subscription ID: ${e.message}")
             }
         }
 
-        throw IllegalStateException("SubscriptionManager is not available on this device.")
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
+        } else {
+            @Suppress("DEPRECATION")
+            SmsManager.getDefault()
+        }
     }
 }
