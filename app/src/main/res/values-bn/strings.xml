@@ -497,8 +497,4 @@
     <string name="security_status_done">✓ সম্পন্ন</string>
     <string name="security_status_issue">⚠️ সমস্যা পাওয়া গেছে</string>
     <string name="security_status_not_checked">পরীক্ষা করা হয়নি</string>
-
-    <!-- AI Diagnostic Agent -->
-    <string name="ai_diagnostic_agent">এআই ডায়াগনস্টিক এজেন্ট</string>
-    <string name="ai_diagnostic_agent_subtitle">এআই এবং সিস্টেম মডিউলসমূহের স্বয়ংক্রিয় স্বাস্থ্য পরীক্ষা</string>
 </resources>

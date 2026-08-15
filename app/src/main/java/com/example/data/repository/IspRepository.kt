@@ -378,8 +378,10 @@ class IspRepository(
     ): Int {
         val currentCustomers = customers.first()
         val existingBills = bills.first()
-        val activeCustomers = currentCustomers.filter {
-            it.status == "ACTIVE" && (selectedCustomerIds == null || selectedCustomerIds.contains(it.id))
+        val activeCustomers = currentCustomers.filter { customer ->
+            val isFree = customer.packageName.contains("free", ignoreCase = true) ||
+                    customer.packageName.contains("ফ্রি", ignoreCase = true)
+            customer.status == "ACTIVE" && !isFree && (selectedCustomerIds == null || selectedCustomerIds.contains(customer.id))
         }
         
         var generatedCount = 0

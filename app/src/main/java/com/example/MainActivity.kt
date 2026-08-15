@@ -1053,7 +1053,13 @@ fun MainAppContent(
     }
 
     if (showGenerateBillsDialog) {
-        val activeCustomers = remember(customers) { customers.filter { it.status == "ACTIVE" } }
+        val activeCustomers = remember(customers) {
+            customers.filter { customer ->
+                val isFree = customer.packageName.contains("free", ignoreCase = true) ||
+                        customer.packageName.contains("ফ্রি", ignoreCase = true)
+                customer.status == "ACTIVE" && !isFree
+            }
+        }
         BillGenerateDialog(
             activeCustomers = activeCustomers,
             onDismiss = { showGenerateBillsDialog = false },

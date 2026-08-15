@@ -29,6 +29,9 @@ interface SmsQueueDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertSms(sms: SmsQueueEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(smsList: List<SmsQueueEntity>): List<Long>
+
     @Update
     suspend fun updateSms(sms: SmsQueueEntity)
 

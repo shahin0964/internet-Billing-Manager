@@ -175,18 +175,27 @@ object SmsTemplateManager {
         return template
             // User requested format placeholders
             .replace("{customer_name}", customerName.ifBlank { "" })
+            .replace("{name}", customerName.ifBlank { "" })
             .replace("{billing_month}", dynamicMonth)
             .replace("{bill_month}", dynamicMonth)
             .replace("{monthly_bill}", cleanMonthlyFee.ifBlank { "0" })
             .replace("{bill_amount}", cleanMonthlyFee.ifBlank { "0" })
+            .replace("{monthly_fee}", cleanMonthlyFee.ifBlank { "0" })
+            .replace("{fee}", cleanMonthlyFee.ifBlank { "0" })
             .replace("{due_amount}", cleanDueAmount.ifBlank { "0" })
+            .replace("{due}", cleanDueAmount.ifBlank { "0" })
             .replace("{due_date}", dueDate.ifBlank { "" })
             .replace("{company_name}", ispName.ifBlank { "" })
+            .replace("{package_name}", packageName.ifBlank { "" })
+            .replace("{package}", packageName.ifBlank { "" })
+            .replace("{phone_number}", phone.ifBlank { "" })
+            .replace("{phone}", phone.ifBlank { "" })
             .replace("{payment_date}", paymentDate.ifBlank { "" })
             .replace("{customer_id}", customerId.ifBlank { "" })
             
             // Legacy / Old UI placeholders
             .replace("[Customer Name]", customerName)
+            .replace("[Customer]", customerName)
             .replace("[গ্রাহকের নাম]", customerName)
             .replace("[Monthly Fee]", cleanMonthlyFee)
             .replace("[মাসিক বিল]", cleanMonthlyFee)
@@ -194,10 +203,13 @@ object SmsTemplateManager {
             .replace("[বকেয়া পরিমাণ]", cleanDueAmount)
             .replace("[Package/Speed]", packageName)
             .replace("[প্যাকেজ]", packageName)
+            .replace("[Package]", packageName)
             .replace("[Phone Number]", phone)
             .replace("[ফোন নম্বর]", phone)
+            .replace("[Phone]", phone)
             .replace("[ISP Name]", ispName)
             .replace("[আইএসপি নাম]", ispName)
+            .replace("[Company Name]", ispName)
     }
 }
 

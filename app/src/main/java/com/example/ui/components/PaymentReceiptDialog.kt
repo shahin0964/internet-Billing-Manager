@@ -159,7 +159,7 @@ fun PostPaymentReceiptPromptDialog(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            ReceiptPrintUtils.printReceipt(context, htmlContent, "Receipt_${payment.paymentReceiptNo}")
+                            ReceiptPrintUtils.printReceipt(context, payment, bill, customer, settings, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp)
@@ -171,7 +171,7 @@ fun PostPaymentReceiptPromptDialog(
 
                     OutlinedButton(
                         onClick = {
-                            ReceiptPrintUtils.savePdfReceipt(context, htmlContent, "Receipt_${payment.paymentReceiptNo}.pdf")
+                            ReceiptPrintUtils.savePdfReceipt(context, payment, bill, customer, settings, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp)
@@ -183,7 +183,8 @@ fun PostPaymentReceiptPromptDialog(
 
                     OutlinedButton(
                         onClick = {
-                            ReceiptPrintUtils.shareReceiptText(context, payment, customer, settings, isBn)
+                            val pdf = ReceiptPrintUtils.generateReceiptPdfFile(context, payment, bill, customer, settings, isBn)
+                            ReceiptPrintUtils.sharePdfFile(context, pdf, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp)
@@ -408,7 +409,7 @@ fun PaymentReceiptModal(
                 ) {
                     Button(
                         onClick = {
-                            ReceiptPrintUtils.printReceipt(context, htmlContent, "Receipt_${payment.paymentReceiptNo}")
+                            ReceiptPrintUtils.printReceipt(context, payment, bill, customer, settings, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -421,7 +422,7 @@ fun PaymentReceiptModal(
 
                     OutlinedButton(
                         onClick = {
-                            ReceiptPrintUtils.savePdfReceipt(context, htmlContent, "Receipt_${payment.paymentReceiptNo}.pdf")
+                            ReceiptPrintUtils.savePdfReceipt(context, payment, bill, customer, settings, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)
@@ -433,7 +434,8 @@ fun PaymentReceiptModal(
 
                     OutlinedButton(
                         onClick = {
-                            ReceiptPrintUtils.shareReceiptText(context, payment, customer, settings, isBn)
+                            val pdf = ReceiptPrintUtils.generateReceiptPdfFile(context, payment, bill, customer, settings, isBn)
+                            ReceiptPrintUtils.sharePdfFile(context, pdf, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)

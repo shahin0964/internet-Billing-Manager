@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -62,6 +63,10 @@ fun AutomaticSmsScreen(
     // Retrieve lists reactively
     val smsList by smsDb.smsQueueDao().getAllSmsFlow().collectAsState(initial = emptyList())
     val customerList by ispDb.customerDao().getAllCustomers().collectAsState(initial = emptyList())
+    val billsList by ispDb.billDao().getAllBills().collectAsState(initial = emptyList())
+    val businessSettings by ispDb.settingsDao().getSettings().collectAsState(initial = null)
+    val ispName = businessSettings?.ispName ?: "ISP Net"
+    val currencySymbol = businessSettings?.currencySymbol ?: "৳"
 
     // Run migration
     LaunchedEffect(Unit) {
@@ -318,10 +323,8 @@ fun AutomaticSmsScreen(
                             "warning_3" -> AutomaticSmsManager.setTemplateWarning3(context, editingTemplateContent)
                             "expiry_warning" -> AutomaticSmsManager.setTemplateExpiryWarning(context, editingTemplateContent)
                             "connection_suspend" -> AutomaticSmsManager.setTemplateConnectionSuspend(context, editingTemplateContent)
-                            "connection_resume" -> AutomaticSmsManager.setTemplateConnectionResume(context, editingTemplateContent)
                         }
                         editingTemplateKey = null
-                        Toast.makeText(context, if (isBn) "টেমপ্লেট সফলভাবে সংরক্ষণ করা হয়েছে!" else "Template saved successfully!", Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text(text = if (isBn) "সংরক্ষণ করুন" else "Save")
@@ -342,68 +345,85 @@ fun AutomaticSmsScreen(
         var customNumber by remember { mutableStateOf("") }
         var customMessage by remember { mutableStateOf("") }
         var searchQuery by remember { mutableStateOf("") }
-        var testType by remember { mutableStateOf("DUE_BILL") } // "DUE_BILL", "BILL_PAID", "CUSTOM"
+        var testType by remember { mutableStateOf("DUE_BILL") }
         var isSendingDirect by remember { mutableStateOf(false) }
 
-        // Auto-update message text when customer or test type changes
-        LaunchedEffect(selectedCustomer, testType) {
-            val name = selectedCustomer?.name ?: if (isBn) "রহিম আহমেদ" else "Test Customer"
-            val phone = selectedCustomer?.phone ?: customNumber.ifBlank { "01700000000" }
-            val custId = selectedCustomer?.id?.toString() ?: "101"
-            val monthlyFee = selectedCustomer?.monthlyFee?.toString() ?: "500"
-            val pkgName = selectedCustomer?.packageName ?: "10 Mbps"
-            val monthStr = SimpleDateFormat("MMMM yyyy", Locale("bn", "BD")).format(Date())
-            val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-
-            when (testType) {
-                "DUE_BILL" -> {
-                    val rawTemplate = AutomaticSmsManager.getTemplateDueReminder(context)
-                    customMessage = AutomaticSmsManager.processTemplate(
-                        template = rawTemplate,
-                        customerName = name,
-                        monthlyFee = monthlyFee,
-                        dueAmount = monthlyFee,
-                        dueDate = dateStr,
-                        packageSpeed = pkgName,
-                        billMonth = monthStr,
-                        customerId = custId,
-                        phoneNumber = phone
-                    )
-                }
-                "BILL_PAID" -> {
-                    val rawTemplate = AutomaticSmsManager.getTemplatePaymentConfirmation(context)
-                    customMessage = AutomaticSmsManager.processTemplate(
-                        template = rawTemplate,
-                        customerName = name,
-                        monthlyFee = monthlyFee,
-                        dueAmount = "0",
-                        paymentAmount = monthlyFee,
-                        paymentDate = dateStr,
-                        packageSpeed = pkgName,
-                        billMonth = monthStr,
-                        customerId = custId,
-                        receiptNo = "REC-${System.currentTimeMillis().toString().takeLast(5)}",
-                        phoneNumber = phone
-                    )
-                }
-                "CUSTOM" -> {
-                    if (customMessage.isBlank()) {
-                        customMessage = if (isBn) "প্রিয় $name, ইন্টারনেট বিল পরিশোধের জন্য ধন্যবাদ।" else "Dear $name, thank you for paying your internet bill."
-                    }
-                }
+        // Compute selected customer calculated due
+        val selectedCustDue = remember(selectedCustomer, billsList) {
+            if (selectedCustomer != null) {
+                val customerBills = billsList.filter { it.customerId == selectedCustomer!!.id }
+                customerBills.sumOf { it.dueAmount }
+            } else {
+                500.0
             }
+        }
+
+        // Auto-update message template when type or customer changes
+        LaunchedEffect(selectedCustomer, testType) {
+            val rawTemplate = when (testType) {
+                "DUE_BILL" -> AutomaticSmsManager.getTemplateDueReminder(context)
+                "BILL_PAID" -> AutomaticSmsManager.getTemplatePaymentConfirmation(context)
+                "BILL_GEN" -> AutomaticSmsManager.getTemplateBillGenerated(context)
+                "WARN_1" -> AutomaticSmsManager.getTemplateWarning1(context)
+                "WARN_2" -> AutomaticSmsManager.getTemplateWarning2(context)
+                "WARN_3" -> AutomaticSmsManager.getTemplateWarning3(context)
+                "NOTICE" -> AutomaticSmsManager.getTemplateGeneralNotice(context)
+                "CUSTOM" -> if (customMessage.isNotBlank()) customMessage else (if (isBn) "প্রিয় {customer_name}, আপনার ইন্টারনেট সংযোগ সংক্রান্ত নোটিশ। ধন্যবাদ, {company_name}।" else "Dear {customer_name}, internet service notice. Thank you, {company_name}.")
+                else -> AutomaticSmsManager.getTemplateDueReminder(context)
+            }
+            customMessage = rawTemplate
+
             if (selectedCustomer != null && customNumber.isBlank()) {
                 customNumber = selectedCustomer?.phone ?: ""
             }
         }
 
+        // Live preview calculation
+        val previewName = selectedCustomer?.name ?: (if (isBn) "রহিম আহমেদ" else "Test Customer")
+        val previewPhone = selectedCustomer?.phone ?: customNumber.ifBlank { "01700000000" }
+        val previewCustId = selectedCustomer?.customerCode?.ifBlank { selectedCustomer?.id?.toString() } ?: "101"
+        val previewMonthlyFee = selectedCustomer?.monthlyFee?.toString() ?: "500"
+        val previewDueAmount = if (selectedCustomer != null) selectedCustDue.toString() else "500"
+        val previewPkgName = selectedCustomer?.packageName ?: "10 Mbps"
+        val monthStr = SimpleDateFormat("MMMM yyyy", Locale("bn", "BD")).format(Date())
+        val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+
+        val livePreviewText = remember(customMessage, selectedCustomer, selectedCustDue, ispName) {
+            AutomaticSmsManager.processTemplate(
+                template = customMessage,
+                customerName = previewName,
+                monthlyFee = previewMonthlyFee,
+                dueAmount = previewDueAmount,
+                dueDate = dateStr,
+                paymentAmount = previewMonthlyFee,
+                paymentDate = dateStr,
+                packageSpeed = previewPkgName,
+                ispName = ispName,
+                billMonth = monthStr,
+                customerId = previewCustId,
+                receiptNo = "REC-${System.currentTimeMillis().toString().takeLast(5)}",
+                phoneNumber = previewPhone,
+                remainingDue = previewDueAmount
+            )
+        }
+
         AlertDialog(
             onDismissRequest = { if (!isSendingDirect) showManualSmsDialog = false },
             title = {
-                Text(
-                    text = if (isBn) "টেস্ট ও ম্যানুয়াল এসএমএস পাঠান" else "Send Test & Manual SMS",
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isBn) "টেস্ট ও ম্যানুয়াল এসএমএস পাঠান" else "Send Test & Manual SMS",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
             },
             text = {
                 Column(
@@ -412,14 +432,17 @@ fun AutomaticSmsScreen(
                         .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 ) {
                     Text(
-                        text = if (isBn) "এসএমএস টাইপ নির্বাচন করুন:" else "Select SMS Type:",
+                        text = if (isBn) "টেমপ্লেট নির্বাচন করুন:" else "Select Template Preset:",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 6.dp)
                     )
 
+                    // Template preset chips
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         FilterChip(
@@ -433,9 +456,34 @@ fun AutomaticSmsScreen(
                             label = { Text(text = if (isBn) "✅ বিল পরিশোধ" else "Bill Paid") }
                         )
                         FilterChip(
+                            selected = testType == "BILL_GEN",
+                            onClick = { testType = "BILL_GEN" },
+                            label = { Text(text = if (isBn) "📄 বিল তৈরি" else "Bill Generated") }
+                        )
+                        FilterChip(
+                            selected = testType == "WARN_1",
+                            onClick = { testType = "WARN_1" },
+                            label = { Text(text = if (isBn) "⚠️ ১ম নোটিশ" else "1st Warning") }
+                        )
+                        FilterChip(
+                            selected = testType == "WARN_2",
+                            onClick = { testType = "WARN_2" },
+                            label = { Text(text = if (isBn) "⚠️ ২য় নোটিশ" else "2nd Warning") }
+                        )
+                        FilterChip(
+                            selected = testType == "WARN_3",
+                            onClick = { testType = "WARN_3" },
+                            label = { Text(text = if (isBn) "⚠️ ৩য় নোটিশ" else "3rd Warning") }
+                        )
+                        FilterChip(
+                            selected = testType == "NOTICE",
+                            onClick = { testType = "NOTICE" },
+                            label = { Text(text = if (isBn) "✉️ নোটিশ" else "Notice") }
+                        )
+                        FilterChip(
                             selected = testType == "CUSTOM",
                             onClick = { testType = "CUSTOM" },
-                            label = { Text(text = if (isBn) "✉️ কাস্টম" else "Custom") }
+                            label = { Text(text = if (isBn) "✏️ কাস্টম" else "Custom") }
                         )
                     }
 
@@ -444,12 +492,13 @@ fun AutomaticSmsScreen(
                     Text(
                         text = if (isBn) "গ্রাহক নির্বাচন করুন (ঐচ্ছিক):" else "Select Customer (Optional):",
                         style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
 
                     Column(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
-                            value = selectedCustomer?.name ?: searchQuery,
+                            value = if (selectedCustomer != null) "${selectedCustomer?.name} (${selectedCustomer?.phone})" else searchQuery,
                             onValueChange = {
                                 searchQuery = it
                                 if (selectedCustomer != null && it != selectedCustomer?.name) {
@@ -460,8 +509,18 @@ fun AutomaticSmsScreen(
                             placeholder = { Text(if (isBn) "খুঁজুন (নাম, মোবাইল বা আইডি)" else "Search (Name, Phone or ID)") },
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
-                                IconButton(onClick = { dropdownExpanded = !dropdownExpanded }) {
-                                    Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null)
+                                if (selectedCustomer != null) {
+                                    IconButton(onClick = {
+                                        selectedCustomer = null
+                                        searchQuery = ""
+                                        customNumber = ""
+                                    }) {
+                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear")
+                                    }
+                                } else {
+                                    IconButton(onClick = { dropdownExpanded = !dropdownExpanded }) {
+                                        Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null)
+                                    }
                                 }
                             }
                         )
@@ -492,6 +551,7 @@ fun AutomaticSmsScreen(
                                     ) {
                                         items(filteredCustomers.size) { index ->
                                             val customer = filteredCustomers[index]
+                                            val custDue = billsList.filter { it.customerId == customer.id }.sumOf { it.dueAmount }
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -501,11 +561,24 @@ fun AutomaticSmsScreen(
                                                         dropdownExpanded = false
                                                         searchQuery = customer.name
                                                     }
-                                                    .padding(12.dp)
+                                                    .padding(12.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Column {
+                                                Column(modifier = Modifier.weight(1f)) {
                                                     Text(text = customer.name, fontWeight = FontWeight.Bold)
                                                     Text(text = "📞 ${customer.phone} | ID: ${customer.customerCode}", style = MaterialTheme.typography.bodySmall)
+                                                }
+                                                Surface(
+                                                    color = if (custDue > 0) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "$currencySymbol${custDue.toInt()}",
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
                                                 }
                                             }
                                             if (index < filteredCustomers.size - 1) {
@@ -514,6 +587,34 @@ fun AutomaticSmsScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // Display selected customer summary badge if selected
+                    if (selectedCustomer != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "👤 ${selectedCustomer?.name} (${selectedCustomer?.packageName})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = if (isBn) "বকেয়া: $currencySymbol${selectedCustDue.toInt()}" else "Due: $currencySymbol${selectedCustDue.toInt()}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (selectedCustDue > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -536,6 +637,55 @@ fun AutomaticSmsScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Quick Variable tags
+                    Text(
+                        text = if (isBn) "ডায়নামিক ভ্যারিয়েবল ট্যাগ যোগ করুন:" else "Insert Dynamic Variable Tags:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AssistChip(
+                            onClick = { customMessage += " {customer_name}" },
+                            label = { Text("+ নাম") }
+                        )
+                        AssistChip(
+                            onClick = { customMessage += " {monthly_bill}" },
+                            label = { Text("+ মাসিক বিল") }
+                        )
+                        AssistChip(
+                            onClick = { customMessage += " {due_amount}" },
+                            label = { Text("+ বকেয়া বিল") }
+                        )
+                        AssistChip(
+                            onClick = { customMessage += " {package_name}" },
+                            label = { Text("+ প্যাকেজ") }
+                        )
+                        AssistChip(
+                            onClick = { customMessage += " {bill_month}" },
+                            label = { Text("+ বিলের মাস") }
+                        )
+                        AssistChip(
+                            onClick = { customMessage += " {company_name}" },
+                            label = { Text("+ কোম্পানি") }
+                        )
+                        AssistChip(
+                            onClick = { customMessage += " {phone_number}" },
+                            label = { Text("+ মোবাইল") }
+                        )
+                        AssistChip(
+                            onClick = { customMessage += " {customer_id}" },
+                            label = { Text("+ আইডি") }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
                         text = if (isBn) "এসএমএস মেসেজ বডি (এডিটেবল):" else "SMS Message Body (Editable):",
                         style = MaterialTheme.typography.bodySmall,
@@ -550,6 +700,39 @@ fun AutomaticSmsScreen(
                             .height(130.dp),
                         placeholder = { Text(if (isBn) "বার্তা লিখুন..." else "Type message...") }
                     )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Live Preview Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isBn) "লাইভ প্রিভিউ (গ্রাহকের তথ্যানুযায়ী):" else "Live Preview (Customer Data):",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = livePreviewText.ifBlank { if (isBn) "(মেসেজ লিখলে এখানে প্রিভিউ দেখতে পাবেন)" else "(Type a message to see preview)" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {

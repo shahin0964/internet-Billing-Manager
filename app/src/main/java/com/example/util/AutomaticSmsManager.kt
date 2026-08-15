@@ -277,35 +277,57 @@ object AutomaticSmsManager {
         remainingDue: String = ""
     ): String {
         return template
-            // New user requested placeholders
+            // User requested format placeholders
             .replace("{customer_name}", customerName)
+            .replace("{name}", customerName)
             .replace("{billing_month}", billMonth)
             .replace("{bill_month}", billMonth)
             .replace("{bill_amount}", monthlyFee)
             .replace("{monthly_bill}", monthlyFee)
+            .replace("{monthly_fee}", monthlyFee)
+            .replace("{fee}", monthlyFee)
             .replace("{due_amount}", dueAmount)
+            .replace("{due}", dueAmount)
             .replace("{due_date}", dueDate)
             .replace("{payment_date}", paymentDate)
             .replace("{customer_id}", customerId)
+            .replace("{id}", customerId)
             .replace("{company_name}", ispName)
+            .replace("{isp_name}", ispName)
             .replace("{package_name}", packageSpeed)
+            .replace("{package}", packageSpeed)
             .replace("{phone_number}", phoneNumber)
+            .replace("{phone}", phoneNumber)
             .replace("{payment_status}", paymentStatus)
             .replace("{paid_amount}", paymentAmount.ifBlank { monthlyFee })
             .replace("{receipt_no}", receiptNo)
             .replace("{invoice_no}", receiptNo)
             .replace("{remaining_due}", remainingDue.ifBlank { dueAmount })
-            // Legacy placeholders
+            // Legacy / Bengali placeholders
             .replace("[Customer Name]", customerName)
             .replace("[Customer]", customerName)
+            .replace("[গ্রাহকের নাম]", customerName)
             .replace("[Bill Amount]", monthlyFee)
             .replace("[Monthly Fee]", monthlyFee)
+            .replace("[মাসিক বিল]", monthlyFee)
             .replace("[Due Amount]", dueAmount)
+            .replace("[বকেয়া পরিমাণ]", dueAmount)
+            .replace("[বকেয়া]", dueAmount)
             .replace("[Due Date]", dueDate)
+            .replace("[পরিশোধের তারিখ]", dueDate)
             .replace("[Payment Amount]", paymentAmount)
             .replace("[Payment Date]", paymentDate)
             .replace("[Package/Speed]", packageSpeed)
+            .replace("[প্যাকেজ]", packageSpeed)
+            .replace("[Package]", packageSpeed)
+            .replace("[Phone Number]", phoneNumber)
+            .replace("[ফোন নম্বর]", phoneNumber)
+            .replace("[Phone]", phoneNumber)
             .replace("[ISP Name]", ispName)
+            .replace("[Company Name]", ispName)
+            .replace("[আইএসপি নাম]", ispName)
+            .replace("[Customer ID]", customerId)
+            .replace("[আইডি]", customerId)
     }
 
     /**
@@ -580,33 +602,59 @@ object AutomaticSmsManager {
         message: String
     ) {
         val ispDb = com.example.data.database.IspDatabase.getDatabase(context)
-        val customer = ispDb.customerDao().getCustomerById(customerId).firstOrNull()
-        val bills = ispDb.billDao().getBillsForCustomer(customerId).firstOrNull() ?: emptyList()
+        val customer = if (customerId > 0) ispDb.customerDao().getCustomerById(customerId).firstOrNull() else null
+        val bills = if (customerId > 0) ispDb.billDao().getBillsForCustomer(customerId).firstOrNull() ?: emptyList() else emptyList()
         val settings = ispDb.settingsDao().getSettings().firstOrNull()
         
         val ispName = settings?.ispName ?: "ISP Net"
         val totalDue = bills.sumOf { it.dueAmount }
         val packageName = customer?.packageName ?: ""
         val monthlyFee = customer?.monthlyFee?.toString() ?: "0"
+        val custIdStr = customer?.customerCode?.ifBlank { customerId.toString() } ?: if (customerId > 0) customerId.toString() else ""
         
         val currentBill = bills.firstOrNull()
         val billMonth = currentBill?.billingMonth ?: java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale("bn", "BD")).format(java.util.Date())
-        val dueDate = currentBill?.dueDate ?: ""
+        val dueDate = currentBill?.dueDate ?: java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date())
+        val paymentDate = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date())
         
         val processedMessage = processTemplate(
             template = message,
-            customerName = customerName,
+            customerName = if (customerName.isNotBlank() && customerName != "Manual Queue") customerName else customer?.name ?: "",
             monthlyFee = monthlyFee,
             dueAmount = totalDue.toString(),
             dueDate = dueDate,
+            paymentAmount = monthlyFee,
+            paymentDate = paymentDate,
             packageSpeed = packageName,
             ispName = ispName,
             billMonth = billMonth,
-            customerId = customerId.toString()
+            customerId = custIdStr,
+            phoneNumber = mobileNumber,
+            remainingDue = totalDue.toString()
         )
 
         val idKey = "manual_${System.currentTimeMillis()}_${customerId}"
-        enqueueSms(context, customerId, customerName, mobileNumber, processedMessage, "general_notice", idKey)
+        enqueueSms(context, customerId, if (customerName.isNotBlank()) customerName else customer?.name ?: "Customer", mobileNumber, processedMessage, "general_notice", idKey)
+    }
+
+    /**
+     * Enqueue a batch of individualized Bulk SMS and trigger queue worker
+     */
+    suspend fun queueBulkSmsList(
+        context: Context,
+        smsItems: List<com.example.data.model.SmsQueueEntity>
+    ) = withContext(Dispatchers.IO) {
+        if (smsItems.isEmpty()) return@withContext
+        val db = SmsDatabase.getDatabase(context)
+        val dao = db.smsQueueDao()
+        dao.insertAll(smsItems)
+        logAuditActivity(
+            context = context,
+            action = "BULK_SMS_QUEUED",
+            details = "Queued ${smsItems.size} individualized Bulk SMS to customers",
+            status = "SUCCESS"
+        )
+        triggerSmsWorker(context)
     }
 
     suspend fun logAuditActivity(
@@ -655,6 +703,43 @@ object AutomaticSmsManager {
             return@withContext Result.failure(err)
         }
 
+        val ispDb = com.example.data.database.IspDatabase.getDatabase(context)
+        val customer = if (customerId > 0) ispDb.customerDao().getCustomerById(customerId).firstOrNull() else null
+        val bills = if (customerId > 0) ispDb.billDao().getBillsForCustomer(customerId).firstOrNull() ?: emptyList() else emptyList()
+        val settings = ispDb.settingsDao().getSettings().firstOrNull()
+
+        val ispName = settings?.ispName ?: "ISP Net"
+        val totalDue = bills.sumOf { it.dueAmount }
+        val packageName = customer?.packageName ?: "10 Mbps"
+        val monthlyFee = customer?.monthlyFee?.toString() ?: "500"
+        val custIdStr = customer?.customerCode?.ifBlank { customerId.toString() } ?: if (customerId > 0) customerId.toString() else "101"
+        val currentBill = bills.firstOrNull()
+        val billMonth = currentBill?.billingMonth ?: java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale("bn", "BD")).format(java.util.Date())
+        val dueDate = currentBill?.dueDate ?: java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date())
+        val paymentDate = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date())
+
+        val resolvedCustomerName = if (customerName.isNotBlank() && customerName != "Manual Test" && customerName != "Test Recipient") {
+            customerName
+        } else {
+            customer?.name ?: (if (java.util.Locale.getDefault().language == "bn") "রহিম আহমেদ" else "Test Customer")
+        }
+
+        val processedMessage = processTemplate(
+            template = message,
+            customerName = resolvedCustomerName,
+            monthlyFee = monthlyFee,
+            dueAmount = if (customerId > 0) totalDue.toString() else "500",
+            dueDate = dueDate,
+            paymentAmount = monthlyFee,
+            paymentDate = paymentDate,
+            packageSpeed = packageName,
+            ispName = ispName,
+            billMonth = billMonth,
+            customerId = custIdStr,
+            phoneNumber = cleanNumber,
+            remainingDue = if (customerId > 0) totalDue.toString() else "0"
+        )
+
         val tempSmsId = System.currentTimeMillis()
         val db = SmsDatabase.getDatabase(context)
         val dao = db.smsQueueDao()
@@ -669,9 +754,9 @@ object AutomaticSmsManager {
         val queueEntity = SmsQueueEntity(
             id = tempSmsId,
             customerReferenceId = customerId.toString(),
-            customerName = if (customerName.isNotBlank()) customerName else "Manual Test",
+            customerName = resolvedCustomerName,
             mobileNumber = cleanNumber,
-            message = message,
+            message = processedMessage,
             status = "SENDING",
             smsType = testType.lowercase(),
             createdTime = System.currentTimeMillis(),
@@ -683,7 +768,7 @@ object AutomaticSmsManager {
         val sendResult = sendSingleSms(
             context = context,
             mobileNumber = cleanNumber,
-            message = message,
+            message = processedMessage,
             smsId = tempSmsId
         )
 

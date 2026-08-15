@@ -150,9 +150,9 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
-  implementation(libs.firebase.ai)
+  // implementation(libs.firebase.ai)
   implementation(libs.firebase.firestore)
-  implementation(libs.firebase.analytics)
+  // implementation(libs.firebase.analytics)
   implementation(libs.firebase.messaging)
   implementation(libs.androidx.work.runtime.ktx)
 

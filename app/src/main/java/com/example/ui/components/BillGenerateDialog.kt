@@ -59,6 +59,15 @@ fun BillGenerateDialog(
     val sdfMonth = remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()) }
     val sdfDate = remember { SimpleDateFormat("yyyy-MM-10", Locale.getDefault()) }
 
+    // Filter out free package customers
+    val eligibleCustomers = remember(activeCustomers) {
+        activeCustomers.filter { customer ->
+            val isFree = customer.packageName.contains("free", ignoreCase = true) ||
+                    customer.packageName.contains("ফ্রি", ignoreCase = true)
+            !isFree
+        }
+    }
+
     var billingMonth by remember { mutableStateOf(sdfMonth.format(Date())) }
     var dueDate by remember { mutableStateOf(sdfDate.format(Date())) }
 
@@ -66,17 +75,17 @@ fun BillGenerateDialog(
     var selectedTab by remember { mutableStateOf(0) }
 
     // Set of selected customer IDs when in Select Customers mode
-    var selectedCustomerIds by remember(activeCustomers) {
-        mutableStateOf(activeCustomers.map { it.id }.toSet())
+    var selectedCustomerIds by remember(eligibleCustomers) {
+        mutableStateOf(eligibleCustomers.map { it.id }.toSet())
     }
 
     var customerSearchQuery by remember { mutableStateOf("") }
 
-    val filteredCustomers = remember(activeCustomers, customerSearchQuery) {
+    val filteredCustomers = remember(eligibleCustomers, customerSearchQuery) {
         if (customerSearchQuery.isBlank()) {
-            activeCustomers
+            eligibleCustomers
         } else {
-            activeCustomers.filter { customer ->
+            eligibleCustomers.filter { customer ->
                 customer.name.contains(customerSearchQuery, ignoreCase = true) ||
                         customer.customerCode.contains(customerSearchQuery, ignoreCase = true) ||
                         customer.phone.contains(customerSearchQuery, ignoreCase = true) ||
@@ -185,7 +194,7 @@ fun BillGenerateDialog(
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text(
-                                text = stringResource(R.string.msg_generate_desc, activeCustomers.size),
+                                text = stringResource(R.string.msg_generate_desc, eligibleCustomers.size),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -206,7 +215,7 @@ fun BillGenerateDialog(
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(
                                     onClick = {
-                                        selectedCustomerIds = activeCustomers.map { it.id }.toSet()
+                                        selectedCustomerIds = eligibleCustomers.map { it.id }.toSet()
                                     },
                                     modifier = Modifier.height(32.dp)
                                 ) {
@@ -231,7 +240,7 @@ fun BillGenerateDialog(
                         }
 
                         // Search box inside customer selector
-                        if (activeCustomers.size > 3) {
+                        if (eligibleCustomers.size > 3) {
                             OutlinedTextField(
                                 value = customerSearchQuery,
                                 onValueChange = { customerSearchQuery = it },
@@ -360,9 +369,9 @@ fun BillGenerateDialog(
                     onClick = {
                         onGenerate(billingMonth.trim(), dueDate.trim(), null)
                     },
-                    enabled = billingMonth.isNotBlank() && activeCustomers.isNotEmpty()
+                    enabled = billingMonth.isNotBlank() && eligibleCustomers.isNotEmpty()
                 ) {
-                    Text(stringResource(R.string.msg_generate_customers, activeCustomers.size))
+                    Text(stringResource(R.string.msg_generate_customers, eligibleCustomers.size))
                 }
             } else {
                 Button(
