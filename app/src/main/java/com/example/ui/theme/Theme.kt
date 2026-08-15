@@ -427,7 +427,7 @@ fun getThemeColorScheme(themeMode: String, isSystemDark: Boolean): Pair<ColorSch
         "MIDNIGHT" -> Pair(MidnightColorScheme, true)
         "SLATE" -> Pair(SlateColorScheme, false)
         "AQUA" -> Pair(AquaColorScheme, true)
-        "LIQUID_GLASS" -> Pair(LiquidGlassLightColorScheme, false)
+        "LIQUID_GLASS" -> Pair(if (isSystemDark) LiquidGlassDarkColorScheme else LiquidGlassLightColorScheme, isSystemDark)
         "DYNAMIC" -> Pair(LightColorScheme, false)
         else -> Pair(if (isSystemDark) DarkColorScheme else LightColorScheme, isSystemDark)
     }
@@ -490,21 +490,21 @@ fun GlassmorphismBackground() {
             val width = size.width
             val height = size.height
             
-            // 1. Draw base gorgeous gradient from top-left (light sky blue/cyan) to bottom-right (vibrant pink/magenta)
+            // 1. Draw base gorgeous gradient from top-left (light sky blue) to bottom-right (mint teal)
             val baseGradient = Brush.linearGradient(
                 colors = if (isDark) {
                     listOf(
-                        Color(0xFF0D1B2A), // Dark blue
-                        Color(0xFF1B263B), // Indigo dark
-                        Color(0xFF415A77), // Steel blue
-                        Color(0xFF2C1B47)  // Deep magenta-purple
+                        Color(0xFF070F19), // Midnight blue
+                        Color(0xFF0F172A), // Dark slate
+                        Color(0xFF1E293B), // Navy-gray glass
+                        Color(0xFF0D5E59)  // Dark teal-aqua
                     )
                 } else {
                     listOf(
-                        Color(0xFF38BDF8), // Bright Sky Blue / Cyan (from user image)
-                        Color(0xFF6366F1), // Vibrant Indigo
-                        Color(0xFFC084FC), // Lavender / Light Purple
-                        Color(0xFFF472B6)  // Coral Pink
+                        Color(0xFF8AD1FC), // Light Sky Blue
+                        Color(0xFFBCE3FD), // Soft Ice Blue
+                        Color(0xFFFFFFFF), // Pure White High-Contrast Center
+                        Color(0xFF86F3E6)  // Bright Mint Turquoise/Aqua Teal
                     )
                 },
                 start = Offset(0f, 0f),
@@ -512,13 +512,54 @@ fun GlassmorphismBackground() {
             )
             drawRect(brush = baseGradient)
             
-            // 2. Draw Wave 1 (Upper Wave - flowing from top-left diagonal sweeping down)
+            // 2. Draw Organic Glass Droplet / Bubble 1 (Center-Right top region)
+            val bubble1Center = Offset(width * 0.72f, height * 0.32f)
+            val bubble1Radius = width * 0.32f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = if (isDark) {
+                        listOf(
+                            Color.White.copy(alpha = 0.12f),
+                            Color(0xFF38BDF8).copy(alpha = 0.04f),
+                            Color.Transparent
+                        )
+                    } else {
+                        listOf(
+                            Color.White.copy(alpha = 0.35f),
+                            Color(0xFFBCE3FD).copy(alpha = 0.12f),
+                            Color.Transparent
+                        )
+                    },
+                    center = bubble1Center,
+                    radius = bubble1Radius
+                ),
+                center = bubble1Center,
+                radius = bubble1Radius
+            )
+            
+            // Bubble 1 Edge Highlight Stroke
+            drawCircle(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.65f),
+                        Color.White.copy(alpha = 0.05f),
+                        Color.White.copy(alpha = 0.35f)
+                    ),
+                    start = Offset(bubble1Center.x - bubble1Radius, bubble1Center.y - bubble1Radius),
+                    end = Offset(bubble1Center.x + bubble1Radius, bubble1Center.y + bubble1Radius)
+                ),
+                center = bubble1Center,
+                radius = bubble1Radius,
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+            
+            // 3. Draw Wave 1 (Upper Sweeping Glass Wave curving from left to right)
             val wave1Path = Path().apply {
-                moveTo(0f, height * 0.15f)
+                moveTo(0f, height * 0.18f)
                 cubicTo(
-                    width * 0.35f, height * 0.05f,
-                    width * 0.65f, height * 0.35f,
-                    width, height * 0.22f
+                    width * 0.35f, height * 0.08f,
+                    width * 0.65f, height * 0.32f,
+                    width, height * 0.20f
                 )
                 lineTo(width, 0f)
                 lineTo(0f, 0f)
@@ -527,25 +568,25 @@ fun GlassmorphismBackground() {
             val wave1Brush = Brush.verticalGradient(
                 colors = if (isDark) {
                     listOf(
-                        Color.White.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0.10f),
                         Color(0xFF38BDF8).copy(alpha = 0.02f)
                     )
                 } else {
                     listOf(
-                        Color.White.copy(alpha = 0.35f),
-                        Color(0xFF38BDF8).copy(alpha = 0.1f)
+                        Color.White.copy(alpha = 0.40f),
+                        Color(0xFFBCE3FD).copy(alpha = 0.08f)
                     )
                 }
             )
             drawPath(path = wave1Path, brush = wave1Brush)
             
-            // Wave 1 Edge Highlight stroke (creates shiny liquid glass reflection)
+            // Wave 1 Highlight Edge
             val wave1Edge = Path().apply {
-                moveTo(0f, height * 0.15f)
+                moveTo(0f, height * 0.18f)
                 cubicTo(
-                    width * 0.35f, height * 0.05f,
-                    width * 0.65f, height * 0.35f,
-                    width, height * 0.22f
+                    width * 0.35f, height * 0.08f,
+                    width * 0.65f, height * 0.32f,
+                    width, height * 0.20f
                 )
             }
             drawPath(
@@ -553,20 +594,61 @@ fun GlassmorphismBackground() {
                 brush = Brush.horizontalGradient(
                     colors = listOf(
                         Color.White.copy(alpha = 0.15f),
-                        Color.White.copy(alpha = 0.8f),
+                        Color.White.copy(alpha = 0.85f),
                         Color.White.copy(alpha = 0.15f)
                     )
                 ),
                 style = Stroke(width = 2.dp.toPx())
             )
             
-            // 3. Draw Wave 2 (Middle/Main sweeping wave curving downwards)
+            // 4. Draw Organic Glass Droplet / Bubble 2 (Bottom-Left middle region)
+            val bubble2Center = Offset(width * 0.25f, height * 0.65f)
+            val bubble2Radius = width * 0.22f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = if (isDark) {
+                        listOf(
+                            Color.White.copy(alpha = 0.10f),
+                            Color(0xFF86F3E6).copy(alpha = 0.02f),
+                            Color.Transparent
+                        )
+                    } else {
+                        listOf(
+                            Color.White.copy(alpha = 0.30f),
+                            Color(0xFF86F3E6).copy(alpha = 0.10f),
+                            Color.Transparent
+                        )
+                    },
+                    center = bubble2Center,
+                    radius = bubble2Radius
+                ),
+                center = bubble2Center,
+                radius = bubble2Radius
+            )
+            
+            // Bubble 2 Edge Highlight Stroke
+            drawCircle(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.60f),
+                        Color.White.copy(alpha = 0.02f),
+                        Color.White.copy(alpha = 0.45f)
+                    ),
+                    start = Offset(bubble2Center.x - bubble2Radius, bubble2Center.y - bubble2Radius),
+                    end = Offset(bubble2Center.x + bubble2Radius, bubble2Center.y + bubble2Radius)
+                ),
+                center = bubble2Center,
+                radius = bubble2Radius,
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+            
+            // 5. Draw Wave 2 (Middle major sweeping curved glass ribbon)
             val wave2Path = Path().apply {
-                moveTo(0f, height * 0.45f)
+                moveTo(0f, height * 0.48f)
                 cubicTo(
-                    width * 0.3f, height * 0.3f,
-                    width * 0.7f, height * 0.7f,
-                    width, height * 0.55f
+                    width * 0.3f, height * 0.32f,
+                    width * 0.7f, height * 0.68f,
+                    width, height * 0.52f
                 )
                 lineTo(width, height)
                 lineTo(0f, height)
@@ -575,27 +657,27 @@ fun GlassmorphismBackground() {
             val wave2Brush = Brush.linearGradient(
                 colors = if (isDark) {
                     listOf(
-                        Color(0x2238BDF8),
-                        Color(0x0A0F172A)
+                        Color(0x1F38BDF8),
+                        Color(0x050B0F19)
                     )
                 } else {
                     listOf(
-                        Color(0xFF60A5FA).copy(alpha = 0.45f), // Rich Sky Blue
-                        Color(0xFF818CF8).copy(alpha = 0.25f)  // Semi-transparent indigo
+                        Color(0xFF8AD1FC).copy(alpha = 0.35f),
+                        Color(0xFF86F3E6).copy(alpha = 0.20f)
                     )
                 },
-                start = Offset(0f, height * 0.45f),
+                start = Offset(0f, height * 0.48f),
                 end = Offset(width, height)
             )
             drawPath(path = wave2Path, brush = wave2Brush)
             
-            // Wave 2 Edge Highlight
+            // Wave 2 Highlight Edge
             val wave2Edge = Path().apply {
-                moveTo(0f, height * 0.45f)
+                moveTo(0f, height * 0.48f)
                 cubicTo(
-                    width * 0.3f, height * 0.3f,
-                    width * 0.7f, height * 0.7f,
-                    width, height * 0.55f
+                    width * 0.3f, height * 0.32f,
+                    width * 0.7f, height * 0.68f,
+                    width, height * 0.52f
                 )
             }
             drawPath(
@@ -603,20 +685,20 @@ fun GlassmorphismBackground() {
                 brush = Brush.horizontalGradient(
                     colors = listOf(
                         Color.White.copy(alpha = 0.1f),
-                        Color.White.copy(alpha = 0.75f),
+                        Color.White.copy(alpha = 0.80f),
                         Color.White.copy(alpha = 0.1f)
                     )
                 ),
                 style = Stroke(width = 2.5.dp.toPx())
             )
             
-            // 4. Draw Wave 3 (Lower Wave with rich magenta/pink flow at the bottom)
+            // 6. Draw Wave 3 (Bottom curves for rich mint accent flow)
             val wave3Path = Path().apply {
-                moveTo(0f, height * 0.78f)
+                moveTo(0f, height * 0.76f)
                 cubicTo(
-                    width * 0.4f, height * 0.62f,
-                    width * 0.65f, height * 0.95f,
-                    width, height * 0.72f
+                    width * 0.4f, height * 0.60f,
+                    width * 0.65f, height * 0.92f,
+                    width, height * 0.70f
                 )
                 lineTo(width, height)
                 lineTo(0f, height)
@@ -625,27 +707,27 @@ fun GlassmorphismBackground() {
             val wave3Brush = Brush.linearGradient(
                 colors = if (isDark) {
                     listOf(
-                        Color(0x33EC4899),
-                        Color(0x051E1B4B)
+                        Color(0x22115E59),
+                        Color(0x05070F19)
                     )
                 } else {
                     listOf(
-                        Color(0xFFF472B6).copy(alpha = 0.55f), // Vibrant Pink
-                        Color(0xFFC084FC).copy(alpha = 0.3f)   // Soft purple
+                        Color(0xFF86F3E6).copy(alpha = 0.45f),
+                        Color(0xFFBCE3FD).copy(alpha = 0.25f)
                     )
                 },
-                start = Offset(0f, height * 0.78f),
+                start = Offset(0f, height * 0.76f),
                 end = Offset(width, height)
             )
             drawPath(path = wave3Path, brush = wave3Brush)
             
-            // Wave 3 Edge Highlight
+            // Wave 3 Highlight Edge
             val wave3Edge = Path().apply {
-                moveTo(0f, height * 0.78f)
+                moveTo(0f, height * 0.76f)
                 cubicTo(
-                    width * 0.4f, height * 0.62f,
-                    width * 0.65f, height * 0.95f,
-                    width, height * 0.72f
+                    width * 0.4f, height * 0.60f,
+                    width * 0.65f, height * 0.92f,
+                    width, height * 0.70f
                 )
             }
             drawPath(
@@ -653,7 +735,7 @@ fun GlassmorphismBackground() {
                 brush = Brush.horizontalGradient(
                     colors = listOf(
                         Color.White.copy(alpha = 0.2f),
-                        Color.White.copy(alpha = 0.85f),
+                        Color.White.copy(alpha = 0.90f),
                         Color.White.copy(alpha = 0.2f)
                     )
                 ),
