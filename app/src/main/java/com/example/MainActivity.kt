@@ -385,6 +385,7 @@ fun MainAppContent(
                                 isGuestMode = false
                                 isAuthChosen = true
                                 viewModel.showToast("Account created for ${name.ifBlank { normalizedEmail }}")
+                                viewModel.triggerCloudSyncOnLogin()
                                 onSuccess()
                             }
                             .addOnFailureListener { e ->
@@ -425,6 +426,7 @@ fun MainAppContent(
                                     isGuestMode = false
                                     isAuthChosen = true
                                     viewModel.showToast("Logged in as ${result.user?.email ?: normalizedId}")
+                                    viewModel.triggerCloudSyncOnLogin()
                                     onSuccess()
                                 }
                                 .addOnFailureListener { e ->

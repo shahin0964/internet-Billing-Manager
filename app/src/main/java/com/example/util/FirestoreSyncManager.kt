@@ -21,6 +21,7 @@ import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
 import androidx.room.withTransaction
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
@@ -34,6 +35,80 @@ object FirestoreSyncManager {
     private const val TAG = "FirestoreSyncManager"
     private const val WORK_NAME_PERIODIC = "cloud_sync_periodic"
     private const val WORK_NAME_ONE_TIME = "cloud_sync_one_time"
+
+    /**
+     * Local storage and Firebase Sync for Deleted Records.
+     * Keeps track of deleted IDs to prevent restored/stale data from reappearing.
+     */
+    fun markRecordAsDeleted(context: Context, collectionName: String, id: String) {
+        try {
+            val prefs = context.getSharedPreferences("isp_deleted_records", Context.MODE_PRIVATE)
+            val deletedSet = prefs.getStringSet("deleted_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+            deletedSet.add("$collectionName:$id")
+            prefs.edit().putStringSet("deleted_ids", deletedSet).apply()
+
+            val uid = getCurrentUid(context)
+            if (!uid.isNullOrBlank()) {
+                val firestore = FirebaseFirestore.getInstance()
+                val docId = "${collectionName}_$id"
+                firestore.collection("users").document(uid)
+                    .collection("deleted_records").document(docId)
+                    .set(mapOf(
+                        "collection" to collectionName,
+                        "recordId" to id,
+                        "deletedAt" to System.currentTimeMillis()
+                    ))
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error marking record as deleted: ${e.message}")
+        }
+    }
+
+    suspend fun syncAndGetDeletedRecords(context: Context, userRef: com.google.firebase.firestore.DocumentReference): Set<String> {
+        val prefs = context.getSharedPreferences("isp_deleted_records", Context.MODE_PRIVATE)
+        val localDeleted = prefs.getStringSet("deleted_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+        
+        val combinedDeleted = mutableSetOf<String>()
+        combinedDeleted.addAll(localDeleted)
+        
+        try {
+            val remoteDeletedDocs = userRef.collection("deleted_records").get().await()
+            remoteDeletedDocs.documents.forEach { doc ->
+                val collection = doc.getString("collection") ?: ""
+                val recordId = doc.getString("recordId") ?: ""
+                if (collection.isNotBlank() && recordId.isNotBlank()) {
+                    combinedDeleted.add("$collection:$recordId")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching remote deleted records: ${e.message}")
+        }
+        
+        // Sync local deleted ones to remote
+        localDeleted.forEach { key ->
+            val parts = key.split(":")
+            if (parts.size == 2) {
+                val col = parts[0]
+                val id = parts[1]
+                try {
+                    userRef.collection("deleted_records").document("${col}_$id").set(
+                        mapOf(
+                            "collection" to col,
+                            "recordId" to id,
+                            "deletedAt" to System.currentTimeMillis()
+                        )
+                    ).await()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error uploading deleted record tombstone: ${e.message}")
+                }
+            }
+        }
+        
+        // Save the merged list back locally to stay updated
+        prefs.edit().putStringSet("deleted_ids", combinedDeleted).apply()
+        
+        return combinedDeleted
+    }
 
     /**
      * Returns the Firebase Authentication UID if the user is authenticated.
@@ -144,30 +219,32 @@ object FirestoreSyncManager {
             val db = IspDatabase.getDatabase(context)
             val firestore = FirebaseFirestore.getInstance()
 
-            val customers = db.customerDao().getAllCustomers().first()
-            val packages = db.packageDao().getAllPackages().first()
-            val bills = db.billDao().getAllBills().first()
-            val payments = db.paymentDao().getAllPayments().first()
-            val settings = db.settingsDao().getSettings().first()
-            val expenses = db.expenseDao().getAllExpenses().first()
-            val categories = db.expenseDao().getAllCategories().first()
+            val customers = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.customerDao().getAllCustomers().first() } ?: emptyList()
+            val packages = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.packageDao().getAllPackages().first() } ?: emptyList()
+            val bills = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.billDao().getAllBills().first() } ?: emptyList()
+            val payments = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.paymentDao().getAllPayments().first() } ?: emptyList()
+            val settings = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.settingsDao().getSettings().first() }
+            val expenses = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.expenseDao().getAllExpenses().first() } ?: emptyList()
+            val categories = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.expenseDao().getAllCategories().first() } ?: emptyList()
 
             val userRef = firestore.collection("users").document(uid)
+            val deletedRecords = syncAndGetDeletedRecords(context, userRef)
 
             // 1. Sync Customers
             val localCustIds = customers.map { it.id.toString() }.toSet()
             try {
                 val remoteCusts = userRef.collection("customers").get().await()
                 remoteCusts.documents.forEach { doc ->
-                    if (!localCustIds.contains(doc.id)) {
+                    if (!localCustIds.contains(doc.id) || deletedRecords.contains("customers:${doc.id}")) {
                         userRef.collection("customers").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted customer ${doc.id} from cloud because it does not exist locally.")
+                        Log.d(TAG, "Sync: Deleted customer ${doc.id} from cloud because it does not exist locally or is tombstoned.")
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Sync: Error cleaning deleted customers from cloud: ${e.message}")
             }
             customers.forEach { customer ->
+                if (deletedRecords.contains("customers:${customer.id}")) return@forEach
                 val map = mapOf(
                     "id" to customer.id,
                     "customerCode" to customer.customerCode,
@@ -193,15 +270,16 @@ object FirestoreSyncManager {
             try {
                 val remotePkgs = userRef.collection("packages").get().await()
                 remotePkgs.documents.forEach { doc ->
-                    if (!localPkgIds.contains(doc.id)) {
+                    if (!localPkgIds.contains(doc.id) || deletedRecords.contains("packages:${doc.id}")) {
                         userRef.collection("packages").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted package ${doc.id} from cloud because it does not exist locally.")
+                        Log.d(TAG, "Sync: Deleted package ${doc.id} from cloud because it does not exist locally or is tombstoned.")
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Sync: Error cleaning deleted packages from cloud: ${e.message}")
             }
             packages.forEach { pkg ->
+                if (deletedRecords.contains("packages:${pkg.id}")) return@forEach
                 val map = mapOf(
                     "id" to pkg.id,
                     "name" to pkg.name,
@@ -219,15 +297,16 @@ object FirestoreSyncManager {
             try {
                 val remoteBills = userRef.collection("bills").get().await()
                 remoteBills.documents.forEach { doc ->
-                    if (!localBillIds.contains(doc.id)) {
+                    if (!localBillIds.contains(doc.id) || deletedRecords.contains("bills:${doc.id}")) {
                         userRef.collection("bills").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted bill ${doc.id} from cloud because it does not exist locally.")
+                        Log.d(TAG, "Sync: Deleted bill ${doc.id} from cloud because it does not exist locally or is tombstoned.")
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Sync: Error cleaning deleted bills from cloud: ${e.message}")
             }
             bills.forEach { bill ->
+                if (deletedRecords.contains("bills:${bill.id}")) return@forEach
                 val map = mapOf(
                     "id" to bill.id,
                     "billNumber" to bill.billNumber,
@@ -252,15 +331,16 @@ object FirestoreSyncManager {
             try {
                 val remotePayments = userRef.collection("payments").get().await()
                 remotePayments.documents.forEach { doc ->
-                    if (!localPaymentIds.contains(doc.id)) {
+                    if (!localPaymentIds.contains(doc.id) || deletedRecords.contains("payments:${doc.id}")) {
                         userRef.collection("payments").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted payment ${doc.id} from cloud because it does not exist locally.")
+                        Log.d(TAG, "Sync: Deleted payment ${doc.id} from cloud because it does not exist locally or is tombstoned.")
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Sync: Error cleaning deleted payments from cloud: ${e.message}")
             }
             payments.forEach { payment ->
+                if (deletedRecords.contains("payments:${payment.id}")) return@forEach
                 val map = mapOf(
                     "id" to payment.id,
                     "paymentReceiptNo" to payment.paymentReceiptNo,
@@ -282,15 +362,16 @@ object FirestoreSyncManager {
             try {
                 val remoteExpenses = userRef.collection("expenses").get().await()
                 remoteExpenses.documents.forEach { doc ->
-                    if (!localExpenseIds.contains(doc.id)) {
+                    if (!localExpenseIds.contains(doc.id) || deletedRecords.contains("expenses:${doc.id}")) {
                         userRef.collection("expenses").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted expense ${doc.id} from cloud because it does not exist locally.")
+                        Log.d(TAG, "Sync: Deleted expense ${doc.id} from cloud because it does not exist locally or is tombstoned.")
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Sync: Error cleaning deleted expenses from cloud: ${e.message}")
             }
             expenses.forEach { expense ->
+                if (deletedRecords.contains("expenses:${expense.id}")) return@forEach
                 val map = mapOf(
                     "id" to expense.id,
                     "title" to expense.title,
@@ -312,15 +393,16 @@ object FirestoreSyncManager {
             try {
                 val remoteCategories = userRef.collection("expense_categories").get().await()
                 remoteCategories.documents.forEach { doc ->
-                    if (!localCategoryIds.contains(doc.id)) {
+                    if (!localCategoryIds.contains(doc.id) || deletedRecords.contains("expense_categories:${doc.id}")) {
                         userRef.collection("expense_categories").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted category ${doc.id} from cloud because it does not exist locally.")
+                        Log.d(TAG, "Sync: Deleted category ${doc.id} from cloud because it does not exist locally or is tombstoned.")
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Sync: Error cleaning deleted categories from cloud: ${e.message}")
             }
             categories.forEach { cat ->
+                if (deletedRecords.contains("expense_categories:${cat.id}")) return@forEach
                 val map = mapOf(
                     "id" to cat.id,
                     "name" to cat.name,
@@ -472,14 +554,18 @@ object FirestoreSyncManager {
             val db = IspDatabase.getDatabase(context)
             val firestore = FirebaseFirestore.getInstance()
             val userRef = firestore.collection("users").document(uid)
+            val deletedRecords = syncAndGetDeletedRecords(context, userRef)
 
             // Restore Customers
             val custDocs = userRef.collection("customers").get().await()
             val restoredCustomers = custDocs.documents.mapNotNull { doc ->
+                val idStr = doc.getLong("id")?.toString() ?: doc.id
+                if (deletedRecords.contains("customers:$idStr")) return@mapNotNull null
                 try {
+                    val custId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
                     CustomerEntity(
-                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                        customerCode = doc.getString("customerCode") ?: "",
+                        id = custId,
+                        customerCode = doc.getString("customerCode") ?: "CUST-$custId",
                         name = doc.getString("name") ?: "",
                         phone = doc.getString("phone") ?: "",
                         address = doc.getString("address") ?: "",
@@ -498,6 +584,8 @@ object FirestoreSyncManager {
             // Restore Packages
             val pkgDocs = userRef.collection("packages").get().await()
             val restoredPackages = pkgDocs.documents.mapNotNull { doc ->
+                val idStr = doc.getLong("id")?.toString() ?: doc.id
+                if (deletedRecords.contains("packages:$idStr")) return@mapNotNull null
                 try {
                     IspPackageEntity(
                         id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
@@ -512,6 +600,8 @@ object FirestoreSyncManager {
             // Restore Bills
             val billDocs = userRef.collection("bills").get().await()
             val restoredBills = billDocs.documents.mapNotNull { doc ->
+                val idStr = doc.getLong("id")?.toString() ?: doc.id
+                if (deletedRecords.contains("bills:$idStr")) return@mapNotNull null
                 try {
                     BillEntity(
                         id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
@@ -533,6 +623,8 @@ object FirestoreSyncManager {
             // Restore Payments
             val payDocs = userRef.collection("payments").get().await()
             val restoredPayments = payDocs.documents.mapNotNull { doc ->
+                val idStr = doc.getLong("id")?.toString() ?: doc.id
+                if (deletedRecords.contains("payments:$idStr")) return@mapNotNull null
                 try {
                     PaymentEntity(
                         id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
@@ -551,6 +643,8 @@ object FirestoreSyncManager {
             // Restore Expenses
             val expDocs = userRef.collection("expenses").get().await()
             val restoredExpenses = expDocs.documents.mapNotNull { doc ->
+                val idStr = doc.getLong("id")?.toString() ?: doc.id
+                if (deletedRecords.contains("expenses:$idStr")) return@mapNotNull null
                 try {
                     ExpenseEntity(
                         id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
@@ -570,6 +664,8 @@ object FirestoreSyncManager {
             // Restore Categories
             val catDocs = userRef.collection("expense_categories").get().await()
             val restoredCategories = catDocs.documents.mapNotNull { doc ->
+                val idStr = doc.getLong("id")?.toString() ?: doc.id
+                if (deletedRecords.contains("expense_categories:$idStr")) return@mapNotNull null
                 try {
                     ExpenseCategoryEntity(
                         id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,

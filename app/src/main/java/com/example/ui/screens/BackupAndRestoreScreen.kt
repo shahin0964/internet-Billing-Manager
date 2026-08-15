@@ -356,12 +356,17 @@ fun BackupAndRestoreScreen(
                                         } else if (!isCloudSyncing) {
                                             isCloudSyncing = true
                                             coroutineScope.launch {
-                                                val success = com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
-                                                isCloudSyncing = false
-                                                if (success) {
-                                                    viewModel.showToast("Cloud backup successful")
-                                                } else {
-                                                    viewModel.showToast("Cloud backup failed")
+                                                try {
+                                                    val success = com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
+                                                    if (success) {
+                                                        viewModel.showToast("Cloud backup successful")
+                                                    } else {
+                                                        viewModel.showToast("Cloud backup failed")
+                                                    }
+                                                } catch (e: Exception) {
+                                                    viewModel.showToast("Cloud backup failed: ${e.localizedMessage ?: "Error"}")
+                                                } finally {
+                                                    isCloudSyncing = false
                                                 }
                                             }
                                         }
@@ -591,11 +596,16 @@ fun BackupAndRestoreScreen(
                         } else {
                             isProcessing = true
                             coroutineScope.launch {
-                                val (success, message) = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
-                                isProcessing = false
-                                viewModel.showToast(message)
-                                if (success) {
-                                    localBackups = viewModel.getLocalBackupFiles()
+                                try {
+                                    val (success, message) = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
+                                    viewModel.showToast(message)
+                                    if (success) {
+                                        localBackups = viewModel.getLocalBackupFiles()
+                                    }
+                                } catch (e: Exception) {
+                                    viewModel.showToast("Cloud restore failed: ${e.localizedMessage ?: "Error"}")
+                                } finally {
+                                    isProcessing = false
                                 }
                             }
                         }

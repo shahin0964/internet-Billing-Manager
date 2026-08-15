@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Place
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.viewmodel.IspViewModel
@@ -64,26 +63,6 @@ fun AdvancedFeaturesScreen(
     var showWifiAnalyzer by remember { mutableStateOf(false) }
     var showImportCustomers by remember { mutableStateOf(false) }
     var showAutomaticSms by remember { mutableStateOf(false) }
-    var showNetworkDiagram by remember { mutableStateOf(false) }
-    var showCustomerNetworkMap by remember { mutableStateOf(false) }
-
-    if (showCustomerNetworkMap) {
-        BackHandler { showCustomerNetworkMap = false }
-        CustomerNetworkMapScreen(
-            onBackClick = { showCustomerNetworkMap = false },
-            viewModel = viewModel
-        )
-        return
-    }
-
-    if (showNetworkDiagram) {
-        BackHandler { showNetworkDiagram = false }
-        NetworkDiagramScreen(
-            onBackClick = { showNetworkDiagram = false },
-            viewModel = viewModel
-        )
-        return
-    }
 
     if (showAutomaticSms) {
         BackHandler { showAutomaticSms = false }
@@ -157,132 +136,6 @@ fun AdvancedFeaturesScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Customer Network Map Feature Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showCustomerNetworkMap = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Place,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = "🗺️ Customer Network Map",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Visual geographical distribution & network relationships",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            // Internet Network Diagram Feature Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showNetworkDiagram = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Hub,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = "🌐 Internet Network Diagram",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Visual network topology diagram & device connections",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
             // Import Customers Feature Entry
             item {
                 Surface(

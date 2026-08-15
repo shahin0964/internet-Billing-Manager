@@ -134,7 +134,10 @@ class IspRepository(
 
     suspend fun deleteExpense(expense: ExpenseEntity) {
         expenseDao.deleteExpense(expense)
-        context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "expenses", expense.id.toString()) }
+        context?.let {
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "expenses", expense.id.toString())
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "expenses", expense.id.toString())
+        }
         logActivity(
             action = "EXPENSE_DELETED",
             actionType = "EXPENSE",
@@ -258,10 +261,13 @@ class IspRepository(
                 Log.e("IspRepository", "Failed to delete pending SMS for customer: ${e.message}")
             }
 
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "customers", customer.id.toString())
             bills.forEach { bill ->
+                com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "bills", bill.id.toString())
                 com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "bills", bill.id.toString())
             }
             payments.forEach { payment ->
+                com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "payments", payment.id.toString())
                 com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "payments", payment.id.toString())
             }
             com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "customers", customer.id.toString())
@@ -325,7 +331,10 @@ class IspRepository(
 
     suspend fun deletePackage(pkg: IspPackageEntity) {
         packageDao.deletePackage(pkg)
-        context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "packages", pkg.id.toString()) }
+        context?.let {
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "packages", pkg.id.toString())
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "packages", pkg.id.toString())
+        }
         logActivity(
             action = "PACKAGE_DELETE",
             actionType = "PACKAGE",
@@ -339,7 +348,10 @@ class IspRepository(
 
     suspend fun deleteBill(bill: BillEntity) {
         billDao.deleteBill(bill)
-        context?.let { com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "bills", bill.id.toString()) }
+        context?.let {
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "bills", bill.id.toString())
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "bills", bill.id.toString())
+        }
         logActivity(
             action = "BILL_DELETE",
             actionType = "BILL",
@@ -523,6 +535,7 @@ class IspRepository(
 
             // Remove document from Cloud Firestore if online sync is active
             context?.let { ctx ->
+                com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "payments", payment.id.toString())
                 com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(
                     ctx,
                     "payments",
@@ -727,13 +740,13 @@ class IspRepository(
     }
 
     suspend fun generateFullBackupJson(context: Context): String {
-        val custs = customers.first()
-        val pkgs = packages.first()
-        val bls = bills.first()
-        val pymts = payments.first()
-        val sttngs = settings.first()
-        val exps = expenses.first()
-        val cats = expenseCategories.first()
+        val custs = kotlinx.coroutines.withTimeoutOrNull(5000L) { customers.first() } ?: emptyList()
+        val pkgs = kotlinx.coroutines.withTimeoutOrNull(5000L) { packages.first() } ?: emptyList()
+        val bls = kotlinx.coroutines.withTimeoutOrNull(5000L) { bills.first() } ?: emptyList()
+        val pymts = kotlinx.coroutines.withTimeoutOrNull(5000L) { payments.first() } ?: emptyList()
+        val sttngs = kotlinx.coroutines.withTimeoutOrNull(5000L) { settings.first() }
+        val exps = kotlinx.coroutines.withTimeoutOrNull(5000L) { expenses.first() } ?: emptyList()
+        val cats = kotlinx.coroutines.withTimeoutOrNull(5000L) { expenseCategories.first() } ?: emptyList()
 
         val sharedPrefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val appLang = sharedPrefs.getString("app_lang", "en") ?: "en"
@@ -872,21 +885,35 @@ class IspRepository(
         return try {
             val root = JSONObject(jsonStr)
 
+            fun optJsonLong(obj: JSONObject, key: String, defaultIdx: Int): Long {
+                if (obj.has(key) && !obj.isNull(key)) {
+                    val v = obj.get(key)
+                    val parsed = when (v) {
+                        is Number -> v.toLong()
+                        is String -> v.toLongOrNull() ?: v.filter { it.isDigit() }.toLongOrNull()
+                        else -> null
+                    }
+                    if (parsed != null && parsed != 0L) return parsed
+                }
+                return (defaultIdx + 1000).toLong()
+            }
+
             val customerList = mutableListOf<CustomerEntity>()
             if (root.has("customers")) {
                 val arr = root.getJSONArray("customers")
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
+                    val custId = optJsonLong(obj, "id", i)
                     customerList.add(
                         CustomerEntity(
-                            id = if (obj.has("id")) obj.getLong("id") else 0L,
-                            customerCode = obj.optString("customerCode", ""),
+                            id = custId,
+                            customerCode = obj.optString("customerCode", "CUST-$custId"),
                             name = obj.optString("name", ""),
                             phone = obj.optString("phone", ""),
                             address = obj.optString("address", ""),
                             pppoeUsername = obj.optString("pppoeUsername", ""),
                             ipAddress = obj.optString("ipAddress", ""),
-                            packageId = obj.optLong("packageId", 0L),
+                            packageId = optJsonLong(obj, "packageId", 0),
                             packageName = obj.optString("packageName", ""),
                             monthlyFee = obj.optDouble("monthlyFee", 0.0),
                             status = obj.optString("status", "ACTIVE"),
@@ -897,6 +924,9 @@ class IspRepository(
                 }
             }
 
+            val custCodeMap = customerList.associate { it.customerCode.trim().lowercase(java.util.Locale.ROOT) to it.id }
+            val custNameMap = customerList.associate { it.name.trim().lowercase(java.util.Locale.ROOT) to it.id }
+
             val packageList = mutableListOf<IspPackageEntity>()
             if (root.has("packages")) {
                 val arr = root.getJSONArray("packages")
@@ -904,7 +934,7 @@ class IspRepository(
                     val obj = arr.getJSONObject(i)
                     packageList.add(
                         IspPackageEntity(
-                            id = if (obj.has("id")) obj.getLong("id") else 0L,
+                            id = optJsonLong(obj, "id", i),
                             name = obj.optString("name", ""),
                             speedMbps = obj.optInt("speedMbps", 0),
                             monthlyPrice = obj.optDouble("monthlyPrice", 0.0),
@@ -919,13 +949,25 @@ class IspRepository(
                 val arr = root.getJSONArray("bills")
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
+                    val billId = optJsonLong(obj, "id", i)
+                    val rawCustId = optJsonLong(obj, "customerId", -1)
+                    val cCode = obj.optString("customerCode", "")
+                    val cName = obj.optString("customerName", "")
+                    val resolvedCustId = if (rawCustId > 0L && customerList.any { it.id == rawCustId }) {
+                        rawCustId
+                    } else {
+                        custCodeMap[cCode.trim().lowercase(java.util.Locale.ROOT)]
+                            ?: custNameMap[cName.trim().lowercase(java.util.Locale.ROOT)]
+                            ?: if (rawCustId > 0L) rawCustId else 0L
+                    }
+
                     billList.add(
                         BillEntity(
-                            id = if (obj.has("id")) obj.getLong("id") else 0L,
+                            id = billId,
                             billNumber = obj.optString("billNumber", ""),
-                            customerId = obj.optLong("customerId", 0L),
-                            customerName = obj.optString("customerName", ""),
-                            customerCode = obj.optString("customerCode", ""),
+                            customerId = resolvedCustId,
+                            customerName = cName,
+                            customerCode = cCode,
                             billingMonth = obj.optString("billingMonth", ""),
                             amount = obj.optDouble("amount", 0.0),
                             paidAmount = obj.optDouble("paidAmount", 0.0),
@@ -943,13 +985,22 @@ class IspRepository(
                 val arr = root.getJSONArray("payments")
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
+                    val payId = optJsonLong(obj, "id", i)
+                    val rawCustId = optJsonLong(obj, "customerId", -1)
+                    val cName = obj.optString("customerName", "")
+                    val resolvedCustId = if (rawCustId > 0L && customerList.any { it.id == rawCustId }) {
+                        rawCustId
+                    } else {
+                        custNameMap[cName.trim().lowercase(java.util.Locale.ROOT)] ?: if (rawCustId > 0L) rawCustId else 0L
+                    }
+
                     paymentList.add(
                         PaymentEntity(
-                            id = if (obj.has("id")) obj.getLong("id") else 0L,
+                            id = payId,
                             paymentReceiptNo = obj.optString("paymentReceiptNo", ""),
-                            billId = obj.optLong("billId", 0L),
-                            customerId = obj.optLong("customerId", 0L),
-                            customerName = obj.optString("customerName", ""),
+                            billId = optJsonLong(obj, "billId", 0),
+                            customerId = resolvedCustId,
+                            customerName = cName,
                             amount = obj.optDouble("amount", 0.0),
                             paymentDate = obj.optString("paymentDate", ""),
                             paymentMethod = obj.optString("paymentMethod", "Cash"),
@@ -1276,6 +1327,7 @@ class IspRepository(
         networkDiagramDao.deleteConnectionsForNode(nodeId)
         networkDiagramDao.deleteNodeById(nodeId)
         context?.let {
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "network_nodes", nodeId)
             com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "network_nodes", nodeId)
         }
         logActivity(
@@ -1303,6 +1355,7 @@ class IspRepository(
     suspend fun deleteConnection(connectionId: String) {
         networkDiagramDao.deleteConnectionById(connectionId)
         context?.let {
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "network_connections", connectionId)
             com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "network_connections", connectionId)
         }
         logActivity(

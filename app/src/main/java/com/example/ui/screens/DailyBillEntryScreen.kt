@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.BillEntity
+import com.example.data.model.PaymentEntity
 import com.example.ui.components.formatAmount
 import com.example.ui.theme.EmeraldSuccess
 import java.text.SimpleDateFormat
@@ -66,6 +67,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DailyBillEntryScreen(
+    payments: List<PaymentEntity>,
     bills: List<BillEntity>,
     currencySymbol: String,
     onBackClick: () -> Unit
@@ -85,14 +87,34 @@ fun DailyBillEntryScreen(
         SimpleDateFormat("yyyy-MM", Locale.US).format(cal.time)
     }
 
-    val filteredBills = remember(bills, selectedFilter, customDateStr) {
+    val mappedPaidBills = remember(payments, bills) {
+        payments.map { payment ->
+            val bill = bills.find { it.id == payment.billId }
+            BillEntity(
+                id = payment.id,
+                billNumber = bill?.billNumber ?: "",
+                customerId = payment.customerId,
+                customerName = payment.customerName,
+                customerCode = bill?.customerCode ?: "",
+                billingMonth = bill?.billingMonth ?: "",
+                amount = payment.amount,
+                paidAmount = payment.amount,
+                dueAmount = 0.0,
+                status = "PAID",
+                generatedDate = payment.paymentDate,
+                dueDate = bill?.dueDate ?: ""
+            )
+        }
+    }
+
+    val filteredBills = remember(mappedPaidBills, selectedFilter, customDateStr) {
         when (selectedFilter) {
-            "TODAY" -> bills.filter { it.generatedDate == todayStr }
-            "YESTERDAY" -> bills.filter { it.generatedDate == yesterdayStr }
-            "THIS_MONTH" -> bills.filter { it.generatedDate.startsWith(thisMonthStr) }
-            "PREV_MONTH" -> bills.filter { it.generatedDate.startsWith(prevMonthStr) }
-            "CUSTOM_DATE" -> if (customDateStr.isNotBlank()) bills.filter { it.generatedDate == customDateStr } else bills
-            else -> bills
+            "TODAY" -> mappedPaidBills.filter { it.generatedDate == todayStr }
+            "YESTERDAY" -> mappedPaidBills.filter { it.generatedDate == yesterdayStr }
+            "THIS_MONTH" -> mappedPaidBills.filter { it.generatedDate.startsWith(thisMonthStr) }
+            "PREV_MONTH" -> mappedPaidBills.filter { it.generatedDate.startsWith(prevMonthStr) }
+            "CUSTOM_DATE" -> if (customDateStr.isNotBlank()) mappedPaidBills.filter { it.generatedDate == customDateStr } else mappedPaidBills
+            else -> mappedPaidBills
         }
     }
 

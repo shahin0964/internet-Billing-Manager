@@ -139,10 +139,10 @@ fun CustomersScreen(
 
     val filteredCustomers = remember(customers, searchQuery, selectedStatusFilter) {
         customers.filter { c ->
-            val matchesFilter = when (selectedStatusFilter) {
-                "ACTIVE" -> c.status == "ACTIVE"
-                "INACTIVE" -> c.status == "INACTIVE"
-                "SUSPENDED" -> c.status == "SUSPENDED"
+            val matchesFilter = when (selectedStatusFilter.uppercase(java.util.Locale.ROOT)) {
+                "ACTIVE" -> c.status.equals("ACTIVE", ignoreCase = true)
+                "INACTIVE" -> c.status.equals("INACTIVE", ignoreCase = true) || c.status.equals("EXPIRED", ignoreCase = true)
+                "SUSPENDED" -> c.status.equals("SUSPENDED", ignoreCase = true)
                 else -> true
             }
             val matchesQuery = searchQuery.isBlank() ||

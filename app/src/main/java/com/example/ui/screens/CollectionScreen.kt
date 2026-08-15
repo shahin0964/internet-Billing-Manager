@@ -366,6 +366,7 @@ tonalElevation = 2.dp,
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             DailyBillEntryScreen(
+                payments = payments,
                 bills = bills,
                 currencySymbol = currencySymbol,
                 onBackClick = { showDailyBillEntryScreen = false }

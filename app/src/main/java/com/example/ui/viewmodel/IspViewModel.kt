@@ -264,6 +264,38 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         return repository.createAutomaticPreUpdateBackup(context)
     }
 
+    fun triggerCloudSyncOnLogin() {
+        viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(app)
+                if (uid != null) {
+                    android.util.Log.d("IspViewModel", "Triggering cloud sync/restore on login for UID: $uid")
+                    com.example.util.FirestoreSyncManager.scheduleBackgroundSync(app)
+                    
+                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                    val restoreDoneKey = "cloud_initial_restore_done_$uid"
+                    val isRestoreDone = prefs.getBoolean(restoreDoneKey, false)
+
+                    if (!isRestoreDone) {
+                        val db = com.example.data.database.IspDatabase.getDatabase(app)
+                        val existingCustomers = db.customerDao().getAllCustomers().first()
+                        if (existingCustomers.isEmpty()) {
+                            com.example.util.FirestoreSyncManager.restoreCloudToLocal(app)
+                        } else {
+                            com.example.util.FirestoreSyncManager.syncLocalToCloud(app)
+                        }
+                        prefs.edit().putBoolean(restoreDoneKey, true).apply()
+                    } else {
+                        com.example.util.FirestoreSyncManager.syncLocalToCloud(app)
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("IspViewModel", "Cloud sync on login failed: ${e.message}")
+            }
+        }
+    }
+
     fun showToast(msg: String) {
         _toastMessage.value = msg
     }
@@ -484,6 +516,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     fun createEncryptedBackup(password: String, onComplete: (java.io.File?) -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val app = getApplication<Application>()
+            var resultFile: java.io.File? = null
             try {
                 val jsonPayload = repository.generateFullBackupJson(app)
                 if (jsonPayload.isBlank()) {
@@ -505,15 +538,18 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     throw IllegalStateException("Backup file write failed")
                 }
 
+                resultFile = backupFile
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     _toastMessage.value = app.getString(com.example.R.string.backup_created_success)
-                    onComplete(backupFile)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 e.printStackTrace()
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     _toastMessage.value = app.getString(com.example.R.string.msg_backup_failed)
-                    onComplete(null)
+                }
+            } finally {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete(resultFile)
                 }
             }
         }
@@ -527,6 +563,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val app = getApplication<Application>()
+            var isSuccess = false
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
                     ?: throw IllegalArgumentException("Cannot open file")
@@ -549,18 +586,16 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     throw e
                 }
 
-                val success = repository.restoreFromFullBackupJson(context, jsonPayload)
+                isSuccess = repository.restoreFromFullBackupJson(context, jsonPayload)
 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    if (success) {
+                    if (isSuccess) {
                         _toastMessage.value = app.getString(com.example.R.string.backup_restored_success)
-                        onResult(true)
                     } else {
                         _toastMessage.value = app.getString(com.example.R.string.msg_restore_failed)
-                        onResult(false)
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 e.printStackTrace()
                 val errorMsg = when (e.message) {
                     "INCORRECT_PASSWORD" -> app.getString(com.example.R.string.msg_incorrect_password)
@@ -569,7 +604,10 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     _toastMessage.value = errorMsg
-                    onResult(false)
+                }
+            } finally {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(isSuccess)
                 }
             }
         }
@@ -583,6 +621,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val app = getApplication<Application>()
+            var isSuccess = false
             try {
                 if (!file.exists() || file.length() == 0L) {
                     throw IllegalArgumentException("CORRUPTED_FILE")
@@ -606,18 +645,16 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     throw e
                 }
 
-                val success = repository.restoreFromFullBackupJson(context, jsonPayload)
+                isSuccess = repository.restoreFromFullBackupJson(context, jsonPayload)
 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    if (success) {
+                    if (isSuccess) {
                         _toastMessage.value = app.getString(com.example.R.string.backup_restored_success)
-                        onResult(true)
                     } else {
                         _toastMessage.value = app.getString(com.example.R.string.msg_restore_failed)
-                        onResult(false)
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 e.printStackTrace()
                 val errorMsg = when (e.message) {
                     "INCORRECT_PASSWORD" -> app.getString(com.example.R.string.msg_incorrect_password)
@@ -626,7 +663,10 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     _toastMessage.value = errorMsg
-                    onResult(false)
+                }
+            } finally {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(isSuccess)
                 }
             }
         }
