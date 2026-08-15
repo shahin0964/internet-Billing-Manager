@@ -28,6 +28,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Troubleshoot
+import com.example.ui.screens.AIDiagnosticAgentScreen
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -114,6 +116,7 @@ fun MoreScreen(
     var themeMode by remember(settings) { mutableStateOf(settings.themeMode) }
     var logoUri by remember(settings) { mutableStateOf(settings.logoUri) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showAIDiagnosticAgentScreen by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showAccountScreen by remember { mutableStateOf(false) }
     var securityAuditState by remember { mutableStateOf(SecurityAuditState.CHECKING) }
@@ -950,6 +953,55 @@ tonalElevation = 2.dp,
             }
         }
 
+        // AI Diagnostic Agent Option
+        item {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showAIDiagnosticAgentScreen = true }
+                    .testTag("ai_diagnostic_agent_menu_option"),
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 6.dp,
+                tonalElevation = 3.dp,
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Troubleshoot,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        SectionHeader(
+                            title = androidx.compose.ui.res.stringResource(com.example.R.string.ai_diagnostic_agent),
+                            subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.ai_diagnostic_agent_subtitle)
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Tap to open",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
         // App Update Option
         item {
             Surface(
@@ -1093,6 +1145,19 @@ tonalElevation = 2.dp,
         AppUpdateDialog(
             onDismissRequest = { showUpdateDialog = false }
         )
+    }
+
+    if (showAIDiagnosticAgentScreen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAIDiagnosticAgentScreen = false },
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false
+            )
+        ) {
+            AIDiagnosticAgentScreen(
+                onBackClick = { showAIDiagnosticAgentScreen = false }
+            )
+        }
     }
 
     if (showSecurityDialog) {

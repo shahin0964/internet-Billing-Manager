@@ -526,5 +526,7 @@
     <string name="security_status_issue">⚠️ Issue Found</string>
     <string name="security_status_not_checked">Not checked / Last known status</string>
 
-
+    <!-- AI Diagnostic Agent -->
+    <string name="ai_diagnostic_agent">AI Diagnostic Agent</string>
+    <string name="ai_diagnostic_agent_subtitle">AI analysis &amp; health checks of ISP system modules</string>
 </resources>
