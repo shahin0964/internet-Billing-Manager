@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -41,6 +42,9 @@ fun NetworkToolsScreen(onBackClick: () -> Unit) {
     var activeTool by remember { mutableStateOf(NetworkToolType.NONE) }
 
     if (activeTool != NetworkToolType.NONE) {
+        BackHandler {
+            activeTool = NetworkToolType.NONE
+        }
         when (activeTool) {
             NetworkToolType.PING -> PingTestScreen(onBackClick = { activeTool = NetworkToolType.NONE })
             NetworkToolType.DNS -> DnsLookupScreen(onBackClick = { activeTool = NetworkToolType.NONE })

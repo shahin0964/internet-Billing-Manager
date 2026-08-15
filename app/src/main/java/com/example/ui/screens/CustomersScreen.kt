@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import com.example.ui.components.formatAmount
 import android.content.Intent
 import android.net.Uri
@@ -200,6 +201,9 @@ fun CustomersScreen(
     }
 
     if (currentPreviewCustomer != null) {
+        BackHandler {
+            previewCustomerState = null
+        }
         // Dedicated Customer Preview Screen
         CustomerPreviewScreen(
             customer = currentPreviewCustomer,

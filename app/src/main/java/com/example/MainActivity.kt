@@ -35,11 +35,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -167,6 +169,30 @@ fun MainAppContent(
 ) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(NavTab.DASHBOARD) }
+    val tabHistory = remember { mutableStateListOf<NavTab>() }
+    var previousTab by remember { mutableStateOf<NavTab?>(null) }
+    var isBackAction by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentTab) {
+        val prev = previousTab
+        if (prev != null && prev != currentTab) {
+            if (isBackAction) {
+                isBackAction = false
+            } else {
+                if (tabHistory.isEmpty() || tabHistory.last() != prev) {
+                    tabHistory.add(prev)
+                }
+            }
+        }
+        previousTab = currentTab
+    }
+
+    BackHandler(enabled = tabHistory.isNotEmpty()) {
+        isBackAction = true
+        val prev = tabHistory.removeAt(tabHistory.size - 1)
+        currentTab = prev
+    }
+
     val pagerState = rememberPagerState(initialPage = currentTab.ordinal) { NavTab.entries.size }
     val coroutineScope = rememberCoroutineScope()
 

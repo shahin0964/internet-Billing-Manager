@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,7 @@ fun AdvancedFeaturesScreen(
     var showCustomerNetworkMap by remember { mutableStateOf(false) }
 
     if (showCustomerNetworkMap) {
+        BackHandler { showCustomerNetworkMap = false }
         CustomerNetworkMapScreen(
             onBackClick = { showCustomerNetworkMap = false },
             viewModel = viewModel
@@ -75,6 +77,7 @@ fun AdvancedFeaturesScreen(
     }
 
     if (showNetworkDiagram) {
+        BackHandler { showNetworkDiagram = false }
         NetworkDiagramScreen(
             onBackClick = { showNetworkDiagram = false },
             viewModel = viewModel
@@ -83,6 +86,7 @@ fun AdvancedFeaturesScreen(
     }
 
     if (showAutomaticSms) {
+        BackHandler { showAutomaticSms = false }
         AutomaticSmsScreen(
             onBackClick = { showAutomaticSms = false }
         )
@@ -90,6 +94,7 @@ fun AdvancedFeaturesScreen(
     }
 
     if (showImportCustomers) {
+        BackHandler { showImportCustomers = false }
         ImportCustomersScreen(
             onBackClick = { showImportCustomers = false },
             viewModel = viewModel
@@ -97,6 +102,7 @@ fun AdvancedFeaturesScreen(
         return
     }
     if (showWifiAnalyzer) {
+        BackHandler { showWifiAnalyzer = false }
         WiFiAnalyzerScreen(
             onBackClick = { showWifiAnalyzer = false }
         )
@@ -104,6 +110,7 @@ fun AdvancedFeaturesScreen(
     }
 
     if (showActivityAndAuditLog) {
+        BackHandler { showActivityAndAuditLog = false }
         ActivityAndAuditLogScreen(
             onBackClick = { showActivityAndAuditLog = false }
         )
@@ -111,6 +118,7 @@ fun AdvancedFeaturesScreen(
     }
     
     if (showSpeedTest) {
+        BackHandler { showSpeedTest = false }
         SpeedTestScreen(
             onBackClick = { showSpeedTest = false }
         )
