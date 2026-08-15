@@ -440,46 +440,34 @@ class IspRepository(
         paymentMethod: String,
         notes: String
     ): PaymentEntity? {
-        // Find ALL unpaid bills for this customer, sorted chronologically (assuming older generatedDate or ID is older)
         val allBills = bills.first()
-        val customerUnpaidBills = allBills.filter { 
-            it.customerId == customerId && it.dueAmount > 0 
-        }.sortedBy { it.id } // Sort by ID to pay oldest first
-
-        if (customerUnpaidBills.isEmpty()) return null
+        val targetBill = allBills.find { it.id == billId } 
+            ?: allBills.filter { it.customerId == customerId && it.dueAmount > 0 }.sortedBy { it.id }.firstOrNull()
+            ?: return null
 
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val todayStr = sdf.format(Date())
         val receiptNo = "PAY-${System.currentTimeMillis().toString().takeLast(6)}"
 
-        var remainingPayment = amount
-
-        for (bill in customerUnpaidBills) {
-            if (remainingPayment <= 0) break
-
-            val amountToApply = minOf(remainingPayment, bill.dueAmount)
-            remainingPayment -= amountToApply
-
-            val newPaid = bill.paidAmount + amountToApply
-            val newDue = (bill.amount - newPaid).coerceAtLeast(0.0)
-            val newStatus = when {
-                newDue <= 0.0 -> "PAID"
-                newPaid > 0.0 -> "PARTIAL"
-                else -> "UNPAID"
-            }
-
-            val updatedBill = bill.copy(
-                paidAmount = newPaid,
-                dueAmount = newDue,
-                status = newStatus
-            )
-            billDao.updateBill(updatedBill)
+        val newPaid = targetBill.paidAmount + amount
+        val newDue = (targetBill.amount - newPaid).coerceAtLeast(0.0)
+        val newStatus = when {
+            newDue <= 0.0 -> "PAID"
+            newPaid > 0.0 -> "PARTIAL"
+            else -> "UNPAID"
         }
 
-        val custName = customerUnpaidBills.first().customerName
+        val updatedBill = targetBill.copy(
+            paidAmount = newPaid,
+            dueAmount = newDue,
+            status = newStatus
+        )
+        billDao.updateBill(updatedBill)
+
+        val custName = targetBill.customerName
         val payment = PaymentEntity(
             paymentReceiptNo = receiptNo,
-            billId = billId, // Use the provided billId or a reference
+            billId = targetBill.id,
             customerId = customerId,
             customerName = custName,
             amount = amount,
@@ -496,12 +484,12 @@ class IspRepository(
             targetId = pId.toString(),
             newState = "Amount: ৳${amount}, Method: ${paymentMethod}, Receipt: ${receiptNo}"
         )
+        val createdPayment = payment.copy(id = pId)
         try {
-            context?.let { com.example.util.AutomaticSmsManager.onPaymentRecorded(it, payment) }
+            context?.let { com.example.util.AutomaticSmsManager.onPaymentRecorded(it, createdPayment) }
         } catch (e: Exception) {
             Log.e("IspRepository", "Failed to queue payment SMS: ${e.message}")
         }
-        val createdPayment = payment.copy(id = pId)
         notifyCloudSync()
 
         return createdPayment
@@ -513,18 +501,10 @@ class IspRepository(
                 // Delete payment record locally
                 paymentDao.deletePaymentById(payment.id)
 
-                // Get all remaining payments for this customer
-                val remainingPayments = paymentDao.getPaymentsListForCustomer(payment.customerId)
-                var remainingAmount = remainingPayments.sumOf { it.amount }
-
-                // Get all bills for this customer, sorted chronologically (oldest first)
-                val customerBills = billDao.getBillsListForCustomer(payment.customerId).sortedBy { it.id }
-
-                for (bill in customerBills) {
-                    val amountToApply = minOf(remainingAmount, bill.amount)
-                    remainingAmount = (remainingAmount - amountToApply).coerceAtLeast(0.0)
-
-                    val newPaid = amountToApply
+                // Get the specific bill linked to this payment
+                val bill = billDao.getBillById(payment.billId).first()
+                if (bill != null) {
+                    val newPaid = (bill.paidAmount - payment.amount).coerceAtLeast(0.0)
                     val newDue = (bill.amount - newPaid).coerceAtLeast(0.0)
                     val newStatus = when {
                         newDue <= 0.0 -> "PAID"

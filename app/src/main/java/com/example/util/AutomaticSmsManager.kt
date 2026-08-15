@@ -715,6 +715,9 @@ object AutomaticSmsManager {
         val ispName = settings?.ispName ?: "ISP"
 
         val customer = customerDao.getCustomerById(payment.customerId).first() ?: return
+        val bill = ispDb.billDao().getBillById(payment.billId).first()
+        val billMonth = bill?.billingMonth ?: ""
+        val remainingDue = bill?.dueAmount?.toString() ?: "0"
 
         val template = getTemplatePaymentConfirmation(context)
         val msg = processTemplate(
@@ -722,7 +725,11 @@ object AutomaticSmsManager {
             customerName = customer.name,
             paymentAmount = payment.amount.toString(),
             paymentDate = payment.paymentDate,
-            ispName = ispName
+            ispName = ispName,
+            billMonth = billMonth,
+            customerId = customer.id.toString(),
+            receiptNo = payment.paymentReceiptNo,
+            remainingDue = remainingDue
         )
         val idKey = "payment_${payment.id}_confirmed"
         enqueueSms(context, customer.id, customer.name, customer.phone, msg, "payment_confirmation", idKey)
@@ -1042,35 +1049,31 @@ object AutomaticSmsManager {
      * Resolves appropriate SmsManager for Dual SIM slots
      */
     private fun getSmsManagerForSubId(context: Context, subId: Int): SmsManager {
-        if (subId == -1) {
-            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
-            } else {
-                @Suppress("DEPRECATION")
-                SmsManager.getDefault()
-            }
+        val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
+        val activeList = try {
+            if (isSmsPermissionGranted(context)) {
+                subscriptionManager?.activeSubscriptionInfoList
+            } else null
+        } catch (e: SecurityException) {
+            null
         }
 
-        val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
-        if (subscriptionManager != null) {
-            try {
-                val activeList = subscriptionManager.activeSubscriptionInfoList
-                if (activeList != null) {
-                    val matchedSub = activeList.firstOrNull { it.subscriptionId == subId }
-                    if (matchedSub != null) {
-                        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            val sm = context.getSystemService(SmsManager::class.java)
-                            sm?.createForSubscriptionId(matchedSub.subscriptionId) ?: SmsManager.getDefault()
-                        } else {
-                            @Suppress("DEPRECATION")
-                            SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
-                        }
+        if (subId != -1) {
+            if (activeList != null) {
+                val matchedSub = activeList.firstOrNull { it.subscriptionId == subId }
+                if (matchedSub != null) {
+                    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val sm = context.getSystemService(SmsManager::class.java)
+                        sm?.createForSubscriptionId(matchedSub.subscriptionId) ?: SmsManager.getDefault()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
                     }
+                } else {
+                    throw Exception("Selected SIM (Subscription ID: $subId) is currently unavailable or inactive.")
                 }
-            } catch (e: SecurityException) {
-                Log.w(TAG, "Cannot access SubscriptionManager due to security limits: ${e.message}")
-            } catch (e: Exception) {
-                Log.w(TAG, "Error matching Subscription ID: ${e.message}")
+            } else {
+                throw Exception("Cannot access SIM subscriptions. Selected SIM is unavailable.")
             }
         }
 

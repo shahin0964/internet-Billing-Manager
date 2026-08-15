@@ -71,7 +71,7 @@ fun DailyBillEntryScreen(
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
-    var selectedFilter by remember { mutableStateOf("ALL") }
+    var selectedFilter by remember { mutableStateOf("TODAY") }
     var customDateStr by remember { mutableStateOf("") }
 
     val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
@@ -89,8 +89,8 @@ fun DailyBillEntryScreen(
         when (selectedFilter) {
             "TODAY" -> bills.filter { it.generatedDate == todayStr }
             "YESTERDAY" -> bills.filter { it.generatedDate == yesterdayStr }
-            "THIS_MONTH" -> bills.filter { it.generatedDate.startsWith(thisMonthStr) || it.billingMonth.contains(thisMonthStr) }
-            "PREV_MONTH" -> bills.filter { it.generatedDate.startsWith(prevMonthStr) || it.billingMonth.contains(prevMonthStr) }
+            "THIS_MONTH" -> bills.filter { it.generatedDate.startsWith(thisMonthStr) }
+            "PREV_MONTH" -> bills.filter { it.generatedDate.startsWith(prevMonthStr) }
             "CUSTOM_DATE" -> if (customDateStr.isNotBlank()) bills.filter { it.generatedDate == customDateStr } else bills
             else -> bills
         }
