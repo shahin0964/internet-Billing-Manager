@@ -27,6 +27,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 
 // 1. Dark Default
@@ -440,6 +444,25 @@ fun IspControlTheme(
 ) {
     val isSystemDark = isSystemInDarkTheme()
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val currentDensity = LocalDensity.current
+
+    val screenWidthDp = configuration.screenWidthDp
+    val screenHeightDp = configuration.screenHeightDp
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    val scaleFactor = when {
+        isLandscape && screenHeightDp < 500 -> 0.86f
+        screenWidthDp < 360 -> 0.88f
+        screenWidthDp in 360..450 -> 0.90f
+        screenWidthDp in 451..600 -> 0.92f
+        else -> 0.95f
+    }
+
+    val compactDensity = Density(
+        density = currentDensity.density * scaleFactor,
+        fontScale = currentDensity.fontScale * scaleFactor
+    )
     
     val colorScheme = when {
         themeMode.uppercase() == "DYNAMIC" && isDynamicColorSupported() -> {
@@ -471,11 +494,13 @@ fun IspControlTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    CompositionLocalProvider(LocalDensity provides compactDensity) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }
 
 @Composable

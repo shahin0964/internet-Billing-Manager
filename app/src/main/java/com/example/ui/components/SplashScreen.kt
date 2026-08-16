@@ -1,7 +1,6 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -11,7 +10,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,22 +21,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.ReceiptLong
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -47,13 +39,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
 val SplashNavyBackground = Color(0xFF010726)
 val SplashCyan = Color(0xFF00E5FF)
@@ -62,43 +54,84 @@ val SplashWhite = Color(0xFFFFFFFF)
 
 @Composable
 fun SplashScreenOverlay(
-    isVisible: Boolean,
+    isLoading: Boolean,
     onSplashFinished: () -> Unit
 ) {
+    var isVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(isLoading) {
+        if (!isLoading) {
+            isVisible = false
+            delay(300) // allow smooth fadeOut animation to complete
+            onSplashFinished()
+        }
+    }
+
     AnimatedVisibility(
         visible = isVisible,
-        exit = fadeOut(animationSpec = tween(durationMillis = 300))
+        exit = fadeOut(animationSpec = tween(durationMillis = 400))
     ) {
-        SplashScreen(onSplashFinished = onSplashFinished)
+        SplashScreen()
     }
 }
 
 @Composable
-fun SplashScreen(
-    onSplashFinished: () -> Unit
-) {
-    // 1.5 seconds real loading progress animation
-    val progress = remember { Animatable(0f) }
+fun SplashScreen() {
+    val infiniteTransition = rememberInfiniteTransition(label = "splashAnimations")
 
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.6f,
-        targetValue = 1f,
+    // 1. Subtle Logo Glow Pulse
+    val logoGlowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 0.95f,
         animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing),
+            animation = tween(1500, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "pulseAlpha"
+        label = "logoGlowAlpha"
     )
 
-    LaunchedEffect(Unit) {
-        // Animate progress smoothly from 0.0 to 1.0 in exactly 1500ms (1.5 seconds)
-        progress.animateTo(
-            targetValue = 1.0f,
-            animationSpec = tween(durationMillis = 1500, easing = LinearEasing)
-        )
-        onSplashFinished()
-    }
+    val logoScale by infiniteTransition.animateFloat(
+        initialValue = 0.985f,
+        targetValue = 1.015f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "logoScale"
+    )
+
+    // 2. Loading Ring Smooth 360 Rotation (60 FPS)
+    val ringRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ringRotation"
+    )
+
+    // 3. Loading Text Opacity Breathing
+    val loadingTextAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "loadingTextAlpha"
+    )
+
+    // 4. Subtle Network Particle Wave Phase
+    val particlePhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "particlePhase"
+    )
 
     Box(
         modifier = Modifier
@@ -106,8 +139,8 @@ fun SplashScreen(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF01051B),
-                        SplashNavyBackground,
+                        Color(0xFF010515),
+                        Color(0xFF010A2B),
                         Color(0xFF020E3D),
                         Color(0xFF010518)
                     )
@@ -115,48 +148,79 @@ fun SplashScreen(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Background Ambient Glows & Tech Grid Lines
-        BackgroundTechDecoration()
+        // Background Light Rays & Animated Tech Particle Mesh Grid
+        BackgroundTechDecoration(particlePhase = particlePhase)
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(vertical = 36.dp, horizontal = 20.dp)
+                .padding(vertical = 48.dp, horizontal = 24.dp)
         ) {
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Main Visual Header Group
+            // Upper Group: Logo + Title + Tagline
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Official IBM Logo
-                IbmOfficialLogo(size = 140.dp)
+                // Outer Glow & Official Logo
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.scale(logoScale)
+                ) {
+                    // Soft Ambient Glow behind Logo
+                    Canvas(modifier = Modifier.size(200.dp)) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    SplashCyan.copy(alpha = 0.25f * logoGlowAlpha),
+                                    SplashBlue.copy(alpha = 0.15f * logoGlowAlpha),
+                                    Color.Transparent
+                                )
+                            ),
+                            radius = size.width * 0.48f
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    // Exact Artwork iBM Official Logo
+                    IbmOfficialLogo(size = 150.dp)
+                }
 
-                // English App Title
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // App Title: Internet Billing Management
                 Text(
-                    text = "Internet Billing Management",
+                    text = "Internet Billing",
                     style = androidx.compose.ui.text.TextStyle(
                         color = SplashCyan,
-                        fontSize = 22.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif,
-                        letterSpacing = 0.5.sp,
+                        letterSpacing = 0.6.sp,
+                        textAlign = TextAlign.Center
+                    )
+                )
+                Text(
+                    text = "Management",
+                    style = androidx.compose.ui.text.TextStyle(
+                        color = SplashCyan,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = FontFamily.SansSerif,
+                        letterSpacing = 2.0.sp,
                         textAlign = TextAlign.Center
                     )
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Tagline
+                // Tagline with Gradient Accent Lines
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth(0.88f)
+                    modifier = Modifier.fillMaxWidth(0.90f)
                 ) {
                     Box(
                         modifier = Modifier
@@ -164,17 +228,17 @@ fun SplashScreen(
                             .height(1.dp)
                             .background(
                                 brush = Brush.horizontalGradient(
-                                    colors = listOf(Color.Transparent, SplashWhite.copy(alpha = 0.6f))
+                                    colors = listOf(Color.Transparent, SplashWhite.copy(alpha = 0.7f))
                                 )
                             )
                     )
                     Text(
                         text = "Seamless Connection. Smarter Billing.",
                         style = androidx.compose.ui.text.TextStyle(
-                            color = SplashWhite.copy(alpha = 0.9f),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            letterSpacing = 0.6.sp,
+                            color = SplashWhite.copy(alpha = 0.92f),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Normal,
+                            letterSpacing = 0.5.sp,
                             textAlign = TextAlign.Center
                         ),
                         modifier = Modifier.padding(horizontal = 8.dp)
@@ -185,238 +249,141 @@ fun SplashScreen(
                             .height(1.dp)
                             .background(
                                 brush = Brush.horizontalGradient(
-                                    colors = listOf(SplashWhite.copy(alpha = 0.6f), Color.Transparent)
+                                    colors = listOf(SplashWhite.copy(alpha = 0.7f), Color.Transparent)
                                 )
                             )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                // Glowing Banner: "স্মার্ট ইন্টারনেট বিল ব্যবস্থাপনার সহজ সমাধান"
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.92f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color(0xFF003882).copy(alpha = 0.5f),
-                                    Color(0xFF0066FF).copy(alpha = 0.35f),
-                                    Color(0xFF003882).copy(alpha = 0.5f)
-                                )
-                            )
-                        )
-                        .border(
-                            width = 1.5.dp,
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    SplashCyan.copy(alpha = 0.8f),
-                                    SplashBlue.copy(alpha = 0.9f),
-                                    SplashCyan.copy(alpha = 0.8f)
-                                )
-                            ),
-                            shape = RoundedCornerShape(20.dp)
-                        )
-                        .padding(vertical = 14.dp, horizontal = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "স্মার্ট ইন্টারনেট বিল\nব্যবস্থাপনার সহজ সমাধান",
-                        style = androidx.compose.ui.text.TextStyle(
-                            color = Color.White,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 26.sp
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                // 4 Feature Circles Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    FeatureIconCircle(
-                        icon = Icons.Filled.People,
-                        title = "গ্রাহক\nব্যবস্থাপনা"
-                    )
-                    FeatureIconCircle(
-                        icon = Icons.Filled.ReceiptLong,
-                        title = "বিলিং ও\nসংগ্রহ"
-                    )
-                    FeatureIconCircle(
-                        icon = Icons.Filled.BarChart,
-                        title = "রিপোর্ট ও\nবিশ্লেষণ"
-                    )
-                    FeatureIconCircle(
-                        icon = Icons.Filled.Cloud,
-                        title = "ক্লাউড ব্যাকআপ\nও সিঙ্ক"
                     )
                 }
             }
 
-            // Bottom Section: Real Progress Bar & "অ্যাপ চালু হচ্ছে..."
+            // Center-Bottom Group: Smooth Rotating Loading Ring & LOADING... Text
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp)
             ) {
-                // Real Progress Bar (1.5s loading animation)
+                // Circular Ring with Smooth Rotating Arc
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.72f)
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF0A1B4D))
-                        .border(
-                            width = 1.dp,
-                            color = SplashCyan.copy(alpha = 0.4f),
-                            shape = RoundedCornerShape(4.dp)
-                        )
+                    modifier = Modifier.size(96.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(progress.value)
-                            .fillMaxSize()
-                            .background(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        SplashBlue,
-                                        SplashCyan,
-                                        Color.White
-                                    )
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val w = size.width
+                        val strokeWidth = 2.5.dp.toPx()
+
+                        // Base Circle Track
+                        drawCircle(
+                            color = Color(0xFF0A255C).copy(alpha = 0.6f),
+                            radius = (w - strokeWidth) / 2f,
+                            style = Stroke(width = strokeWidth)
+                        )
+
+                        // Outer Glow Ring
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    SplashCyan.copy(alpha = 0.12f),
+                                    Color.Transparent
                                 )
-                            )
+                            ),
+                            radius = w / 2f
+                        )
+
+                        // Smooth Rotating Loading Arc (60 FPS)
+                        drawArc(
+                            brush = Brush.sweepGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    SplashBlue,
+                                    SplashCyan,
+                                    Color.White
+                                )
+                            ),
+                            startAngle = ringRotation,
+                            sweepAngle = 280f,
+                            useCenter = false,
+                            style = Stroke(width = strokeWidth * 1.2f, cap = StrokeCap.Round)
+                        )
+                    }
+
+                    // Inside "LOADING..." Text
+                    Text(
+                        text = "LOADING...",
+                        style = androidx.compose.ui.text.TextStyle(
+                            color = Color.White.copy(alpha = loadingTextAlpha),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp,
+                            textAlign = TextAlign.Center
+                        )
                     )
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "অ্যাপ চালু হচ্ছে...",
-                    style = androidx.compose.ui.text.TextStyle(
-                        color = SplashCyan.copy(alpha = pulseAlpha),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 0.5.sp
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
 }
 
 @Composable
-private fun FeatureIconCircle(
-    icon: ImageVector,
-    title: String
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(76.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(54.dp)
-                .clip(CircleShape)
-                .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF0066FF).copy(alpha = 0.45f),
-                            Color(0xFF002266).copy(alpha = 0.8f)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.5.dp,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            SplashCyan,
-                            SplashBlue.copy(alpha = 0.6f)
-                        )
-                    ),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(26.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = title,
-            style = androidx.compose.ui.text.TextStyle(
-                color = Color.White.copy(alpha = 0.95f),
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                lineHeight = 13.sp
-            )
-        )
-    }
-}
-
-@Composable
-private fun BackgroundTechDecoration() {
+private fun BackgroundTechDecoration(particlePhase: Float) {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
 
-        // Top Light Ray/Glows
+        // Top Radial Glow
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    SplashCyan.copy(alpha = 0.15f),
-                    SplashBlue.copy(alpha = 0.08f),
+                    SplashCyan.copy(alpha = 0.12f),
+                    SplashBlue.copy(alpha = 0.06f),
                     Color.Transparent
                 )
             ),
-            radius = w * 0.7f,
-            center = Offset(w * 0.5f, h * 0.2f)
+            radius = w * 0.75f,
+            center = Offset(w * 0.5f, h * 0.25f)
         )
 
-        // Bottom Globe Arc Drawing
-        val globeCenterY = h * 1.05f
-        val globeRadius = w * 0.9f
+        // Bottom Tech Wave Mesh Grid & Particles
+        val particleCount = 28
+        val baseParticleY = h * 0.82f
+        val maxWaveHeight = h * 0.12f
 
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFF0088FF).copy(alpha = 0.25f),
-                    Color(0xFF0033AA).copy(alpha = 0.15f),
-                    Color.Transparent
+        for (i in 0 until particleCount) {
+            val progress = (i.toFloat() / particleCount + particlePhase) % 1.0f
+            val px = w * (i.toFloat() / (particleCount - 1))
+            val waveOffset = kotlin.math.sin((progress * 2 * Math.PI) + (i * 0.4)).toFloat() * maxWaveHeight * 0.25f
+            val py = baseParticleY + waveOffset + (progress * 15f)
+
+            val alpha = (0.2f + 0.6f * kotlin.math.sin(progress * Math.PI).toFloat()).coerceIn(0f, 1f)
+            val pRadius = (1.5.dp.toPx() + (progress * 1.5.dp.toPx()))
+
+            // Draw glowing particle node
+            drawCircle(
+                color = SplashCyan.copy(alpha = alpha * 0.85f),
+                radius = pRadius,
+                center = Offset(px, py)
+            )
+
+            // Connecting lines to adjacent nodes
+            if (i < particleCount - 1) {
+                val nextProgress = ((i + 1).toFloat() / particleCount + particlePhase) % 1.0f
+                val nextPx = w * ((i + 1).toFloat() / (particleCount - 1))
+                val nextWaveOffset = kotlin.math.sin((nextProgress * 2 * Math.PI) + ((i + 1) * 0.4)).toFloat() * maxWaveHeight * 0.25f
+                val nextPy = baseParticleY + nextWaveOffset + (nextProgress * 15f)
+
+                drawLine(
+                    color = SplashBlue.copy(alpha = alpha * 0.35f),
+                    start = Offset(px, py),
+                    end = Offset(nextPx, nextPy),
+                    strokeWidth = 1.dp.toPx()
                 )
-            ),
-            radius = globeRadius * 1.1f,
-            center = Offset(w * 0.5f, globeCenterY)
-        )
-
-        drawArc(
-            color = SplashCyan.copy(alpha = 0.7f),
-            startAngle = 180f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = Offset(w * 0.5f - globeRadius, globeCenterY - globeRadius),
-            size = Size(globeRadius * 2f, globeRadius * 2f),
-            style = Stroke(width = 2.dp.toPx())
-        )
+            }
+        }
     }
 }
 
 /**
- * Custom Canvas Rendering of the Official IBM Logo matching the attached image
+ * Custom Canvas Rendering of the Official iBM Logo matching the uploaded image artwork
  */
 @Composable
 fun IbmOfficialLogo(size: Dp) {

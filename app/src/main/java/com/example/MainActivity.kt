@@ -146,16 +146,19 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
+            val isAppInitializing by viewModel.isAppInitializing.collectAsStateWithLifecycle()
             var isSplashScreenVisible by remember { mutableStateOf(true) }
 
             IspControlTheme(themeMode = settings.themeMode) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     MainAppContent(viewModel = viewModel, openUpdateDialogFlow = openUpdateDialogFlow)
 
-                    com.example.ui.components.SplashScreenOverlay(
-                        isVisible = isSplashScreenVisible,
-                        onSplashFinished = { isSplashScreenVisible = false }
-                    )
+                    if (isSplashScreenVisible) {
+                        com.example.ui.components.SplashScreenOverlay(
+                            isLoading = isAppInitializing,
+                            onSplashFinished = { isSplashScreenVisible = false }
+                        )
+                    }
                 }
             }
         }

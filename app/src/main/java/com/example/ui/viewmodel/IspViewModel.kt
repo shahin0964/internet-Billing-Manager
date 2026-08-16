@@ -55,6 +55,9 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
 
+    private val _isAppInitializing = MutableStateFlow(true)
+    val isAppInitializing: StateFlow<Boolean> = _isAppInitializing.asStateFlow()
+
     val auditLogs: StateFlow<List<com.example.data.model.AuditLogEntity>>
 
     init {
@@ -164,6 +167,17 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
         seedDefaultPackagesAndSettingsIfNeeded()
         autoGenerateCurrentMonthBills()
+
+        viewModelScope.launch {
+            try {
+                repository.customers.first()
+                repository.settings.first()
+            } catch (e: Throwable) {
+                // Ignore initialization read errors
+            } finally {
+                _isAppInitializing.value = false
+            }
+        }
     }
 
 
