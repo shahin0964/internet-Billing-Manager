@@ -27,6 +27,8 @@ import com.example.data.model.PreviousDueItem
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -54,6 +56,57 @@ class IspRepository(
     val expenseCategories: Flow<List<ExpenseCategoryEntity>> = expenseDao.getAllCategories()
     val diagrams: Flow<List<NetworkDiagramEntity>> = networkDiagramDao.getAllDiagrams()
     val auditLogs: Flow<List<AuditLogEntity>> = auditLogDao.getAllAuditLogs()
+
+    private val billGenerationMutex = Mutex()
+
+    private fun markBillAsDeletedForMonth(customerId: Long, customerCode: String, billingMonth: String) {
+        if (context == null || billingMonth.isBlank()) return
+        try {
+            val prefs = context.getSharedPreferences("isp_deleted_monthly_bills", Context.MODE_PRIVATE)
+            val cleanMonth = billingMonth.trim().lowercase(Locale.ROOT)
+            val editor = prefs.edit()
+            if (customerId != 0L) {
+                editor.putBoolean("id_${customerId}_${cleanMonth}", true)
+            }
+            if (customerCode.isNotBlank()) {
+                editor.putBoolean("code_${customerCode.trim().lowercase(Locale.ROOT)}_${cleanMonth}", true)
+            }
+            editor.apply()
+        } catch (e: Exception) {
+            Log.w("IspRepository", "Failed to mark bill as deleted for month: ${e.message}")
+        }
+    }
+
+    private fun clearBillDeletedForMonth(customerId: Long, customerCode: String, billingMonth: String) {
+        if (context == null || billingMonth.isBlank()) return
+        try {
+            val prefs = context.getSharedPreferences("isp_deleted_monthly_bills", Context.MODE_PRIVATE)
+            val cleanMonth = billingMonth.trim().lowercase(Locale.ROOT)
+            val editor = prefs.edit()
+            if (customerId != 0L) {
+                editor.remove("id_${customerId}_${cleanMonth}")
+            }
+            if (customerCode.isNotBlank()) {
+                editor.remove("code_${customerCode.trim().lowercase(Locale.ROOT)}_${cleanMonth}")
+            }
+            editor.apply()
+        } catch (e: Exception) {
+            Log.w("IspRepository", "Failed to clear deleted bill flag: ${e.message}")
+        }
+    }
+
+    private fun isBillDeletedForMonth(customerId: Long, customerCode: String, billingMonth: String): Boolean {
+        if (context == null || billingMonth.isBlank()) return false
+        return try {
+            val prefs = context.getSharedPreferences("isp_deleted_monthly_bills", Context.MODE_PRIVATE)
+            val cleanMonth = billingMonth.trim().lowercase(Locale.ROOT)
+            val keyId = "id_${customerId}_${cleanMonth}"
+            val keyCode = "code_${customerCode.trim().lowercase(Locale.ROOT)}_${cleanMonth}"
+            prefs.getBoolean(keyId, false) || (customerCode.isNotBlank() && prefs.getBoolean(keyCode, false))
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     suspend fun logActivity(
         action: String,
@@ -263,6 +316,7 @@ class IspRepository(
 
             com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "customers", customer.id.toString())
             bills.forEach { bill ->
+                markBillAsDeletedForMonth(bill.customerId, bill.customerCode, bill.billingMonth)
                 com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "bills", bill.id.toString())
                 com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "bills", bill.id.toString())
             }
@@ -348,6 +402,7 @@ class IspRepository(
 
     suspend fun deleteBill(bill: BillEntity) {
         billDao.deleteBill(bill)
+        markBillAsDeletedForMonth(bill.customerId, bill.customerCode, bill.billingMonth)
         context?.let {
             com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "bills", bill.id.toString())
             com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "bills", bill.id.toString())
@@ -386,8 +441,9 @@ class IspRepository(
     suspend fun generateMonthlyBills(
         billingMonth: String,
         dueDate: String,
-        selectedCustomerIds: Set<Long>? = null
-    ): Int {
+        selectedCustomerIds: Set<Long>? = null,
+        isAutoGeneration: Boolean = false
+    ): Int = billGenerationMutex.withLock {
         val currentCustomers = customers.first()
         val existingBills = bills.first()
         val activeCustomers = currentCustomers.filter { customer ->
@@ -403,28 +459,41 @@ class IspRepository(
         val todayStr = sdf.format(Date())
 
         for (customer in activeCustomers) {
-            val alreadyBilled = existingBills.any {
-                it.customerId == customer.id && it.billingMonth.equals(billingMonth, ignoreCase = true)
+            val dbCount = billDao.getBillCountForCustomerAndMonth(customer.id, customer.customerCode, billingMonth)
+            val flowExists = existingBills.any {
+                (it.customerId == customer.id || (customer.customerCode.isNotBlank() && it.customerCode.equals(customer.customerCode, ignoreCase = true))) &&
+                        it.billingMonth.equals(billingMonth, ignoreCase = true)
             }
-            if (!alreadyBilled) {
-                val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
-                newBills.add(
-                    BillEntity(
-                        billNumber = billNo,
-                        customerId = customer.id,
-                        customerName = customer.name,
-                        customerCode = customer.customerCode,
-                        billingMonth = billingMonth,
-                        amount = customer.monthlyFee,
-                        paidAmount = 0.0,
-                        dueAmount = customer.monthlyFee,
-                        status = "UNPAID",
-                        generatedDate = todayStr,
-                        dueDate = dueDate
-                    )
+            val alreadyBilled = dbCount > 0 || flowExists
+
+            if (alreadyBilled) {
+                continue
+            }
+
+            if (isAutoGeneration && isBillDeletedForMonth(customer.id, customer.customerCode, billingMonth)) {
+                continue
+            }
+
+            val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
+            newBills.add(
+                BillEntity(
+                    billNumber = billNo,
+                    customerId = customer.id,
+                    customerName = customer.name,
+                    customerCode = customer.customerCode,
+                    billingMonth = billingMonth,
+                    amount = customer.monthlyFee,
+                    paidAmount = 0.0,
+                    dueAmount = customer.monthlyFee,
+                    status = "UNPAID",
+                    generatedDate = todayStr,
+                    dueDate = dueDate
                 )
-                generatedCount++
+            )
+            if (!isAutoGeneration) {
+                clearBillDeletedForMonth(customer.id, customer.customerCode, billingMonth)
             }
+            generatedCount++
         }
 
         if (newBills.isNotEmpty()) {

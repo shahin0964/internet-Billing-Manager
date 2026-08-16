@@ -434,19 +434,20 @@ fun MainAppContent(
                                     val friendlyMsg = when {
                                         rawMsg.contains("supplied auth credential", ignoreCase = true) ||
                                         rawMsg.contains("malformed", ignoreCase = true) ||
-                                        rawMsg.contains("expired", ignoreCase = true) ->
-                                            "Your login session has expired. Please sign in again."
+                                        rawMsg.contains("expired", ignoreCase = true) ||
                                         rawMsg.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) ||
                                         rawMsg.contains("INVALID_CREDENTIALS", ignoreCase = true) ||
                                         rawMsg.contains("WRONG_PASSWORD", ignoreCase = true) ||
                                         rawMsg.contains("INVALID_PASSWORD", ignoreCase = true) ->
-                                            "Email or password is incorrect."
+                                            "Incorrect email or password. Please check your credentials."
+                                        rawMsg.contains("blocked all requests", ignoreCase = true) ||
+                                        rawMsg.contains("unusual activity", ignoreCase = true) ||
+                                        rawMsg.contains("TOO_MANY_ATTEMPTS", ignoreCase = true) ||
+                                        rawMsg.contains("TOO_MANY_REQUESTS", ignoreCase = true) ->
+                                            "Too many login attempts or unusual activity detected. Please wait a few moments and try again."
                                         rawMsg.contains("USER_NOT_FOUND", ignoreCase = true) ||
                                         rawMsg.contains("no user record", ignoreCase = true) ->
                                             "No account was found with this email."
-                                        rawMsg.contains("TOO_MANY_ATTEMPTS", ignoreCase = true) ||
-                                        rawMsg.contains("TOO_MANY_REQUESTS", ignoreCase = true) ->
-                                            "Too many login attempts. Please try again later."
                                         rawMsg.contains("USER_DISABLED", ignoreCase = true) ->
                                             "This user account has been disabled."
                                         rawMsg.contains("network", ignoreCase = true) ||

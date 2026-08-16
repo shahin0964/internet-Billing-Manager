@@ -661,7 +661,21 @@ fun PinRecoveryDialog(
                             }
                             .addOnFailureListener { e ->
                                 isLoading = false
-                                errorMessage = e.localizedMessage ?: "Account verification failed. Incorrect password."
+                                val rawMsg = e.localizedMessage ?: e.message ?: ""
+                                val friendlyMsg = when {
+                                    rawMsg.contains("supplied auth credential", ignoreCase = true) ||
+                                    rawMsg.contains("malformed", ignoreCase = true) ||
+                                    rawMsg.contains("expired", ignoreCase = true) ||
+                                    rawMsg.contains("INVALID", ignoreCase = true) ||
+                                    rawMsg.contains("WRONG_PASSWORD", ignoreCase = true) ->
+                                        "Incorrect password. Please try again."
+                                    rawMsg.contains("blocked all requests", ignoreCase = true) ||
+                                    rawMsg.contains("unusual activity", ignoreCase = true) ||
+                                    rawMsg.contains("TOO_MANY", ignoreCase = true) ->
+                                        "Too many attempts or unusual activity detected. Please wait a few moments and try again."
+                                    else -> "Account verification failed. Incorrect password."
+                                }
+                                errorMessage = friendlyMsg
                             }
                     } catch (e: Throwable) {
                         isLoading = false

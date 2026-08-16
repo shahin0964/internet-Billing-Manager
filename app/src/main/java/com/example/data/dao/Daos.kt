@@ -79,6 +79,9 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE id = :id")
     fun getBillById(id: Long): Flow<BillEntity?>
 
+    @Query("SELECT COUNT(*) FROM bills WHERE (customerId = :customerId OR (customerCode != '' AND LOWER(TRIM(customerCode)) = LOWER(TRIM(:customerCode)))) AND LOWER(TRIM(billingMonth)) = LOWER(TRIM(:billingMonth))")
+    suspend fun getBillCountForCustomerAndMonth(customerId: Long, customerCode: String, billingMonth: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBill(bill: BillEntity): Long
 

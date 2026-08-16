@@ -210,7 +210,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             val sdfDay = java.text.SimpleDateFormat("yyyy-MM-10", java.util.Locale.getDefault())
             val currentMonth = sdfMonth.format(java.util.Date())
             val dueDate = sdfDay.format(java.util.Date())
-            repository.generateMonthlyBills(currentMonth, dueDate)
+            repository.generateMonthlyBills(currentMonth, dueDate, isAutoGeneration = true)
         }
     }
 
@@ -421,7 +421,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
     fun generateMonthlyBills(billingMonth: String, dueDate: String, selectedCustomerIds: Set<Long>? = null) {
         viewModelScope.launch {
-            val count = repository.generateMonthlyBills(billingMonth, dueDate, selectedCustomerIds)
+            val count = repository.generateMonthlyBills(billingMonth, dueDate, selectedCustomerIds, isAutoGeneration = false)
             if (count > 0) {
                 _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_generated_bills, count, billingMonth)
             } else {
