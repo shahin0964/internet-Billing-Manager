@@ -59,12 +59,11 @@ fun SplashScreenOverlay(
 ) {
     var isVisible by remember { mutableStateOf(true) }
 
-    LaunchedEffect(isLoading) {
-        if (!isLoading) {
-            isVisible = false
-            delay(300) // allow smooth fadeOut animation to complete
-            onSplashFinished()
-        }
+    LaunchedEffect(Unit) {
+        delay(1500) // Exact 1.5 seconds (1500 milliseconds) display duration
+        isVisible = false
+        delay(300) // allow smooth fadeOut animation to complete
+        onSplashFinished()
     }
 
     AnimatedVisibility(

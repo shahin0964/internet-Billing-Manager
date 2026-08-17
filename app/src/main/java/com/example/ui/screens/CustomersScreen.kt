@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -222,19 +223,7 @@ fun CustomersScreen(
     } else {
         // Customer List Screen
         Scaffold(
-            floatingActionButton = {
-                FloatingActionButton(
-                    onClick = onAddCustomerClick,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = CircleShape
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = androidx.compose.ui.res.stringResource(com.example.R.string.add_customer)
-                    )
-                }
-            }
+            floatingActionButton = {}
         ) { paddingValues ->
             Column(
                 modifier = Modifier
@@ -373,20 +362,43 @@ tonalElevation = 3.dp,
                             item { Spacer(modifier = Modifier.height(80.dp)) }
                         }
 
-                        AlphabetIndexSidebar(
-                            alphabet = alphabet,
-                            availableLetters = availableLetters,
-                            onLetterSelected = { letter ->
-                                val targetIndex = filteredCustomers.indexOfFirst {
-                                    it.name.trim().uppercase(java.util.Locale.ROOT).startsWith(letter)
-                                }
-                                if (targetIndex != -1) {
-                                    coroutineScope.launch {
-                                        listState.scrollToItem(targetIndex)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(start = 2.dp, bottom = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            AlphabetIndexSidebar(
+                                alphabet = alphabet,
+                                availableLetters = availableLetters,
+                                onLetterSelected = { letter ->
+                                    val targetIndex = filteredCustomers.indexOfFirst {
+                                        it.name.trim().uppercase(java.util.Locale.ROOT).startsWith(letter)
+                                    }
+                                    if (targetIndex != -1) {
+                                        coroutineScope.launch {
+                                            listState.scrollToItem(targetIndex)
+                                        }
                                     }
                                 }
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            FloatingActionButton(
+                                onClick = onAddCustomerClick,
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                shape = CircleShape,
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = androidx.compose.ui.res.stringResource(com.example.R.string.add_customer)
+                                )
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -402,10 +414,10 @@ fun AlphabetIndexSidebar(
 ) {
     Column(
         modifier = Modifier
-            .fillMaxHeight()
+            .wrapContentHeight()
             .width(20.dp)
             .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.SpaceEvenly,
+        verticalArrangement = Arrangement.spacedBy(1.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         alphabet.forEach { letter ->
