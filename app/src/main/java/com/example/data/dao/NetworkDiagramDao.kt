@@ -88,4 +88,13 @@ interface NetworkDiagramDao {
 
     @Delete
     suspend fun deleteDiagram(diagram: NetworkDiagramEntity)
+
+    @Query("DELETE FROM network_diagrams")
+    suspend fun deleteAllDiagrams()
+
+    @Query("DELETE FROM network_nodes")
+    suspend fun deleteAllNodes()
+
+    @Query("DELETE FROM network_connections")
+    suspend fun deleteAllConnections()
 }

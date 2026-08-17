@@ -19,6 +19,10 @@ import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
+import com.example.data.model.AuditLogEntity
+import com.example.data.model.NetworkConnectionEntity
+import com.example.data.model.NetworkDiagramEntity
+import com.example.data.model.NetworkNodeEntity
 import androidx.room.withTransaction
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
@@ -26,9 +30,12 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 
 object FirestoreSyncManager {
@@ -72,8 +79,10 @@ object FirestoreSyncManager {
         combinedDeleted.addAll(localDeleted)
         
         try {
-            val remoteDeletedDocs = userRef.collection("deleted_records").get().await()
-            remoteDeletedDocs.documents.forEach { doc ->
+            val remoteDeletedDocs = withTimeoutOrNull(5000L) {
+                userRef.collection("deleted_records").get().await()
+            }
+            remoteDeletedDocs?.documents?.forEach { doc ->
                 val collection = doc.getString("collection") ?: ""
                 val recordId = doc.getString("recordId") ?: ""
                 if (collection.isNotBlank() && recordId.isNotBlank()) {
@@ -97,7 +106,7 @@ object FirestoreSyncManager {
                             "recordId" to id,
                             "deletedAt" to System.currentTimeMillis()
                         )
-                    ).await()
+                    )
                 } catch (e: Exception) {
                     Log.w(TAG, "Error uploading deleted record tombstone: ${e.message}")
                 }
@@ -696,6 +705,20 @@ object FirestoreSyncManager {
         }
     }
 
+    private data class RestoredCloudPayload(
+        val customers: List<CustomerEntity>,
+        val packages: List<IspPackageEntity>,
+        val bills: List<BillEntity>,
+        val payments: List<PaymentEntity>,
+        val expenses: List<ExpenseEntity>,
+        val categories: List<ExpenseCategoryEntity>,
+        val settings: BusinessSettingsEntity?,
+        val diagrams: List<NetworkDiagramEntity>,
+        val nodes: List<NetworkNodeEntity>,
+        val connections: List<NetworkConnectionEntity>,
+        val auditLogs: List<AuditLogEntity>
+    )
+
     /**
      * Restores cloud data from Firestore for the current authenticated user into local Room DB.
      */
@@ -708,175 +731,262 @@ object FirestoreSyncManager {
         }
 
         try {
-            val db = IspDatabase.getDatabase(context)
-            val firestore = FirebaseFirestore.getInstance()
-            val userRef = firestore.collection("users").document(uid)
-            val deletedRecords = syncAndGetDeletedRecords(context, userRef)
+            // Stage 1: Safely fetch all cloud collections in memory under a strict timeout
+            val (restoredData, hasAnyData) = withTimeout(25000L) {
+                val firestore = FirebaseFirestore.getInstance()
+                val userRef = firestore.collection("users").document(uid)
+                val deletedRecords = syncAndGetDeletedRecords(context, userRef)
 
-            // Restore Customers
-            val custDocs = userRef.collection("customers").get().await()
-            val restoredCustomers = custDocs.documents.mapNotNull { doc ->
-                val idStr = doc.getLong("id")?.toString() ?: doc.id
-                if (deletedRecords.contains("customers:$idStr")) return@mapNotNull null
-                try {
-                    val custId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                    CustomerEntity(
-                        id = custId,
-                        customerCode = doc.getString("customerCode") ?: "CUST-$custId",
-                        name = doc.getString("name") ?: "",
-                        phone = doc.getString("phone") ?: "",
-                        address = doc.getString("address") ?: "",
-                        pppoeUsername = doc.getString("pppoeUsername") ?: "",
-                        ipAddress = doc.getString("ipAddress") ?: "",
-                        packageId = doc.getLong("packageId") ?: 0L,
-                        packageName = doc.getString("packageName") ?: "",
-                        monthlyFee = doc.getDouble("monthlyFee") ?: 0.0,
-                        status = doc.getString("status") ?: "ACTIVE",
-                        joiningDate = doc.getString("joiningDate") ?: "",
-                        notes = doc.getString("notes") ?: ""
+                // 1. Restore Customers
+                val custDocs = userRef.collection("customers").get().await()
+                val restoredCustomers = custDocs.documents.mapNotNull { doc ->
+                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    if (deletedRecords.contains("customers:$idStr")) return@mapNotNull null
+                    try {
+                        val custId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                        CustomerEntity(
+                            id = custId,
+                            customerCode = doc.getString("customerCode") ?: "CUST-$custId",
+                            name = doc.getString("name") ?: "",
+                            phone = doc.getString("phone") ?: "",
+                            address = doc.getString("address") ?: "",
+                            pppoeUsername = doc.getString("pppoeUsername") ?: "",
+                            ipAddress = doc.getString("ipAddress") ?: "",
+                            packageId = doc.getLong("packageId") ?: 0L,
+                            packageName = doc.getString("packageName") ?: "",
+                            monthlyFee = doc.getDouble("monthlyFee") ?: 0.0,
+                            status = doc.getString("status") ?: "ACTIVE",
+                            joiningDate = doc.getString("joiningDate") ?: "",
+                            notes = doc.getString("notes") ?: "",
+                            area = doc.getString("area") ?: "",
+                            zone = doc.getString("zone") ?: "",
+                            latitude = doc.getDouble("latitude") ?: 0.0,
+                            longitude = doc.getDouble("longitude") ?: 0.0,
+                            oltName = doc.getString("oltName") ?: "",
+                            ponPort = doc.getString("ponPort") ?: "",
+                            onuSerial = doc.getString("onuSerial") ?: "",
+                            routerName = doc.getString("routerName") ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                }
+
+                // 2. Restore Packages
+                val pkgDocs = userRef.collection("packages").get().await()
+                val restoredPackages = pkgDocs.documents.mapNotNull { doc ->
+                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    if (deletedRecords.contains("packages:$idStr")) return@mapNotNull null
+                    try {
+                        IspPackageEntity(
+                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            name = doc.getString("name") ?: "",
+                            speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
+                            monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
+                            description = doc.getString("description") ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                }
+
+                // 3. Restore Bills
+                val billDocs = userRef.collection("bills").get().await()
+                val restoredBills = billDocs.documents.mapNotNull { doc ->
+                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    if (deletedRecords.contains("bills:$idStr")) return@mapNotNull null
+                    try {
+                        BillEntity(
+                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            billNumber = doc.getString("billNumber") ?: "",
+                            customerId = doc.getLong("customerId") ?: 0L,
+                            customerName = doc.getString("customerName") ?: "",
+                            customerCode = doc.getString("customerCode") ?: "",
+                            billingMonth = doc.getString("billingMonth") ?: "",
+                            amount = doc.getDouble("amount") ?: 0.0,
+                            paidAmount = doc.getDouble("paidAmount") ?: 0.0,
+                            dueAmount = doc.getDouble("dueAmount") ?: 0.0,
+                            status = doc.getString("status") ?: "UNPAID",
+                            generatedDate = doc.getString("generatedDate") ?: "",
+                            dueDate = doc.getString("dueDate") ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                }
+
+                // 4. Restore Payments
+                val payDocs = userRef.collection("payments").get().await()
+                val restoredPayments = payDocs.documents.mapNotNull { doc ->
+                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    if (deletedRecords.contains("payments:$idStr")) return@mapNotNull null
+                    try {
+                        PaymentEntity(
+                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
+                            billId = doc.getLong("billId") ?: 0L,
+                            customerId = doc.getLong("customerId") ?: 0L,
+                            customerName = doc.getString("customerName") ?: "",
+                            amount = doc.getDouble("amount") ?: 0.0,
+                            paymentDate = doc.getString("paymentDate") ?: "",
+                            paymentMethod = doc.getString("paymentMethod") ?: "Cash",
+                            notes = doc.getString("notes") ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                }
+
+                // 5. Restore Expenses
+                val expDocs = userRef.collection("expenses").get().await()
+                val restoredExpenses = expDocs.documents.mapNotNull { doc ->
+                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    if (deletedRecords.contains("expenses:$idStr")) return@mapNotNull null
+                    try {
+                        ExpenseEntity(
+                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            title = doc.getString("title") ?: "",
+                            amount = doc.getDouble("amount") ?: 0.0,
+                            category = doc.getString("category") ?: "",
+                            date = doc.getString("date") ?: "",
+                            paymentMethod = doc.getString("paymentMethod") ?: "Cash",
+                            note = doc.getString("note") ?: "",
+                            receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
+                            createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                        )
+                    } catch (e: Exception) { null }
+                }
+
+                // 6. Restore Categories
+                val catDocs = userRef.collection("expense_categories").get().await()
+                val restoredCategories = catDocs.documents.mapNotNull { doc ->
+                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    if (deletedRecords.contains("expense_categories:$idStr")) return@mapNotNull null
+                    try {
+                        ExpenseCategoryEntity(
+                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            name = doc.getString("name") ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                }
+
+                // 7. Restore Settings
+                val settingsDoc = userRef.collection("settings").document("business_settings").get().await()
+                val restoredSettings = if (settingsDoc.exists()) {
+                    BusinessSettingsEntity(
+                        id = 1,
+                        ispName = settingsDoc.getString("ispName") ?: "",
+                        hotline = settingsDoc.getString("hotline") ?: "",
+                        address = settingsDoc.getString("address") ?: "",
+                        currencySymbol = settingsDoc.getString("currencySymbol") ?: "৳",
+                        networkStatus = settingsDoc.getString("networkStatus") ?: "Operational",
+                        themeMode = settingsDoc.getString("themeMode") ?: "SYSTEM",
+                        logoUri = settingsDoc.getString("logoUri")?.ifEmpty { null },
+                        email = settingsDoc.getString("email") ?: ""
                     )
-                } catch (e: Exception) { null }
-            }
+                } else null
 
-            // Restore Packages
-            val pkgDocs = userRef.collection("packages").get().await()
-            val restoredPackages = pkgDocs.documents.mapNotNull { doc ->
-                val idStr = doc.getLong("id")?.toString() ?: doc.id
-                if (deletedRecords.contains("packages:$idStr")) return@mapNotNull null
-                try {
-                    IspPackageEntity(
-                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                        name = doc.getString("name") ?: "",
-                        speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
-                        monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
-                        description = doc.getString("description") ?: ""
-                    )
+                // 8. Restore Network Diagrams, Nodes & Connections
+                val diagDocs = try {
+                    userRef.collection("network_diagrams").get().await()
                 } catch (e: Exception) { null }
-            }
+                val restoredDiagrams = diagDocs?.documents?.mapNotNull { doc ->
+                    try {
+                        NetworkDiagramEntity(
+                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            name = doc.getString("name") ?: "",
+                            isDefault = doc.getBoolean("isDefault") ?: false,
+                            createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                        )
+                    } catch (e: Exception) { null }
+                } ?: emptyList()
 
-            // Restore Bills
-            val billDocs = userRef.collection("bills").get().await()
-            val restoredBills = billDocs.documents.mapNotNull { doc ->
-                val idStr = doc.getLong("id")?.toString() ?: doc.id
-                if (deletedRecords.contains("bills:$idStr")) return@mapNotNull null
-                try {
-                    BillEntity(
-                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                        billNumber = doc.getString("billNumber") ?: "",
-                        customerId = doc.getLong("customerId") ?: 0L,
-                        customerName = doc.getString("customerName") ?: "",
-                        customerCode = doc.getString("customerCode") ?: "",
-                        billingMonth = doc.getString("billingMonth") ?: "",
-                        amount = doc.getDouble("amount") ?: 0.0,
-                        paidAmount = doc.getDouble("paidAmount") ?: 0.0,
-                        dueAmount = doc.getDouble("dueAmount") ?: 0.0,
-                        status = doc.getString("status") ?: "UNPAID",
-                        generatedDate = doc.getString("generatedDate") ?: "",
-                        dueDate = doc.getString("dueDate") ?: ""
-                    )
+                val nodeDocs = try {
+                    userRef.collection("network_nodes").get().await()
                 } catch (e: Exception) { null }
-            }
+                val restoredNodes = nodeDocs?.documents?.mapNotNull { doc ->
+                    try {
+                        NetworkNodeEntity(
+                            id = doc.getString("id") ?: doc.id,
+                            diagramId = doc.getLong("diagramId") ?: 0L,
+                            name = doc.getString("name") ?: "",
+                            type = doc.getString("type") ?: "MIKROTIK",
+                            ipAddress = doc.getString("ipAddress") ?: "",
+                            location = doc.getString("location") ?: "",
+                            areaZone = doc.getString("areaZone") ?: "",
+                            portInfo = doc.getString("portInfo") ?: "",
+                            customerRef = doc.getString("customerRef") ?: "",
+                            customerId = doc.getString("customerId") ?: "",
+                            notes = doc.getString("notes") ?: "",
+                            positionX = (doc.getDouble("positionX") ?: 0.0).toFloat(),
+                            positionY = (doc.getDouble("positionY") ?: 0.0).toFloat()
+                        )
+                    } catch (e: Exception) { null }
+                } ?: emptyList()
 
-            // Restore Payments
-            val payDocs = userRef.collection("payments").get().await()
-            val restoredPayments = payDocs.documents.mapNotNull { doc ->
-                val idStr = doc.getLong("id")?.toString() ?: doc.id
-                if (deletedRecords.contains("payments:$idStr")) return@mapNotNull null
-                try {
-                    PaymentEntity(
-                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                        paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
-                        billId = doc.getLong("billId") ?: 0L,
-                        customerId = doc.getLong("customerId") ?: 0L,
-                        customerName = doc.getString("customerName") ?: "",
-                        amount = doc.getDouble("amount") ?: 0.0,
-                        paymentDate = doc.getString("paymentDate") ?: "",
-                        paymentMethod = doc.getString("paymentMethod") ?: "Cash",
-                        notes = doc.getString("notes") ?: ""
-                    )
+                val connDocs = try {
+                    userRef.collection("network_connections").get().await()
                 } catch (e: Exception) { null }
-            }
+                val restoredConnections = connDocs?.documents?.mapNotNull { doc ->
+                    try {
+                        NetworkConnectionEntity(
+                            id = doc.getString("id") ?: doc.id,
+                            diagramId = doc.getLong("diagramId") ?: 0L,
+                            fromNodeId = doc.getString("fromNodeId") ?: "",
+                            toNodeId = doc.getString("toNodeId") ?: "",
+                            label = doc.getString("label") ?: "",
+                            notes = doc.getString("notes") ?: ""
+                        )
+                    } catch (e: Exception) { null }
+                } ?: emptyList()
 
-            // Restore Expenses
-            val expDocs = userRef.collection("expenses").get().await()
-            val restoredExpenses = expDocs.documents.mapNotNull { doc ->
-                val idStr = doc.getLong("id")?.toString() ?: doc.id
-                if (deletedRecords.contains("expenses:$idStr")) return@mapNotNull null
-                try {
-                    ExpenseEntity(
-                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                        title = doc.getString("title") ?: "",
-                        amount = doc.getDouble("amount") ?: 0.0,
-                        category = doc.getString("category") ?: "",
-                        date = doc.getString("date") ?: "",
-                        paymentMethod = doc.getString("paymentMethod") ?: "Cash",
-                        note = doc.getString("note") ?: "",
-                        receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
-                        createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
-                    )
+                // 9. Restore Audit Logs
+                val auditDocs = try {
+                    userRef.collection("audit_logs").get().await()
                 } catch (e: Exception) { null }
-            }
+                val restoredLogs = auditDocs?.documents?.mapNotNull { doc ->
+                    try {
+                        AuditLogEntity(
+                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            action = doc.getString("action") ?: "",
+                            actionType = doc.getString("actionType") ?: "",
+                            details = doc.getString("details") ?: "",
+                            userEmail = doc.getString("userEmail") ?: "",
+                            userRole = doc.getString("userRole") ?: "",
+                            targetEntity = doc.getString("targetEntity") ?: "",
+                            targetId = doc.getString("targetId") ?: "",
+                            previousState = doc.getString("previousState") ?: "",
+                            newState = doc.getString("newState") ?: "",
+                            status = doc.getString("status") ?: "SUCCESS",
+                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                        )
+                    } catch (e: Exception) { null }
+                } ?: emptyList()
 
-            // Restore Categories
-            val catDocs = userRef.collection("expense_categories").get().await()
-            val restoredCategories = catDocs.documents.mapNotNull { doc ->
-                val idStr = doc.getLong("id")?.toString() ?: doc.id
-                if (deletedRecords.contains("expense_categories:$idStr")) return@mapNotNull null
-                try {
-                    ExpenseCategoryEntity(
-                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                        name = doc.getString("name") ?: ""
-                    )
-                } catch (e: Exception) { null }
-            }
+                val hasData = restoredCustomers.isNotEmpty() || restoredPackages.isNotEmpty() ||
+                        restoredBills.isNotEmpty() || restoredPayments.isNotEmpty() ||
+                        restoredExpenses.isNotEmpty() || restoredCategories.isNotEmpty() ||
+                        restoredSettings != null || restoredDiagrams.isNotEmpty() ||
+                        restoredNodes.isNotEmpty() || restoredConnections.isNotEmpty() ||
+                        restoredLogs.isNotEmpty()
 
-            // Restore Settings
-            val settingsDoc = userRef.collection("settings").document("business_settings").get().await()
-            val restoredSettings = if (settingsDoc.exists()) {
-                BusinessSettingsEntity(
-                    id = 1,
-                    ispName = settingsDoc.getString("ispName") ?: "",
-                    hotline = settingsDoc.getString("hotline") ?: "",
-                    address = settingsDoc.getString("address") ?: "",
-                    currencySymbol = settingsDoc.getString("currencySymbol") ?: "৳",
-                    networkStatus = settingsDoc.getString("networkStatus") ?: "Operational",
-                    themeMode = settingsDoc.getString("themeMode") ?: "SYSTEM",
-                    logoUri = settingsDoc.getString("logoUri")?.ifEmpty { null }
+                val payload = RestoredCloudPayload(
+                    customers = restoredCustomers,
+                    packages = restoredPackages,
+                    bills = restoredBills,
+                    payments = restoredPayments,
+                    expenses = restoredExpenses,
+                    categories = restoredCategories,
+                    settings = restoredSettings,
+                    diagrams = restoredDiagrams,
+                    nodes = restoredNodes,
+                    connections = restoredConnections,
+                    auditLogs = restoredLogs
                 )
-            } else null
+                Pair(payload, hasData)
+            }
 
-            // Restore Audit Logs
-            val auditDocs = try {
-                userRef.collection("audit_logs").get().await()
-            } catch (e: Exception) { null }
-            val restoredLogs = auditDocs?.documents?.mapNotNull { doc ->
-                try {
-                    com.example.data.model.AuditLogEntity(
-                        id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                        action = doc.getString("action") ?: "",
-                        actionType = doc.getString("actionType") ?: "",
-                        details = doc.getString("details") ?: "",
-                        userEmail = doc.getString("userEmail") ?: "",
-                        userRole = doc.getString("userRole") ?: "",
-                        targetEntity = doc.getString("targetEntity") ?: "",
-                        targetId = doc.getString("targetId") ?: "",
-                        previousState = doc.getString("previousState") ?: "",
-                        newState = doc.getString("newState") ?: "",
-                        status = doc.getString("status") ?: "SUCCESS",
-                        timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                    )
-                } catch (e: Exception) { null }
-            } ?: emptyList()
-
-            if (restoredCustomers.isEmpty() && restoredPackages.isEmpty() &&
-                restoredBills.isEmpty() && restoredPayments.isEmpty() &&
-                restoredExpenses.isEmpty() && restoredCategories.isEmpty() &&
-                restoredSettings == null && restoredLogs.isEmpty()) {
+            if (!hasAnyData) {
                 Log.w(TAG, "No cloud backup found for UID: $uid")
                 return@withContext Pair(false, "No cloud backup found")
             }
 
+            // Stage 2: Atomically replace local database only after full validation
+            val db = IspDatabase.getDatabase(context)
             db.withTransaction {
                 db.customerDao().deleteAllCustomers()
                 db.packageDao().deleteAllPackages()
@@ -885,36 +995,51 @@ object FirestoreSyncManager {
                 db.expenseDao().deleteAllExpenses()
                 db.expenseDao().deleteAllCategories()
                 db.settingsDao().deleteSettings()
+                db.networkDiagramDao().deleteAllDiagrams()
+                db.networkDiagramDao().deleteAllNodes()
+                db.networkDiagramDao().deleteAllConnections()
                 db.auditLogDao().deleteAllLogs()
 
-                if (restoredCustomers.isNotEmpty()) {
-                    db.customerDao().insertCustomers(restoredCustomers)
+                if (restoredData.customers.isNotEmpty()) {
+                    db.customerDao().insertCustomers(restoredData.customers)
                 }
-                if (restoredPackages.isNotEmpty()) {
-                    db.packageDao().insertPackages(restoredPackages)
+                if (restoredData.packages.isNotEmpty()) {
+                    db.packageDao().insertPackages(restoredData.packages)
                 }
-                if (restoredBills.isNotEmpty()) {
-                    db.billDao().insertBills(restoredBills)
+                if (restoredData.bills.isNotEmpty()) {
+                    db.billDao().insertBills(restoredData.bills)
                 }
-                if (restoredPayments.isNotEmpty()) {
-                    db.paymentDao().insertPayments(restoredPayments)
+                if (restoredData.payments.isNotEmpty()) {
+                    db.paymentDao().insertPayments(restoredData.payments)
                 }
-                if (restoredExpenses.isNotEmpty()) {
-                    db.expenseDao().insertExpenses(restoredExpenses)
+                if (restoredData.expenses.isNotEmpty()) {
+                    db.expenseDao().insertExpenses(restoredData.expenses)
                 }
-                if (restoredCategories.isNotEmpty()) {
-                    db.expenseDao().insertCategories(restoredCategories)
+                if (restoredData.categories.isNotEmpty()) {
+                    db.expenseDao().insertCategories(restoredData.categories)
                 }
-                if (restoredSettings != null) {
-                    db.settingsDao().insertOrUpdateSettings(restoredSettings)
+                if (restoredData.settings != null) {
+                    db.settingsDao().insertOrUpdateSettings(restoredData.settings)
                 }
-                if (restoredLogs.isNotEmpty()) {
-                    db.auditLogDao().insertLogs(restoredLogs)
+                if (restoredData.diagrams.isNotEmpty()) {
+                    restoredData.diagrams.forEach { db.networkDiagramDao().insertDiagram(it) }
+                }
+                if (restoredData.nodes.isNotEmpty()) {
+                    db.networkDiagramDao().insertNodes(restoredData.nodes)
+                }
+                if (restoredData.connections.isNotEmpty()) {
+                    db.networkDiagramDao().insertConnections(restoredData.connections)
+                }
+                if (restoredData.auditLogs.isNotEmpty()) {
+                    db.auditLogDao().insertLogs(restoredData.auditLogs)
                 }
             }
 
             Log.i(TAG, "Successfully restored data from Firestore for UID: $uid")
             Pair(true, "Cloud restore successful")
+        } catch (e: TimeoutCancellationException) {
+            Log.w(TAG, "Cloud restore timed out: ${e.message}")
+            Pair(false, "Restore timed out")
         } catch (e: FirebaseFirestoreException) {
             val msg = if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
                 "Cloud restore failed: Permission denied"
@@ -923,6 +1048,9 @@ object FirestoreSyncManager {
             }
             Log.w(TAG, "Firestore error restoring cloud data: ${e.message}")
             Pair(false, msg)
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "Network error restoring cloud data: ${e.message}")
+            Pair(false, "Cloud restore failed")
         } catch (e: Exception) {
             Log.w(TAG, "Error restoring from Firestore: ${e.message}")
             Pair(false, "Cloud restore failed")
