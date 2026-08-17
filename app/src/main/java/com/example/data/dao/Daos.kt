@@ -23,6 +23,8 @@ interface CustomerDao {
     @Query("SELECT * FROM customers WHERE id = :id")
     fun getCustomerById(id: Long): Flow<CustomerEntity?>
 
+    @Query("SELECT * FROM customers")
+    suspend fun getAllCustomersList(): List<CustomerEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCustomer(customer: CustomerEntity): Long
@@ -72,6 +74,8 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE customerId = :customerId ORDER BY id DESC")
     fun getBillsForCustomer(customerId: Long): Flow<List<BillEntity>>
 
+    @Query("SELECT * FROM bills")
+    suspend fun getAllBillsList(): List<BillEntity>
 
     @Query("SELECT * FROM bills WHERE customerId = :customerId ORDER BY id DESC")
     suspend fun getBillsListForCustomer(customerId: Long): List<BillEntity>
@@ -79,7 +83,10 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE id = :id")
     fun getBillById(id: Long): Flow<BillEntity?>
 
-    @Query("SELECT COUNT(*) FROM bills WHERE (customerId = :customerId OR (customerCode != '' AND LOWER(TRIM(customerCode)) = LOWER(TRIM(:customerCode)))) AND LOWER(TRIM(billingMonth)) = LOWER(TRIM(:billingMonth))")
+    @Query("SELECT * FROM bills WHERE (customerId = :customerId OR (:customerCode != '' AND LOWER(TRIM(customerCode)) = LOWER(TRIM(:customerCode)))) AND LOWER(TRIM(billingMonth)) = LOWER(TRIM(:billingMonth)) LIMIT 1")
+    suspend fun findBillForCustomerAndMonth(customerId: Long, customerCode: String, billingMonth: String): BillEntity?
+
+    @Query("SELECT COUNT(*) FROM bills WHERE (customerId = :customerId OR (:customerCode != '' AND LOWER(TRIM(customerCode)) = LOWER(TRIM(:customerCode)))) AND LOWER(TRIM(billingMonth)) = LOWER(TRIM(:billingMonth))")
     suspend fun getBillCountForCustomerAndMonth(customerId: Long, customerCode: String, billingMonth: String): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

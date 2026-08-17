@@ -63,7 +63,9 @@ class IspRepository(
     val diagrams: Flow<List<NetworkDiagramEntity>> = networkDiagramDao.getAllDiagrams()
     val auditLogs: Flow<List<AuditLogEntity>> = auditLogDao.getAllAuditLogs()
 
-    private val billGenerationMutex = Mutex()
+    companion object {
+        private val globalBillGenerationMutex = Mutex()
+    }
 
     private fun markBillAsDeletedForMonth(customerId: Long, customerCode: String, billingMonth: String) {
         if (context == null || billingMonth.isBlank()) return
@@ -252,33 +254,42 @@ class IspRepository(
         // Sort chronologically oldest first to ensure Room assigns ascending IDs to them!
         val sortedDues = previousDues.sortedWith(compareBy<PreviousDueItem> { it.year.toIntOrNull() ?: 0 }.thenBy { monthsList.indexOf(it.month) })
         
-        val newBills = sortedDues.map { item ->
-            val billingMonth = "${item.month} ${item.year}"
-            val billNo = "PREV-BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customerId}-${item.month.take(3)}"
-            BillEntity(
-                id = generateUniqueId(),
-                billNumber = billNo,
-                customerId = customerId,
-                customerName = customer.name,
-                customerCode = customer.customerCode ?: "CUST-${customerId}",
-                billingMonth = billingMonth,
-                amount = item.amount,
-                paidAmount = 0.0,
-                dueAmount = item.amount,
-                status = "UNPAID",
-                generatedDate = todayStr,
-                dueDate = todayStr
-            )
-        }
-        if (newBills.isNotEmpty()) {
-            billDao.insertBills(newBills)
-            logActivity(
-                action = "BILL_EDIT",
-                actionType = "BILL",
-                details = "Created ${newBills.size} previous dues bills for customer ${customer.name}",
-                targetEntity = "Customer",
-                targetId = customerId.toString()
-            )
+        db.withTransaction {
+            val newBills = mutableListOf<BillEntity>()
+            for (item in sortedDues) {
+                val billingMonth = "${item.month} ${item.year}".trim()
+                val existing = billDao.findBillForCustomerAndMonth(customerId, customer.customerCode ?: "", billingMonth)
+                if (existing != null) {
+                    continue
+                }
+                val billNo = "PREV-BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customerId}-${item.month.take(3)}"
+                newBills.add(
+                    BillEntity(
+                        id = generateUniqueId(),
+                        billNumber = billNo,
+                        customerId = customerId,
+                        customerName = customer.name,
+                        customerCode = customer.customerCode ?: "CUST-${customerId}",
+                        billingMonth = billingMonth,
+                        amount = item.amount,
+                        paidAmount = 0.0,
+                        dueAmount = item.amount,
+                        status = "UNPAID",
+                        generatedDate = todayStr,
+                        dueDate = todayStr
+                    )
+                )
+            }
+            if (newBills.isNotEmpty()) {
+                billDao.insertBills(newBills)
+                logActivity(
+                    action = "BILL_EDIT",
+                    actionType = "BILL",
+                    details = "Created ${newBills.size} previous dues bills for customer ${customer.name}",
+                    targetEntity = "Customer",
+                    targetId = customerId.toString()
+                )
+            }
         }
         notifyCloudSync()
     }
@@ -455,76 +466,98 @@ class IspRepository(
         dueDate: String,
         selectedCustomerIds: Set<Long>? = null,
         isAutoGeneration: Boolean = false
-    ): Int = billGenerationMutex.withLock {
-        val currentCustomers = customers.first()
-        val existingBills = bills.first()
-        val activeCustomers = currentCustomers.filter { customer ->
-            val isFree = customer.packageName.contains("free", ignoreCase = true) ||
-                    customer.packageName.contains("ফ্রি", ignoreCase = true)
-            customer.status == "ACTIVE" && !isFree && (selectedCustomerIds == null || selectedCustomerIds.contains(customer.id))
-        }
-        
-        var generatedCount = 0
-        val newBills = mutableListOf<BillEntity>()
+    ): Int = globalBillGenerationMutex.withLock {
+        val cleanMonth = billingMonth.trim()
+        if (cleanMonth.isBlank()) return@withLock 0
 
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val todayStr = sdf.format(Date())
-
-        for (customer in activeCustomers) {
-            val dbCount = billDao.getBillCountForCustomerAndMonth(customer.id, customer.customerCode, billingMonth)
-            val flowExists = existingBills.any {
-                (it.customerId == customer.id || (customer.customerCode.isNotBlank() && it.customerCode.equals(customer.customerCode, ignoreCase = true))) &&
-                        it.billingMonth.equals(billingMonth, ignoreCase = true)
+        val generatedCount = db.withTransaction {
+            val currentCustomers = customerDao.getAllCustomersList()
+            val activeCustomers = currentCustomers.filter { customer ->
+                val isFree = customer.packageName.contains("free", ignoreCase = true) ||
+                        customer.packageName.contains("ফ্রি", ignoreCase = true)
+                customer.status == "ACTIVE" && !isFree && (selectedCustomerIds == null || selectedCustomerIds.contains(customer.id))
             }
-            val alreadyBilled = dbCount > 0 || flowExists
+            
+            var count = 0
+            val newBills = mutableListOf<BillEntity>()
+            val processedCustomerIds = mutableSetOf<Long>()
+            val processedCustomerCodes = mutableSetOf<String>()
 
-            if (alreadyBilled) {
-                continue
-            }
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val todayStr = sdf.format(Date())
 
-            if (isAutoGeneration && isBillDeletedForMonth(customer.id, customer.customerCode, billingMonth)) {
-                continue
-            }
+            for (customer in activeCustomers) {
+                // In-batch duplicate guard
+                if (processedCustomerIds.contains(customer.id)) continue
+                if (customer.customerCode.isNotBlank() && processedCustomerCodes.contains(customer.customerCode.trim().lowercase(Locale.ROOT))) continue
 
-            val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
-            newBills.add(
-                BillEntity(
-                    id = generateUniqueId(),
-                billNumber = billNo,
+                // Atomic direct database existence check within transaction
+                val existingBill = billDao.findBillForCustomerAndMonth(
                     customerId = customer.id,
-                    customerName = customer.name,
                     customerCode = customer.customerCode,
-                    billingMonth = billingMonth,
-                    amount = customer.monthlyFee,
-                    paidAmount = 0.0,
-                    dueAmount = customer.monthlyFee,
-                    status = "UNPAID",
-                    generatedDate = todayStr,
-                    dueDate = dueDate
+                    billingMonth = cleanMonth
                 )
-            )
-            if (!isAutoGeneration) {
-                clearBillDeletedForMonth(customer.id, customer.customerCode, billingMonth)
-            }
-            generatedCount++
-        }
 
-        if (newBills.isNotEmpty()) {
-            billDao.insertBills(newBills)
-            logActivity(
-                action = "BILL_EDIT",
-                actionType = "BILL",
-                details = "Generated $generatedCount monthly bills for $billingMonth",
-                targetEntity = "Bill"
-            )
-            try {
-                context?.let { com.example.util.AutomaticSmsManager.onBillsGenerated(it, newBills) }
-            } catch (e: Exception) {
-                Log.e("IspRepository", "Failed to queue billing SMS: ${e.message}")
+                if (existingBill != null) {
+                    continue
+                }
+
+                val dbCount = billDao.getBillCountForCustomerAndMonth(customer.id, customer.customerCode, cleanMonth)
+                if (dbCount > 0) {
+                    continue
+                }
+
+                if (isAutoGeneration && isBillDeletedForMonth(customer.id, customer.customerCode, cleanMonth)) {
+                    continue
+                }
+
+                val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
+                newBills.add(
+                    BillEntity(
+                        id = generateUniqueId(),
+                        billNumber = billNo,
+                        customerId = customer.id,
+                        customerName = customer.name,
+                        customerCode = customer.customerCode,
+                        billingMonth = cleanMonth,
+                        amount = customer.monthlyFee,
+                        paidAmount = 0.0,
+                        dueAmount = customer.monthlyFee,
+                        status = "UNPAID",
+                        generatedDate = todayStr,
+                        dueDate = dueDate
+                    )
+                )
+
+                processedCustomerIds.add(customer.id)
+                if (customer.customerCode.isNotBlank()) {
+                    processedCustomerCodes.add(customer.customerCode.trim().lowercase(Locale.ROOT))
+                }
+
+                if (!isAutoGeneration) {
+                    clearBillDeletedForMonth(customer.id, customer.customerCode, cleanMonth)
+                }
+                count++
             }
+
+            if (newBills.isNotEmpty()) {
+                billDao.insertBills(newBills)
+                logActivity(
+                    action = "BILL_EDIT",
+                    actionType = "BILL",
+                    details = "Generated $count monthly bills for $cleanMonth",
+                    targetEntity = "Bill"
+                )
+                try {
+                    context?.let { com.example.util.AutomaticSmsManager.onBillsGenerated(it, newBills) }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to queue billing SMS: ${e.message}")
+                }
+            }
+            count
         }
         notifyCloudSync()
-        return generatedCount
+        return@withLock generatedCount
     }
 
     suspend fun recordPayment(

@@ -367,7 +367,11 @@ object FirestoreSyncManager {
 
             // 3. Sync Bills
             val localBillIds = bills.map { it.id.toString() }.toSet()
+            val existingLocalCustomerMonthKeys = bills.map {
+                "${it.customerId}_${it.billingMonth.trim().lowercase(java.util.Locale.ROOT)}"
+            }.toSet()
             val missingRemoteBills = mutableListOf<BillEntity>()
+            val newlyAddedRemoteKeys = mutableSetOf<String>()
             try {
                 val remoteBills = userRef.collection("bills").get().await()
                 remoteBills.documents.forEach { doc ->
@@ -377,22 +381,29 @@ object FirestoreSyncManager {
                     } else if (!localBillIds.contains(doc.id)) {
                         try {
                             val billId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                            missingRemoteBills.add(
-                                BillEntity(
-                                    id = billId,
-                                    billNumber = doc.getString("billNumber") ?: "",
-                                    customerId = doc.getLong("customerId") ?: 0L,
-                                    customerName = doc.getString("customerName") ?: "",
-                                    customerCode = doc.getString("customerCode") ?: "",
-                                    billingMonth = doc.getString("billingMonth") ?: "",
-                                    amount = doc.getDouble("amount") ?: 0.0,
-                                    paidAmount = doc.getDouble("paidAmount") ?: 0.0,
-                                    dueAmount = doc.getDouble("dueAmount") ?: 0.0,
-                                    status = doc.getString("status") ?: "UNPAID",
-                                    generatedDate = doc.getString("generatedDate") ?: "",
-                                    dueDate = doc.getString("dueDate") ?: ""
+                            val custId = doc.getLong("customerId") ?: 0L
+                            val bMonth = doc.getString("billingMonth") ?: ""
+                            val monthKey = "${custId}_${bMonth.trim().lowercase(java.util.Locale.ROOT)}"
+
+                            if (!existingLocalCustomerMonthKeys.contains(monthKey) && !newlyAddedRemoteKeys.contains(monthKey)) {
+                                missingRemoteBills.add(
+                                    BillEntity(
+                                        id = billId,
+                                        billNumber = doc.getString("billNumber") ?: "",
+                                        customerId = custId,
+                                        customerName = doc.getString("customerName") ?: "",
+                                        customerCode = doc.getString("customerCode") ?: "",
+                                        billingMonth = bMonth,
+                                        amount = doc.getDouble("amount") ?: 0.0,
+                                        paidAmount = doc.getDouble("paidAmount") ?: 0.0,
+                                        dueAmount = doc.getDouble("dueAmount") ?: 0.0,
+                                        status = doc.getString("status") ?: "UNPAID",
+                                        generatedDate = doc.getString("generatedDate") ?: "",
+                                        dueDate = doc.getString("dueDate") ?: ""
+                                    )
                                 )
-                            )
+                                newlyAddedRemoteKeys.add(monthKey)
+                            }
                         } catch (e: Exception) {
                             Log.w(TAG, "Error parsing remote bill ${doc.id}: ${e.message}")
                         }
@@ -788,7 +799,7 @@ object FirestoreSyncManager {
 
                 // 3. Restore Bills
                 val billDocs = userRef.collection("bills").get().await()
-                val restoredBills = billDocs.documents.mapNotNull { doc ->
+                val restoredBillsRaw = billDocs.documents.mapNotNull { doc ->
                     val idStr = doc.getLong("id")?.toString() ?: doc.id
                     if (deletedRecords.contains("bills:$idStr")) return@mapNotNull null
                     try {
@@ -807,6 +818,14 @@ object FirestoreSyncManager {
                             dueDate = doc.getString("dueDate") ?: ""
                         )
                     } catch (e: Exception) { null }
+                }
+                val restoredBills = restoredBillsRaw.groupBy {
+                    "${it.customerId}_${it.billingMonth.trim().lowercase(java.util.Locale.ROOT)}"
+                }.map { (_, group) ->
+                    if (group.size == 1) group.first()
+                    else {
+                        group.maxByOrNull { it.paidAmount > 0 } ?: group.maxByOrNull { it.id } ?: group.first()
+                    }
                 }
 
                 // 4. Restore Payments
