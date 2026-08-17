@@ -232,16 +232,52 @@ object FirestoreSyncManager {
 
             // 1. Sync Customers
             val localCustIds = customers.map { it.id.toString() }.toSet()
+            val missingRemoteCusts = mutableListOf<CustomerEntity>()
             try {
                 val remoteCusts = userRef.collection("customers").get().await()
                 remoteCusts.documents.forEach { doc ->
-                    if (!localCustIds.contains(doc.id) || deletedRecords.contains("customers:${doc.id}")) {
+                    if (deletedRecords.contains("customers:${doc.id}")) {
                         userRef.collection("customers").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted customer ${doc.id} from cloud because it does not exist locally or is tombstoned.")
+                        Log.d(TAG, "Sync: Deleted customer ${doc.id} from cloud because it is tombstoned.")
+                    } else if (!localCustIds.contains(doc.id)) {
+                        try {
+                            val custId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                            missingRemoteCusts.add(
+                                CustomerEntity(
+                                    id = custId,
+                                    customerCode = doc.getString("customerCode") ?: "CUST-$custId",
+                                    name = doc.getString("name") ?: "",
+                                    phone = doc.getString("phone") ?: "",
+                                    address = doc.getString("address") ?: "",
+                                    pppoeUsername = doc.getString("pppoeUsername") ?: "",
+                                    ipAddress = doc.getString("ipAddress") ?: "",
+                                    packageId = doc.getLong("packageId") ?: 0L,
+                                    packageName = doc.getString("packageName") ?: "",
+                                    monthlyFee = doc.getDouble("monthlyFee") ?: 0.0,
+                                    status = doc.getString("status") ?: "ACTIVE",
+                                    joiningDate = doc.getString("joiningDate") ?: "",
+                                    notes = doc.getString("notes") ?: "",
+                                    area = doc.getString("area") ?: "",
+                                    zone = doc.getString("zone") ?: "",
+                                    latitude = doc.getDouble("latitude") ?: 0.0,
+                                    longitude = doc.getDouble("longitude") ?: 0.0,
+                                    oltName = doc.getString("oltName") ?: "",
+                                    ponPort = doc.getString("ponPort") ?: "",
+                                    onuSerial = doc.getString("onuSerial") ?: "",
+                                    routerName = doc.getString("routerName") ?: ""
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error parsing remote customer ${doc.id}: ${e.message}")
+                        }
                     }
                 }
+                if (missingRemoteCusts.isNotEmpty()) {
+                    db.customerDao().insertCustomers(missingRemoteCusts)
+                    Log.d(TAG, "Sync: Ingested ${missingRemoteCusts.size} remote customers into local DB.")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error cleaning deleted customers from cloud: ${e.message}")
+                Log.w(TAG, "Sync: Error processing remote customers: ${e.message}")
             }
             customers.forEach { customer ->
                 if (deletedRecords.contains("customers:${customer.id}")) return@forEach
@@ -259,6 +295,14 @@ object FirestoreSyncManager {
                     "status" to customer.status,
                     "joiningDate" to customer.joiningDate,
                     "notes" to customer.notes,
+                    "area" to customer.area,
+                    "zone" to customer.zone,
+                    "latitude" to customer.latitude,
+                    "longitude" to customer.longitude,
+                    "oltName" to customer.oltName,
+                    "ponPort" to customer.ponPort,
+                    "onuSerial" to customer.onuSerial,
+                    "routerName" to customer.routerName,
                     "updatedAt" to System.currentTimeMillis()
                 )
                 userRef.collection("customers").document(customer.id.toString())
@@ -267,16 +311,36 @@ object FirestoreSyncManager {
 
             // 2. Sync Packages
             val localPkgIds = packages.map { it.id.toString() }.toSet()
+            val missingRemotePkgs = mutableListOf<IspPackageEntity>()
             try {
                 val remotePkgs = userRef.collection("packages").get().await()
                 remotePkgs.documents.forEach { doc ->
-                    if (!localPkgIds.contains(doc.id) || deletedRecords.contains("packages:${doc.id}")) {
+                    if (deletedRecords.contains("packages:${doc.id}")) {
                         userRef.collection("packages").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted package ${doc.id} from cloud because it does not exist locally or is tombstoned.")
+                        Log.d(TAG, "Sync: Deleted package ${doc.id} from cloud because it is tombstoned.")
+                    } else if (!localPkgIds.contains(doc.id)) {
+                        try {
+                            val pkgId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                            missingRemotePkgs.add(
+                                IspPackageEntity(
+                                    id = pkgId,
+                                    name = doc.getString("name") ?: "",
+                                    speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
+                                    monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
+                                    description = doc.getString("description") ?: ""
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error parsing remote package ${doc.id}: ${e.message}")
+                        }
                     }
                 }
+                if (missingRemotePkgs.isNotEmpty()) {
+                    db.packageDao().insertPackages(missingRemotePkgs)
+                    Log.d(TAG, "Sync: Ingested ${missingRemotePkgs.size} remote packages into local DB.")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error cleaning deleted packages from cloud: ${e.message}")
+                Log.w(TAG, "Sync: Error processing remote packages: ${e.message}")
             }
             packages.forEach { pkg ->
                 if (deletedRecords.contains("packages:${pkg.id}")) return@forEach
@@ -294,16 +358,43 @@ object FirestoreSyncManager {
 
             // 3. Sync Bills
             val localBillIds = bills.map { it.id.toString() }.toSet()
+            val missingRemoteBills = mutableListOf<BillEntity>()
             try {
                 val remoteBills = userRef.collection("bills").get().await()
                 remoteBills.documents.forEach { doc ->
-                    if (!localBillIds.contains(doc.id) || deletedRecords.contains("bills:${doc.id}")) {
+                    if (deletedRecords.contains("bills:${doc.id}")) {
                         userRef.collection("bills").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted bill ${doc.id} from cloud because it does not exist locally or is tombstoned.")
+                        Log.d(TAG, "Sync: Deleted bill ${doc.id} from cloud because it is tombstoned.")
+                    } else if (!localBillIds.contains(doc.id)) {
+                        try {
+                            val billId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                            missingRemoteBills.add(
+                                BillEntity(
+                                    id = billId,
+                                    billNumber = doc.getString("billNumber") ?: "",
+                                    customerId = doc.getLong("customerId") ?: 0L,
+                                    customerName = doc.getString("customerName") ?: "",
+                                    customerCode = doc.getString("customerCode") ?: "",
+                                    billingMonth = doc.getString("billingMonth") ?: "",
+                                    amount = doc.getDouble("amount") ?: 0.0,
+                                    paidAmount = doc.getDouble("paidAmount") ?: 0.0,
+                                    dueAmount = doc.getDouble("dueAmount") ?: 0.0,
+                                    status = doc.getString("status") ?: "UNPAID",
+                                    generatedDate = doc.getString("generatedDate") ?: "",
+                                    dueDate = doc.getString("dueDate") ?: ""
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error parsing remote bill ${doc.id}: ${e.message}")
+                        }
                     }
                 }
+                if (missingRemoteBills.isNotEmpty()) {
+                    db.billDao().insertBills(missingRemoteBills)
+                    Log.d(TAG, "Sync: Ingested ${missingRemoteBills.size} remote bills into local DB.")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error cleaning deleted bills from cloud: ${e.message}")
+                Log.w(TAG, "Sync: Error processing remote bills: ${e.message}")
             }
             bills.forEach { bill ->
                 if (deletedRecords.contains("bills:${bill.id}")) return@forEach
@@ -328,16 +419,40 @@ object FirestoreSyncManager {
 
             // 4. Sync Payments
             val localPaymentIds = payments.map { it.id.toString() }.toSet()
+            val missingRemotePayments = mutableListOf<PaymentEntity>()
             try {
                 val remotePayments = userRef.collection("payments").get().await()
                 remotePayments.documents.forEach { doc ->
-                    if (!localPaymentIds.contains(doc.id) || deletedRecords.contains("payments:${doc.id}")) {
+                    if (deletedRecords.contains("payments:${doc.id}")) {
                         userRef.collection("payments").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted payment ${doc.id} from cloud because it does not exist locally or is tombstoned.")
+                        Log.d(TAG, "Sync: Deleted payment ${doc.id} from cloud because it is tombstoned.")
+                    } else if (!localPaymentIds.contains(doc.id)) {
+                        try {
+                            val paymentId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                            missingRemotePayments.add(
+                                PaymentEntity(
+                                    id = paymentId,
+                                    paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
+                                    billId = doc.getLong("billId") ?: 0L,
+                                    customerId = doc.getLong("customerId") ?: 0L,
+                                    customerName = doc.getString("customerName") ?: "",
+                                    amount = doc.getDouble("amount") ?: 0.0,
+                                    paymentDate = doc.getString("paymentDate") ?: "",
+                                    paymentMethod = doc.getString("paymentMethod") ?: "Cash",
+                                    notes = doc.getString("notes") ?: ""
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error parsing remote payment ${doc.id}: ${e.message}")
+                        }
                     }
                 }
+                if (missingRemotePayments.isNotEmpty()) {
+                    db.paymentDao().insertPayments(missingRemotePayments)
+                    Log.d(TAG, "Sync: Ingested ${missingRemotePayments.size} remote payments into local DB.")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error cleaning deleted payments from cloud: ${e.message}")
+                Log.w(TAG, "Sync: Error processing remote payments: ${e.message}")
             }
             payments.forEach { payment ->
                 if (deletedRecords.contains("payments:${payment.id}")) return@forEach
@@ -359,16 +474,41 @@ object FirestoreSyncManager {
 
             // 5. Sync Expenses
             val localExpenseIds = expenses.map { it.id.toString() }.toSet()
+            val missingRemoteExpenses = mutableListOf<ExpenseEntity>()
             try {
                 val remoteExpenses = userRef.collection("expenses").get().await()
                 remoteExpenses.documents.forEach { doc ->
-                    if (!localExpenseIds.contains(doc.id) || deletedRecords.contains("expenses:${doc.id}")) {
+                    if (deletedRecords.contains("expenses:${doc.id}")) {
                         userRef.collection("expenses").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted expense ${doc.id} from cloud because it does not exist locally or is tombstoned.")
+                        Log.d(TAG, "Sync: Deleted expense ${doc.id} from cloud because it is tombstoned.")
+                    } else if (!localExpenseIds.contains(doc.id)) {
+                        try {
+                            val expId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                            missingRemoteExpenses.add(
+                                ExpenseEntity(
+                                    id = expId,
+                                    title = doc.getString("title") ?: "",
+                                    amount = doc.getDouble("amount") ?: 0.0,
+                                    category = doc.getString("category") ?: "",
+                                    date = doc.getString("date") ?: "",
+                                    paymentMethod = doc.getString("paymentMethod") ?: "Cash",
+                                    note = doc.getString("note") ?: "",
+                                    receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
+                                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error parsing remote expense ${doc.id}: ${e.message}")
+                        }
                     }
                 }
+                if (missingRemoteExpenses.isNotEmpty()) {
+                    db.expenseDao().insertExpenses(missingRemoteExpenses)
+                    Log.d(TAG, "Sync: Ingested ${missingRemoteExpenses.size} remote expenses into local DB.")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error cleaning deleted expenses from cloud: ${e.message}")
+                Log.w(TAG, "Sync: Error processing remote expenses: ${e.message}")
             }
             expenses.forEach { expense ->
                 if (deletedRecords.contains("expenses:${expense.id}")) return@forEach
@@ -390,16 +530,33 @@ object FirestoreSyncManager {
 
             // 6. Sync Categories
             val localCategoryIds = categories.map { it.id.toString() }.toSet()
+            val missingRemoteCategories = mutableListOf<ExpenseCategoryEntity>()
             try {
                 val remoteCategories = userRef.collection("expense_categories").get().await()
                 remoteCategories.documents.forEach { doc ->
-                    if (!localCategoryIds.contains(doc.id) || deletedRecords.contains("expense_categories:${doc.id}")) {
+                    if (deletedRecords.contains("expense_categories:${doc.id}")) {
                         userRef.collection("expense_categories").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted category ${doc.id} from cloud because it does not exist locally or is tombstoned.")
+                        Log.d(TAG, "Sync: Deleted category ${doc.id} from cloud because it is tombstoned.")
+                    } else if (!localCategoryIds.contains(doc.id)) {
+                        try {
+                            val catId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                            missingRemoteCategories.add(
+                                ExpenseCategoryEntity(
+                                    id = catId,
+                                    name = doc.getString("name") ?: ""
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error parsing remote category ${doc.id}: ${e.message}")
+                        }
                     }
                 }
+                if (missingRemoteCategories.isNotEmpty()) {
+                    db.expenseDao().insertCategories(missingRemoteCategories)
+                    Log.d(TAG, "Sync: Ingested ${missingRemoteCategories.size} remote categories into local DB.")
+                }
             } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error cleaning deleted categories from cloud: ${e.message}")
+                Log.w(TAG, "Sync: Error processing remote categories: ${e.message}")
             }
             categories.forEach { cat ->
                 if (deletedRecords.contains("expense_categories:${cat.id}")) return@forEach
