@@ -339,65 +339,69 @@ tonalElevation = 3.dp,
                         }.toSet()
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            items(filteredCustomers, key = { it.id }) { customer ->
-                                CustomerItemCard(
-                                    customer = customer,
-                                    bills = bills.filter { it.customerId == customer.id },
-                                    currencySymbol = currencySymbol,
-                                    onClick = { previewCustomerState = customer },
-                                    onEditClick = { onEditCustomerClick(customer) },
-                                    onDeleteClick = { customerToDelete = customer }
-                                )
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                items(filteredCustomers, key = { it.id }) { customer ->
+                                    CustomerItemCard(
+                                        customer = customer,
+                                        bills = bills.filter { it.customerId == customer.id },
+                                        currencySymbol = currencySymbol,
+                                        onClick = { previewCustomerState = customer },
+                                        onEditClick = { onEditCustomerClick(customer) },
+                                        onDeleteClick = { customerToDelete = customer }
+                                    )
+                                }
+                                item { Spacer(modifier = Modifier.height(80.dp)) }
                             }
-                            item { Spacer(modifier = Modifier.height(80.dp)) }
-                        }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .padding(start = 2.dp, bottom = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            AlphabetIndexSidebar(
-                                alphabet = alphabet,
-                                availableLetters = availableLetters,
-                                onLetterSelected = { letter ->
-                                    val targetIndex = filteredCustomers.indexOfFirst {
-                                        it.name.trim().uppercase(java.util.Locale.ROOT).startsWith(letter)
-                                    }
-                                    if (targetIndex != -1) {
-                                        coroutineScope.launch {
-                                            listState.scrollToItem(targetIndex)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .padding(start = 2.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                AlphabetIndexSidebar(
+                                    alphabet = alphabet,
+                                    availableLetters = availableLetters,
+                                    onLetterSelected = { letter ->
+                                        val targetIndex = filteredCustomers.indexOfFirst {
+                                            it.name.trim().uppercase(java.util.Locale.ROOT).startsWith(letter)
+                                        }
+                                        if (targetIndex != -1) {
+                                            coroutineScope.launch {
+                                                listState.scrollToItem(targetIndex)
+                                            }
                                         }
                                     }
-                                }
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            FloatingActionButton(
-                                onClick = onAddCustomerClick,
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                                shape = CircleShape,
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = androidx.compose.ui.res.stringResource(com.example.R.string.add_customer)
                                 )
                             }
+                        }
+
+                        // Floating Action Button moved to EXACT CENTER horizontally
+                        FloatingActionButton(
+                            onClick = onAddCustomerClick,
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 16.dp)
+                                .size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = androidx.compose.ui.res.stringResource(com.example.R.string.add_customer)
+                            )
                         }
                     }
                 }
@@ -417,7 +421,7 @@ fun AlphabetIndexSidebar(
             .wrapContentHeight()
             .width(20.dp)
             .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(1.dp),
+        verticalArrangement = Arrangement.spacedBy(0.5.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         alphabet.forEach { letter ->
@@ -425,9 +429,9 @@ fun AlphabetIndexSidebar(
             Text(
                 text = letter.toString(),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 9.5.sp,
+                    fontSize = 8.5.sp,
                     fontWeight = if (isAvailable) FontWeight.Bold else FontWeight.Normal,
-                    lineHeight = 11.sp
+                    lineHeight = 10.sp
                 ),
                 color = if (isAvailable)
                     MaterialTheme.colorScheme.primary
