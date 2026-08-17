@@ -982,6 +982,7 @@ fun MainAppContent(
             initialCustomer = customerToEdit,
             availablePackages = packages,
             currencySymbol = settings.currencySymbol,
+            existingCustomers = customers,
             onDismiss = { showCustomerDialog = false },
             onSave = { customer, previousDues ->
                 if (customer.id == 0L) {

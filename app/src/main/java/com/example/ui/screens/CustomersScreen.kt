@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -339,24 +341,91 @@ tonalElevation = 3.dp,
                         }
                     )
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    val listState = rememberLazyListState()
+                    val coroutineScope = rememberCoroutineScope()
+                    val alphabet = remember { ('A'..'Z').toList() }
+                    val availableLetters = remember(filteredCustomers) {
+                        filteredCustomers.mapNotNull {
+                            it.name.trim().firstOrNull()?.uppercaseChar()
+                        }.toSet()
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredCustomers, key = { it.id }) { customer ->
-                            CustomerItemCard(
-                                customer = customer,
-                                bills = bills.filter { it.customerId == customer.id },
-                                currencySymbol = currencySymbol,
-                                onClick = { previewCustomerState = customer },
-                                onEditClick = { onEditCustomerClick(customer) },
-                                onDeleteClick = { customerToDelete = customer }
-                            )
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(filteredCustomers, key = { it.id }) { customer ->
+                                CustomerItemCard(
+                                    customer = customer,
+                                    bills = bills.filter { it.customerId == customer.id },
+                                    currencySymbol = currencySymbol,
+                                    onClick = { previewCustomerState = customer },
+                                    onEditClick = { onEditCustomerClick(customer) },
+                                    onDeleteClick = { customerToDelete = customer }
+                                )
+                            }
+                            item { Spacer(modifier = Modifier.height(80.dp)) }
                         }
-                        item { Spacer(modifier = Modifier.height(80.dp)) }
+
+                        AlphabetIndexSidebar(
+                            alphabet = alphabet,
+                            availableLetters = availableLetters,
+                            onLetterSelected = { letter ->
+                                val targetIndex = filteredCustomers.indexOfFirst {
+                                    it.name.trim().uppercase(java.util.Locale.ROOT).startsWith(letter)
+                                }
+                                if (targetIndex != -1) {
+                                    coroutineScope.launch {
+                                        listState.scrollToItem(targetIndex)
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun AlphabetIndexSidebar(
+    alphabet: List<Char>,
+    availableLetters: Set<Char>,
+    onLetterSelected: (Char) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(20.dp)
+            .padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.SpaceEvenly,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        alphabet.forEach { letter ->
+            val isAvailable = availableLetters.contains(letter)
+            Text(
+                text = letter.toString(),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 9.5.sp,
+                    fontWeight = if (isAvailable) FontWeight.Bold else FontWeight.Normal,
+                    lineHeight = 11.sp
+                ),
+                color = if (isAvailable)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable { onLetterSelected(letter) }
+                    .padding(horizontal = 1.dp)
+            )
         }
     }
 }

@@ -47,14 +47,19 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+
 @Composable
 fun CustomerDialog(
     initialCustomer: CustomerEntity? = null,
     availablePackages: List<IspPackageEntity>,
     currencySymbol: String,
+    existingCustomers: List<CustomerEntity> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (CustomerEntity, List<PreviousDueItem>) -> Unit
 ) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf(initialCustomer?.name ?: "") }
     var phone by remember { mutableStateOf(initialCustomer?.phone ?: "") }
     var address by remember { mutableStateOf(initialCustomer?.address ?: "") }
@@ -447,6 +452,19 @@ fun CustomerDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    val trimmedName = name.trim().lowercase(Locale.ROOT)
+                    val isAddingNew = (initialCustomer == null || initialCustomer.id == 0L)
+                    if (isAddingNew) {
+                        val hasDuplicateActive = existingCustomers.any { existing ->
+                            existing.status.equals("ACTIVE", ignoreCase = true) &&
+                            existing.name.trim().lowercase(Locale.ROOT) == trimmedName
+                        }
+                        if (hasDuplicateActive) {
+                            Toast.makeText(context, "Already Active", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                    }
+
                     val fee = monthlyFeeStr.replace(",", "").trim().toDoubleOrNull() ?: selectedPkg?.monthlyPrice ?: 0.0
                     val pkgName = selectedPkg?.name ?: "Custom Package"
                     val pkgId = selectedPkg?.id ?: 0L

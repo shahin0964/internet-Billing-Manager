@@ -316,6 +316,17 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveCustomer(customer: CustomerEntity, previousDues: List<PreviousDueItem> = emptyList()) {
         viewModelScope.launch {
+            val newNameTrimmed = customer.name.trim().lowercase(java.util.Locale.ROOT)
+            val existingList = repository.customers.first()
+            val isDuplicateActive = existingList.any { existing ->
+                existing.status.equals("ACTIVE", ignoreCase = true) &&
+                existing.name.trim().lowercase(java.util.Locale.ROOT) == newNameTrimmed
+            }
+            if (isDuplicateActive) {
+                _toastMessage.value = "Already Active"
+                return@launch
+            }
+
             val insertedId = repository.saveCustomer(customer)
             if (previousDues.isNotEmpty()) {
                 repository.createPreviousDues(insertedId, customer, previousDues)
