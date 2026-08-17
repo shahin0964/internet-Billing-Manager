@@ -16,5 +16,6 @@ data class AuditLogEntity(
     val previousState: String = "",
     val newState: String = "",
     val status: String = "SUCCESS",
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )

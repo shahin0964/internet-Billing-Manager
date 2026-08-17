@@ -15,6 +15,12 @@ interface AuditLogDao {
     @Query("SELECT * FROM audit_logs ORDER BY timestamp DESC")
     suspend fun getAllAuditLogsList(): List<AuditLogEntity>
 
+    @Query("SELECT * FROM audit_logs WHERE syncStatus = 1")
+    suspend fun getDirtyAuditLogs(): List<AuditLogEntity>
+
+    @Query("UPDATE audit_logs SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markAuditLogsSynced(ids: List<Long>)
+
     @Query("SELECT * FROM audit_logs WHERE action = :action ORDER BY timestamp DESC")
     fun getAuditLogsByAction(action: String): Flow<List<AuditLogEntity>>
 

@@ -47,7 +47,8 @@ data class NetworkDiagramEntity(
     val name: String,
     val isDefault: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "network_nodes")
@@ -64,7 +65,9 @@ data class NetworkNodeEntity(
     val customerId: String = "",
     val notes: String = "",
     val positionX: Float = 0f,
-    val positionY: Float = 0f
+    val positionY: Float = 0f,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "network_connections")
@@ -74,7 +77,9 @@ data class NetworkConnectionEntity(
     val fromNodeId: String,
     val toNodeId: String,
     val label: String = "",
-    val notes: String = ""
+    val notes: String = "",
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 data class FullNetworkDiagram(

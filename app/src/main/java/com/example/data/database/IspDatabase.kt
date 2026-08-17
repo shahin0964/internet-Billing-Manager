@@ -14,6 +14,7 @@ import com.example.data.dao.ExpenseDao
 import com.example.data.dao.IspPackageDao
 import com.example.data.dao.NetworkDiagramDao
 import com.example.data.dao.PaymentDao
+import com.example.data.dao.PendingDeletionDao
 import com.example.data.model.AuditLogEntity
 import com.example.data.model.BillEntity
 import com.example.data.model.BusinessSettingsEntity
@@ -25,6 +26,7 @@ import com.example.data.model.NetworkConnectionEntity
 import com.example.data.model.NetworkDiagramEntity
 import com.example.data.model.NetworkNodeEntity
 import com.example.data.model.PaymentEntity
+import com.example.data.model.PendingDeletionEntity
 
 @Database(
     entities = [
@@ -38,9 +40,10 @@ import com.example.data.model.PaymentEntity
         NetworkDiagramEntity::class,
         NetworkNodeEntity::class,
         NetworkConnectionEntity::class,
-        AuditLogEntity::class
+        AuditLogEntity::class,
+        PendingDeletionEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class IspDatabase : RoomDatabase() {
@@ -53,6 +56,7 @@ abstract class IspDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
     abstract fun networkDiagramDao(): NetworkDiagramDao
     abstract fun auditLogDao(): AuditLogDao
+    abstract fun pendingDeletionDao(): PendingDeletionDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -179,6 +183,53 @@ abstract class IspDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add updatedAt and syncStatus (0 = SYNCED) non-destructively to existing tables
+                db.execSQL("ALTER TABLE customers ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE customers ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE packages ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE packages ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE bills ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE bills ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE payments ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE payments ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE business_settings ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE business_settings ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE expenses ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE expense_categories ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE expense_categories ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE network_diagrams ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE network_nodes ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE network_nodes ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE network_connections ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE network_connections ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL("ALTER TABLE audit_logs ADD COLUMN syncStatus INTEGER NOT NULL DEFAULT 0")
+
+                // Create pending_deletions table
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pending_deletions` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `collectionName` TEXT NOT NULL,
+                        `documentId` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: IspDatabase? = null
 
@@ -189,7 +240,7 @@ abstract class IspDatabase : RoomDatabase() {
                     IspDatabase::class.java,
                     "isp_control_center.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance

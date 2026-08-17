@@ -25,7 +25,9 @@ data class CustomerEntity(
     val oltName: String = "",
     val ponPort: String = "",
     val onuSerial: String = "",
-    val routerName: String = ""
+    val routerName: String = "",
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "packages")
@@ -34,7 +36,9 @@ data class IspPackageEntity(
     val name: String,
     val speedMbps: Int,
     val monthlyPrice: Double,
-    val description: String = ""
+    val description: String = "",
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "bills")
@@ -50,7 +54,9 @@ data class BillEntity(
     val dueAmount: Double,
     val status: String = "UNPAID", // PAID, PARTIAL, UNPAID
     val generatedDate: String,
-    val dueDate: String
+    val dueDate: String,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "payments")
@@ -63,7 +69,9 @@ data class PaymentEntity(
     val amount: Double,
     val paymentDate: String,
     val paymentMethod: String = "Cash", // Cash, bKash, Card, Bank, Online
-    val notes: String = ""
+    val notes: String = "",
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "business_settings")
@@ -76,7 +84,9 @@ data class BusinessSettingsEntity(
     val networkStatus: String = "Operational",
     val themeMode: String = "SYSTEM", // SYSTEM, DARK, LIGHT
     val logoUri: String? = null,
-    val email: String = ""
+    val email: String = "",
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "expenses")
@@ -90,13 +100,16 @@ data class ExpenseEntity(
     val note: String = "",
     val receiptPath: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 @Entity(tableName = "expense_categories")
 data class ExpenseCategoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val name: String
+    val name: String,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )
 
 fun BillEntity.getDisplayBillNumber(): String {

@@ -38,6 +38,24 @@ interface NetworkDiagramDao {
     @Query("SELECT * FROM network_diagrams")
     suspend fun getAllDiagramsList(): List<NetworkDiagramEntity>
 
+    @Query("SELECT * FROM network_diagrams WHERE syncStatus = 1")
+    suspend fun getDirtyDiagrams(): List<NetworkDiagramEntity>
+
+    @Query("UPDATE network_diagrams SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markDiagramsSynced(ids: List<Long>)
+
+    @Query("SELECT * FROM network_nodes WHERE syncStatus = 1")
+    suspend fun getDirtyNodes(): List<NetworkNodeEntity>
+
+    @Query("UPDATE network_nodes SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markNodesSynced(ids: List<String>)
+
+    @Query("SELECT * FROM network_connections WHERE syncStatus = 1")
+    suspend fun getDirtyConnections(): List<NetworkConnectionEntity>
+
+    @Query("UPDATE network_connections SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markConnectionsSynced(ids: List<String>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDiagram(diagram: NetworkDiagramEntity): Long
 
@@ -52,6 +70,9 @@ interface NetworkDiagramDao {
 
     @Query("UPDATE network_nodes SET positionX = :x, positionY = :y WHERE id = :nodeId")
     suspend fun updateNodePosition(nodeId: String, x: Float, y: Float)
+
+    @Query("UPDATE network_nodes SET syncStatus = :syncStatus, updatedAt = :updatedAt WHERE id = :nodeId")
+    suspend fun updateNodeSyncStatus(nodeId: String, syncStatus: Int, updatedAt: Long = System.currentTimeMillis())
 
     @Delete
     suspend fun deleteNode(node: NetworkNodeEntity)

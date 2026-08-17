@@ -143,7 +143,8 @@ class IspRepository(
                 previousState = previousState,
                 newState = newState,
                 status = status,
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                syncStatus = 1
             )
             val id = auditLogDao.insertLog(log)
             notifyCloudSync()
@@ -168,7 +169,12 @@ class IspRepository(
     }
 
     suspend fun saveExpense(expense: ExpenseEntity): Long {
-        val expenseToSave = if (expense.id == 0L) expense.copy(id = generateUniqueId()) else expense
+        val now = System.currentTimeMillis()
+        val expenseToSave = if (expense.id == 0L) {
+            expense.copy(id = generateUniqueId(), updatedAt = now, syncStatus = 1)
+        } else {
+            expense.copy(updatedAt = now, syncStatus = 1)
+        }
         val result = expenseDao.insertExpense(expenseToSave)
         logActivity(
             action = "EXPENSE_ADDED",
@@ -183,7 +189,8 @@ class IspRepository(
     }
 
     suspend fun updateExpense(expense: ExpenseEntity) {
-        expenseDao.updateExpense(expense)
+        val updated = expense.copy(updatedAt = System.currentTimeMillis(), syncStatus = 1)
+        expenseDao.updateExpense(updated)
         logActivity(
             action = "EXPENSE_EDIT",
             actionType = "EXPENSE",
@@ -213,7 +220,8 @@ class IspRepository(
     }
 
     suspend fun saveExpenseCategory(categoryName: String): Long {
-        val result = expenseDao.insertCategory(ExpenseCategoryEntity(id = generateUniqueId(), name = categoryName.trim()))
+        val now = System.currentTimeMillis()
+        val result = expenseDao.insertCategory(ExpenseCategoryEntity(id = generateUniqueId(), name = categoryName.trim(), updatedAt = now, syncStatus = 1))
         logActivity(
             action = "EXPENSE_CATEGORY_ADDED",
             actionType = "EXPENSE",
@@ -227,7 +235,12 @@ class IspRepository(
 
     suspend fun saveCustomer(customer: CustomerEntity): Long {
         val isNew = customer.id == 0L
-        val customerToSave = if (isNew) customer.copy(id = generateUniqueId()) else customer
+        val now = System.currentTimeMillis()
+        val customerToSave = if (isNew) {
+            customer.copy(id = generateUniqueId(), updatedAt = now, syncStatus = 1)
+        } else {
+            customer.copy(updatedAt = now, syncStatus = 1)
+        }
         val result = customerDao.insertCustomer(customerToSave)
         val actionName = if (isNew) "CUSTOMER_CREATE" else "CUSTOMER_EDIT"
         logActivity(
@@ -263,6 +276,7 @@ class IspRepository(
                     continue
                 }
                 val billNo = "PREV-BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customerId}-${item.month.take(3)}"
+                val now = System.currentTimeMillis()
                 newBills.add(
                     BillEntity(
                         id = generateUniqueId(),
@@ -276,7 +290,9 @@ class IspRepository(
                         dueAmount = item.amount,
                         status = "UNPAID",
                         generatedDate = todayStr,
-                        dueDate = todayStr
+                        dueDate = todayStr,
+                        updatedAt = now,
+                        syncStatus = 1
                     )
                 )
             }
@@ -295,7 +311,11 @@ class IspRepository(
     }
 
     suspend fun saveCustomers(customers: List<CustomerEntity>) {
-        val customersToSave = customers.map { if (it.id == 0L) it.copy(id = generateUniqueId()) else it }
+        val now = System.currentTimeMillis()
+        val customersToSave = customers.map {
+            if (it.id == 0L) it.copy(id = generateUniqueId(), updatedAt = now, syncStatus = 1)
+            else it.copy(updatedAt = now, syncStatus = 1)
+        }
         customerDao.insertCustomers(customersToSave)
         logActivity(
             action = "CUSTOMER_CREATE",
@@ -307,7 +327,8 @@ class IspRepository(
     }
 
     suspend fun updateCustomer(customer: CustomerEntity) {
-        customerDao.updateCustomer(customer)
+        val updated = customer.copy(updatedAt = System.currentTimeMillis(), syncStatus = 1)
+        customerDao.updateCustomer(updated)
         billDao.updateCustomerNameInBills(customer.id, customer.name)
         paymentDao.updateCustomerNameInPayments(customer.id, customer.name)
         logActivity(
@@ -361,6 +382,7 @@ class IspRepository(
 
     suspend fun updateCustomerStatus(id: Long, status: String) {
         customerDao.updateCustomerStatus(id, status)
+        customerDao.updateCustomerSyncStatus(id, 1)
         val actionName = when (status.uppercase()) {
             "EXPIRED", "INACTIVE", "SUSPENDED" -> "SUSPEND_CUSTOMER"
             "ACTIVE" -> "RESUME_CUSTOMER"
@@ -379,7 +401,8 @@ class IspRepository(
 
     suspend fun savePackage(pkg: IspPackageEntity): Long {
         val isNew = pkg.id == 0L
-        val pkgToSave = if (isNew) pkg.copy(id = generateUniqueId()) else pkg
+        val now = System.currentTimeMillis()
+        val pkgToSave = if (isNew) pkg.copy(id = generateUniqueId(), updatedAt = now, syncStatus = 1) else pkg.copy(updatedAt = now, syncStatus = 1)
         val result = packageDao.insertPackage(pkgToSave)
         logActivity(
             action = if (isNew) "PACKAGE_CREATE" else "PACKAGE_EDIT",
@@ -394,7 +417,8 @@ class IspRepository(
     }
 
     suspend fun updatePackage(pkg: IspPackageEntity) {
-        packageDao.updatePackage(pkg)
+        val updated = pkg.copy(updatedAt = System.currentTimeMillis(), syncStatus = 1)
+        packageDao.updatePackage(updated)
         logActivity(
             action = "PACKAGE_EDIT",
             actionType = "PACKAGE",
@@ -448,7 +472,7 @@ class IspRepository(
             bill.paidAmount > 0.0 -> "PARTIAL"
             else -> "UNPAID"
         }
-        val finalBill = bill.copy(dueAmount = newDue, status = newStatus)
+        val finalBill = bill.copy(dueAmount = newDue, status = newStatus, updatedAt = System.currentTimeMillis(), syncStatus = 1)
         billDao.updateBill(finalBill)
         logActivity(
             action = "BILL_EDIT",
@@ -512,6 +536,7 @@ class IspRepository(
                 }
 
                 val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
+                val now = System.currentTimeMillis()
                 newBills.add(
                     BillEntity(
                         id = generateUniqueId(),
@@ -525,7 +550,9 @@ class IspRepository(
                         dueAmount = customer.monthlyFee,
                         status = "UNPAID",
                         generatedDate = todayStr,
-                        dueDate = dueDate
+                        dueDate = dueDate,
+                        updatedAt = now,
+                        syncStatus = 1
                     )
                 )
 
@@ -584,10 +611,13 @@ class IspRepository(
             else -> "UNPAID"
         }
 
+        val now = System.currentTimeMillis()
         val updatedBill = targetBill.copy(
             paidAmount = newPaid,
             dueAmount = newDue,
-            status = newStatus
+            status = newStatus,
+            updatedAt = now,
+            syncStatus = 1
         )
         billDao.updateBill(updatedBill)
 
@@ -601,7 +631,9 @@ class IspRepository(
             amount = amount,
             paymentDate = todayStr,
             paymentMethod = paymentMethod,
-            notes = notes
+            notes = notes,
+            updatedAt = now,
+            syncStatus = 1
         )
         val pId = paymentDao.insertPayment(payment)
         logActivity(
@@ -677,7 +709,8 @@ class IspRepository(
     }
 
     suspend fun saveSettings(settings: BusinessSettingsEntity) {
-        settingsDao.insertOrUpdateSettings(settings)
+        val updated = settings.copy(updatedAt = System.currentTimeMillis(), syncStatus = 1)
+        settingsDao.insertOrUpdateSettings(updated)
         logActivity(
             action = "SETTINGS_EDIT",
             actionType = "SETTINGS",
@@ -1410,7 +1443,8 @@ class IspRepository(
     }
 
     suspend fun createNewDiagram(name: String): Long {
-        val diag = NetworkDiagramEntity(id = generateUniqueId(), name = name.ifBlank { "Network Topology" })
+        val now = System.currentTimeMillis()
+        val diag = NetworkDiagramEntity(id = generateUniqueId(), name = name.ifBlank { "Network Topology" }, createdAt = now, updatedAt = now, syncStatus = 1)
         val id = networkDiagramDao.insertDiagram(diag)
         logActivity(
             action = "NETWORK_DIAGRAM_CREATE",
@@ -1424,7 +1458,8 @@ class IspRepository(
     }
 
     suspend fun saveNode(node: NetworkNodeEntity) {
-        networkDiagramDao.insertNode(node)
+        val updated = node.copy(updatedAt = System.currentTimeMillis(), syncStatus = 1)
+        networkDiagramDao.insertNode(updated)
         logActivity(
             action = "NETWORK_DIAGRAM_EDIT",
             actionType = "NETWORK",
@@ -1437,6 +1472,7 @@ class IspRepository(
 
     suspend fun updateNodePosition(nodeId: String, x: Float, y: Float) {
         networkDiagramDao.updateNodePosition(nodeId, x, y)
+        networkDiagramDao.updateNodeSyncStatus(nodeId, 1)
         notifyCloudSync()
     }
 
@@ -1458,7 +1494,8 @@ class IspRepository(
     }
 
     suspend fun saveConnection(connection: NetworkConnectionEntity) {
-        networkDiagramDao.insertConnection(connection)
+        val updated = connection.copy(updatedAt = System.currentTimeMillis(), syncStatus = 1)
+        networkDiagramDao.insertConnection(updated)
         logActivity(
             action = "NETWORK_DIAGRAM_EDIT",
             actionType = "NETWORK",

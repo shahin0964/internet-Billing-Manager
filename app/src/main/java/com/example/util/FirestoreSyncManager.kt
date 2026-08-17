@@ -23,15 +23,17 @@ import com.example.data.model.AuditLogEntity
 import com.example.data.model.NetworkConnectionEntity
 import com.example.data.model.NetworkDiagramEntity
 import com.example.data.model.NetworkNodeEntity
+import com.example.data.model.PendingDeletionEntity
 import androidx.room.withTransaction
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -44,6 +46,24 @@ object FirestoreSyncManager {
     private const val WORK_NAME_ONE_TIME = "cloud_sync_one_time"
 
     /**
+     * Helper to execute WriteBatch in chunks (up to 450 operations per batch, well below Firestore 500 limit).
+     */
+    private suspend fun commitBatchedOperations(
+        firestore: FirebaseFirestore,
+        operations: List<(WriteBatch) -> Unit>
+    ) {
+        if (operations.isEmpty()) return
+        val chunkSize = 450
+        for (chunk in operations.chunked(chunkSize)) {
+            val batch = firestore.batch()
+            for (op in chunk) {
+                op(batch)
+            }
+            batch.commit().await()
+        }
+    }
+
+    /**
      * Local storage and Firebase Sync for Deleted Records.
      * Keeps track of deleted IDs to prevent restored/stale data from reappearing.
      */
@@ -53,6 +73,22 @@ object FirestoreSyncManager {
             val deletedSet = prefs.getStringSet("deleted_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
             deletedSet.add("$collectionName:$id")
             prefs.edit().putStringSet("deleted_ids", deletedSet).apply()
+
+            // Also record in Room pending_deletions table
+            val db = IspDatabase.getDatabase(context)
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    db.pendingDeletionDao().insertPendingDeletion(
+                        PendingDeletionEntity(
+                            collectionName = collectionName,
+                            documentId = id,
+                            timestamp = System.currentTimeMillis()
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error saving pending deletion: ${e.message}")
+                }
+            }
 
             val uid = getCurrentUid(context)
             if (!uid.isNullOrBlank()) {
@@ -210,7 +246,8 @@ object FirestoreSyncManager {
     }
 
     /**
-     * Performs cloud sync from local Room database to authenticated user's Firestore path.
+     * Performs Delta / Dirty Cloud Sync from local Room database to authenticated user's Firestore path.
+     * Uploads ONLY modified (syncStatus = 1) records and flushes pending deletions via Firestore WriteBatch.
      * Path structure: users/{uid}/{collection}/{id}
      */
     suspend fun syncLocalToCloud(context: Context): Boolean = withContext(Dispatchers.IO) {
@@ -227,389 +264,292 @@ object FirestoreSyncManager {
 
             val db = IspDatabase.getDatabase(context)
             val firestore = FirebaseFirestore.getInstance()
-
-            val customers = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.customerDao().getAllCustomers().first() } ?: emptyList()
-            val packages = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.packageDao().getAllPackages().first() } ?: emptyList()
-            val bills = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.billDao().getAllBills().first() } ?: emptyList()
-            val payments = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.paymentDao().getAllPayments().first() } ?: emptyList()
-            val settings = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.settingsDao().getSettings().first() }
-            val expenses = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.expenseDao().getAllExpenses().first() } ?: emptyList()
-            val categories = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.expenseDao().getAllCategories().first() } ?: emptyList()
-
             val userRef = firestore.collection("users").document(uid)
-            val deletedRecords = syncAndGetDeletedRecords(context, userRef)
 
-            // 1. Sync Customers
-            val localCustIds = customers.map { it.id.toString() }.toSet()
-            val missingRemoteCusts = mutableListOf<CustomerEntity>()
-            try {
-                val remoteCusts = userRef.collection("customers").get().await()
-                remoteCusts.documents.forEach { doc ->
-                    if (deletedRecords.contains("customers:${doc.id}")) {
-                        userRef.collection("customers").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted customer ${doc.id} from cloud because it is tombstoned.")
-                    } else if (!localCustIds.contains(doc.id)) {
-                        try {
-                            val custId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                            missingRemoteCusts.add(
-                                CustomerEntity(
-                                    id = custId,
-                                    customerCode = doc.getString("customerCode") ?: "CUST-$custId",
-                                    name = doc.getString("name") ?: "",
-                                    phone = doc.getString("phone") ?: "",
-                                    address = doc.getString("address") ?: "",
-                                    pppoeUsername = doc.getString("pppoeUsername") ?: "",
-                                    ipAddress = doc.getString("ipAddress") ?: "",
-                                    packageId = doc.getLong("packageId") ?: 0L,
-                                    packageName = doc.getString("packageName") ?: "",
-                                    monthlyFee = doc.getDouble("monthlyFee") ?: 0.0,
-                                    status = doc.getString("status") ?: "ACTIVE",
-                                    joiningDate = doc.getString("joiningDate") ?: "",
-                                    notes = doc.getString("notes") ?: "",
-                                    area = doc.getString("area") ?: "",
-                                    zone = doc.getString("zone") ?: "",
-                                    latitude = doc.getDouble("latitude") ?: 0.0,
-                                    longitude = doc.getDouble("longitude") ?: 0.0,
-                                    oltName = doc.getString("oltName") ?: "",
-                                    ponPort = doc.getString("ponPort") ?: "",
-                                    onuSerial = doc.getString("onuSerial") ?: "",
-                                    routerName = doc.getString("routerName") ?: ""
-                                )
-                            )
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error parsing remote customer ${doc.id}: ${e.message}")
-                        }
+            // Step 1: Collect dirty entities only
+            val dirtyCustomers = db.customerDao().getDirtyCustomers()
+            val dirtyPackages = db.packageDao().getDirtyPackages()
+            val dirtyBills = db.billDao().getDirtyBills()
+            val dirtyPayments = db.paymentDao().getDirtyPayments()
+            val dirtyExpenses = db.expenseDao().getDirtyExpenses()
+            val dirtyCategories = db.expenseDao().getDirtyCategories()
+            val dirtySettings = db.settingsDao().getDirtySettings()
+            val dirtyDiagrams = db.networkDiagramDao().getDirtyDiagrams()
+            val dirtyNodes = db.networkDiagramDao().getDirtyNodes()
+            val dirtyConnections = db.networkDiagramDao().getDirtyConnections()
+            val dirtyAuditLogs = db.auditLogDao().getDirtyAuditLogs()
+            val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions()
+
+            val totalDirtyCount = dirtyCustomers.size + dirtyPackages.size + dirtyBills.size +
+                    dirtyPayments.size + dirtyExpenses.size + dirtyCategories.size +
+                    (if (dirtySettings != null) 1 else 0) + dirtyDiagrams.size +
+                    dirtyNodes.size + dirtyConnections.size + dirtyAuditLogs.size + pendingDeletions.size
+
+            if (totalDirtyCount == 0) {
+                Log.d(TAG, "Delta Sync: No dirty records or pending deletions to upload. Quota preserved.")
+                prefs.edit()
+                    .putLong("last_cloud_sync_time", System.currentTimeMillis())
+                    .putInt("pending_sync_count", 0)
+                    .putBoolean("is_syncing", false)
+                    .apply()
+                return@withContext true
+            }
+
+            Log.i(TAG, "Delta Sync: Processing $totalDirtyCount modified records with conflict protection for UID: $uid")
+
+            // Multi-Device Conflict Protection:
+            // Fetch remote metadata ONLY for dirty document IDs (never full collections) to verify updatedAt.
+            val remoteTimestamps = mutableMapOf<String, Long>()
+            val remoteDocsToFetch = mutableListOf<Pair<String, com.google.firebase.firestore.DocumentReference>>()
+
+            for (c in dirtyCustomers) remoteDocsToFetch.add("customers:${c.id}" to userRef.collection("customers").document(c.id.toString()))
+            for (p in dirtyPackages) remoteDocsToFetch.add("packages:${p.id}" to userRef.collection("packages").document(p.id.toString()))
+            for (b in dirtyBills) remoteDocsToFetch.add("bills:${b.id}" to userRef.collection("bills").document(b.id.toString()))
+            for (pm in dirtyPayments) remoteDocsToFetch.add("payments:${pm.id}" to userRef.collection("payments").document(pm.id.toString()))
+            for (e in dirtyExpenses) remoteDocsToFetch.add("expenses:${e.id}" to userRef.collection("expenses").document(e.id.toString()))
+            for (ec in dirtyCategories) remoteDocsToFetch.add("expense_categories:${ec.id}" to userRef.collection("expense_categories").document(ec.id.toString()))
+            if (dirtySettings != null) remoteDocsToFetch.add("settings:business_settings" to userRef.collection("settings").document("business_settings"))
+            for (d in dirtyDiagrams) remoteDocsToFetch.add("network_diagrams:${d.id}" to userRef.collection("network_diagrams").document(d.id.toString()))
+            for (n in dirtyNodes) remoteDocsToFetch.add("network_nodes:${n.id}" to userRef.collection("network_nodes").document(n.id))
+            for (cn in dirtyConnections) remoteDocsToFetch.add("network_connections:${cn.id}" to userRef.collection("network_connections").document(cn.id))
+
+            // Fetch targeted remote snapshots in parallel/chunks without scanning full collections
+            for (item in remoteDocsToFetch) {
+                try {
+                    val snap = item.second.get().await()
+                    if (snap.exists()) {
+                        val rUpdatedAt = snap.getLong("updatedAt") ?: snap.getLong("timestamp") ?: 0L
+                        remoteTimestamps[item.first] = rUpdatedAt
                     }
+                } catch (e: Exception) {
+                    // In offline/transient failure, allow delta batch merge as fallback
+                    Log.d(TAG, "Conflict check non-blocking note for ${item.first}: ${e.message}")
                 }
-                if (missingRemoteCusts.isNotEmpty()) {
-                    db.customerDao().insertCustomers(missingRemoteCusts)
-                    Log.d(TAG, "Sync: Ingested ${missingRemoteCusts.size} remote customers into local DB.")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error processing remote customers: ${e.message}")
-            }
-            customers.forEach { customer ->
-                if (deletedRecords.contains("customers:${customer.id}")) return@forEach
-                val map = mapOf(
-                    "id" to customer.id,
-                    "customerCode" to customer.customerCode,
-                    "name" to customer.name,
-                    "phone" to customer.phone,
-                    "address" to customer.address,
-                    "pppoeUsername" to customer.pppoeUsername,
-                    "ipAddress" to customer.ipAddress,
-                    "packageId" to customer.packageId,
-                    "packageName" to customer.packageName,
-                    "monthlyFee" to customer.monthlyFee,
-                    "status" to customer.status,
-                    "joiningDate" to customer.joiningDate,
-                    "notes" to customer.notes,
-                    "area" to customer.area,
-                    "zone" to customer.zone,
-                    "latitude" to customer.latitude,
-                    "longitude" to customer.longitude,
-                    "oltName" to customer.oltName,
-                    "ponPort" to customer.ponPort,
-                    "onuSerial" to customer.onuSerial,
-                    "routerName" to customer.routerName,
-                    "updatedAt" to System.currentTimeMillis()
-                )
-                userRef.collection("customers").document(customer.id.toString())
-                    .set(map, SetOptions.merge()).await()
             }
 
-            // 2. Sync Packages
-            val localPkgIds = packages.map { it.id.toString() }.toSet()
-            val missingRemotePkgs = mutableListOf<IspPackageEntity>()
-            try {
-                val remotePkgs = userRef.collection("packages").get().await()
-                remotePkgs.documents.forEach { doc ->
-                    if (deletedRecords.contains("packages:${doc.id}")) {
-                        userRef.collection("packages").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted package ${doc.id} from cloud because it is tombstoned.")
-                    } else if (!localPkgIds.contains(doc.id)) {
-                        try {
-                            val pkgId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                            missingRemotePkgs.add(
-                                IspPackageEntity(
-                                    id = pkgId,
-                                    name = doc.getString("name") ?: "",
-                                    speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
-                                    monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
-                                    description = doc.getString("description") ?: ""
-                                )
-                            )
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error parsing remote package ${doc.id}: ${e.message}")
-                        }
+            val batchOperations = mutableListOf<(WriteBatch) -> Unit>()
+            val customersToMarkSynced = mutableListOf<Long>()
+            val packagesToMarkSynced = mutableListOf<Long>()
+            val billsToMarkSynced = mutableListOf<Long>()
+            val paymentsToMarkSynced = mutableListOf<Long>()
+            val expensesToMarkSynced = mutableListOf<Long>()
+            val categoriesToMarkSynced = mutableListOf<Long>()
+            var settingsToMarkSynced = false
+            val diagramsToMarkSynced = mutableListOf<Long>()
+            val nodesToMarkSynced = mutableListOf<String>()
+            val connectionsToMarkSynced = mutableListOf<String>()
+            val auditLogsToMarkSynced = mutableListOf<Long>()
+
+            // 1. Pending Deletions
+            for (del in pendingDeletions) {
+                val docRef = userRef.collection(del.collectionName).document(del.documentId)
+                batchOperations.add { batch ->
+                    batch.delete(docRef)
+                }
+            }
+
+            // 2. Customers
+            for (customer in dirtyCustomers) {
+                val rTime = remoteTimestamps["customers:${customer.id}"]
+                if (rTime != null && rTime > customer.updatedAt) {
+                    // Conflict: Remote document is NEWER than local dirty version.
+                    // Server wins: do NOT overwrite remote. Mark locally synced to avoid infinite conflict loops.
+                    Log.w(TAG, "Conflict detected for Customer ${customer.id}: remote ($rTime) is newer than local (${customer.updatedAt}). Preserving remote.")
+                    customersToMarkSynced.add(customer.id)
+                } else {
+                    val map = mapOf(
+                        "id" to customer.id,
+                        "customerCode" to customer.customerCode,
+                        "name" to customer.name,
+                        "phone" to customer.phone,
+                        "address" to customer.address,
+                        "pppoeUsername" to customer.pppoeUsername,
+                        "ipAddress" to customer.ipAddress,
+                        "packageId" to customer.packageId,
+                        "packageName" to customer.packageName,
+                        "monthlyFee" to customer.monthlyFee,
+                        "status" to customer.status,
+                        "joiningDate" to customer.joiningDate,
+                        "notes" to customer.notes,
+                        "area" to customer.area,
+                        "zone" to customer.zone,
+                        "latitude" to customer.latitude,
+                        "longitude" to customer.longitude,
+                        "oltName" to customer.oltName,
+                        "ponPort" to customer.ponPort,
+                        "onuSerial" to customer.onuSerial,
+                        "routerName" to customer.routerName,
+                        "updatedAt" to customer.updatedAt
+                    )
+                    val docRef = userRef.collection("customers").document(customer.id.toString())
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
                     }
+                    customersToMarkSynced.add(customer.id)
                 }
-                if (missingRemotePkgs.isNotEmpty()) {
-                    db.packageDao().insertPackages(missingRemotePkgs)
-                    Log.d(TAG, "Sync: Ingested ${missingRemotePkgs.size} remote packages into local DB.")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error processing remote packages: ${e.message}")
-            }
-            packages.forEach { pkg ->
-                if (deletedRecords.contains("packages:${pkg.id}")) return@forEach
-                val map = mapOf(
-                    "id" to pkg.id,
-                    "name" to pkg.name,
-                    "speedMbps" to pkg.speedMbps,
-                    "monthlyPrice" to pkg.monthlyPrice,
-                    "description" to pkg.description,
-                    "updatedAt" to System.currentTimeMillis()
-                )
-                userRef.collection("packages").document(pkg.id.toString())
-                    .set(map, SetOptions.merge()).await()
             }
 
-            // 3. Sync Bills
-            val localBillIds = bills.map { it.id.toString() }.toSet()
-            val existingLocalCustomerMonthKeys = bills.map {
-                "${it.customerId}_${it.billingMonth.trim().lowercase(java.util.Locale.ROOT)}"
-            }.toSet()
-            val missingRemoteBills = mutableListOf<BillEntity>()
-            val newlyAddedRemoteKeys = mutableSetOf<String>()
-            try {
-                val remoteBills = userRef.collection("bills").get().await()
-                remoteBills.documents.forEach { doc ->
-                    if (deletedRecords.contains("bills:${doc.id}")) {
-                        userRef.collection("bills").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted bill ${doc.id} from cloud because it is tombstoned.")
-                    } else if (!localBillIds.contains(doc.id)) {
-                        try {
-                            val billId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                            val custId = doc.getLong("customerId") ?: 0L
-                            val bMonth = doc.getString("billingMonth") ?: ""
-                            val monthKey = "${custId}_${bMonth.trim().lowercase(java.util.Locale.ROOT)}"
-
-                            if (!existingLocalCustomerMonthKeys.contains(monthKey) && !newlyAddedRemoteKeys.contains(monthKey)) {
-                                missingRemoteBills.add(
-                                    BillEntity(
-                                        id = billId,
-                                        billNumber = doc.getString("billNumber") ?: "",
-                                        customerId = custId,
-                                        customerName = doc.getString("customerName") ?: "",
-                                        customerCode = doc.getString("customerCode") ?: "",
-                                        billingMonth = bMonth,
-                                        amount = doc.getDouble("amount") ?: 0.0,
-                                        paidAmount = doc.getDouble("paidAmount") ?: 0.0,
-                                        dueAmount = doc.getDouble("dueAmount") ?: 0.0,
-                                        status = doc.getString("status") ?: "UNPAID",
-                                        generatedDate = doc.getString("generatedDate") ?: "",
-                                        dueDate = doc.getString("dueDate") ?: ""
-                                    )
-                                )
-                                newlyAddedRemoteKeys.add(monthKey)
-                            }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error parsing remote bill ${doc.id}: ${e.message}")
-                        }
+            // 3. Packages
+            for (pkg in dirtyPackages) {
+                val rTime = remoteTimestamps["packages:${pkg.id}"]
+                if (rTime != null && rTime > pkg.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Package ${pkg.id}: remote ($rTime) > local (${pkg.updatedAt}). Preserving remote.")
+                    packagesToMarkSynced.add(pkg.id)
+                } else {
+                    val map = mapOf(
+                        "id" to pkg.id,
+                        "name" to pkg.name,
+                        "speedMbps" to pkg.speedMbps,
+                        "monthlyPrice" to pkg.monthlyPrice,
+                        "description" to pkg.description,
+                        "updatedAt" to pkg.updatedAt
+                    )
+                    val docRef = userRef.collection("packages").document(pkg.id.toString())
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
                     }
+                    packagesToMarkSynced.add(pkg.id)
                 }
-                if (missingRemoteBills.isNotEmpty()) {
-                    db.billDao().insertBills(missingRemoteBills)
-                    Log.d(TAG, "Sync: Ingested ${missingRemoteBills.size} remote bills into local DB.")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error processing remote bills: ${e.message}")
-            }
-            bills.forEach { bill ->
-                if (deletedRecords.contains("bills:${bill.id}")) return@forEach
-                val map = mapOf(
-                    "id" to bill.id,
-                    "billNumber" to bill.billNumber,
-                    "customerId" to bill.customerId,
-                    "customerName" to bill.customerName,
-                    "customerCode" to bill.customerCode,
-                    "billingMonth" to bill.billingMonth,
-                    "amount" to bill.amount,
-                    "paidAmount" to bill.paidAmount,
-                    "dueAmount" to bill.dueAmount,
-                    "status" to bill.status,
-                    "generatedDate" to bill.generatedDate,
-                    "dueDate" to bill.dueDate,
-                    "updatedAt" to System.currentTimeMillis()
-                )
-                userRef.collection("bills").document(bill.id.toString())
-                    .set(map, SetOptions.merge()).await()
             }
 
-            // 4. Sync Payments
-            val localPaymentIds = payments.map { it.id.toString() }.toSet()
-            val missingRemotePayments = mutableListOf<PaymentEntity>()
-            try {
-                val remotePayments = userRef.collection("payments").get().await()
-                remotePayments.documents.forEach { doc ->
-                    if (deletedRecords.contains("payments:${doc.id}")) {
-                        userRef.collection("payments").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted payment ${doc.id} from cloud because it is tombstoned.")
-                    } else if (!localPaymentIds.contains(doc.id)) {
-                        try {
-                            val paymentId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                            missingRemotePayments.add(
-                                PaymentEntity(
-                                    id = paymentId,
-                                    paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
-                                    billId = doc.getLong("billId") ?: 0L,
-                                    customerId = doc.getLong("customerId") ?: 0L,
-                                    customerName = doc.getString("customerName") ?: "",
-                                    amount = doc.getDouble("amount") ?: 0.0,
-                                    paymentDate = doc.getString("paymentDate") ?: "",
-                                    paymentMethod = doc.getString("paymentMethod") ?: "Cash",
-                                    notes = doc.getString("notes") ?: ""
-                                )
-                            )
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error parsing remote payment ${doc.id}: ${e.message}")
-                        }
+            // 4. Bills
+            for (bill in dirtyBills) {
+                val rTime = remoteTimestamps["bills:${bill.id}"]
+                if (rTime != null && rTime > bill.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Bill ${bill.id}: remote ($rTime) > local (${bill.updatedAt}). Preserving remote.")
+                    billsToMarkSynced.add(bill.id)
+                } else {
+                    val map = mapOf(
+                        "id" to bill.id,
+                        "billNumber" to bill.billNumber,
+                        "customerId" to bill.customerId,
+                        "customerName" to bill.customerName,
+                        "customerCode" to bill.customerCode,
+                        "billingMonth" to bill.billingMonth,
+                        "amount" to bill.amount,
+                        "paidAmount" to bill.paidAmount,
+                        "dueAmount" to bill.dueAmount,
+                        "status" to bill.status,
+                        "generatedDate" to bill.generatedDate,
+                        "dueDate" to bill.dueDate,
+                        "updatedAt" to bill.updatedAt
+                    )
+                    val docRef = userRef.collection("bills").document(bill.id.toString())
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
                     }
+                    billsToMarkSynced.add(bill.id)
                 }
-                if (missingRemotePayments.isNotEmpty()) {
-                    db.paymentDao().insertPayments(missingRemotePayments)
-                    Log.d(TAG, "Sync: Ingested ${missingRemotePayments.size} remote payments into local DB.")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error processing remote payments: ${e.message}")
-            }
-            payments.forEach { payment ->
-                if (deletedRecords.contains("payments:${payment.id}")) return@forEach
-                val map = mapOf(
-                    "id" to payment.id,
-                    "paymentReceiptNo" to payment.paymentReceiptNo,
-                    "billId" to payment.billId,
-                    "customerId" to payment.customerId,
-                    "customerName" to payment.customerName,
-                    "amount" to payment.amount,
-                    "paymentDate" to payment.paymentDate,
-                    "paymentMethod" to payment.paymentMethod,
-                    "notes" to payment.notes,
-                    "updatedAt" to System.currentTimeMillis()
-                )
-                userRef.collection("payments").document(payment.id.toString())
-                    .set(map, SetOptions.merge()).await()
             }
 
-            // 5. Sync Expenses
-            val localExpenseIds = expenses.map { it.id.toString() }.toSet()
-            val missingRemoteExpenses = mutableListOf<ExpenseEntity>()
-            try {
-                val remoteExpenses = userRef.collection("expenses").get().await()
-                remoteExpenses.documents.forEach { doc ->
-                    if (deletedRecords.contains("expenses:${doc.id}")) {
-                        userRef.collection("expenses").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted expense ${doc.id} from cloud because it is tombstoned.")
-                    } else if (!localExpenseIds.contains(doc.id)) {
-                        try {
-                            val expId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                            missingRemoteExpenses.add(
-                                ExpenseEntity(
-                                    id = expId,
-                                    title = doc.getString("title") ?: "",
-                                    amount = doc.getDouble("amount") ?: 0.0,
-                                    category = doc.getString("category") ?: "",
-                                    date = doc.getString("date") ?: "",
-                                    paymentMethod = doc.getString("paymentMethod") ?: "Cash",
-                                    note = doc.getString("note") ?: "",
-                                    receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
-                                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
-                                )
-                            )
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error parsing remote expense ${doc.id}: ${e.message}")
-                        }
+            // 5. Payments
+            for (payment in dirtyPayments) {
+                val rTime = remoteTimestamps["payments:${payment.id}"]
+                if (rTime != null && rTime > payment.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Payment ${payment.id}: remote ($rTime) > local (${payment.updatedAt}). Preserving remote.")
+                    paymentsToMarkSynced.add(payment.id)
+                } else {
+                    val map = mapOf(
+                        "id" to payment.id,
+                        "paymentReceiptNo" to payment.paymentReceiptNo,
+                        "billId" to payment.billId,
+                        "customerId" to payment.customerId,
+                        "customerName" to payment.customerName,
+                        "amount" to payment.amount,
+                        "paymentDate" to payment.paymentDate,
+                        "paymentMethod" to payment.paymentMethod,
+                        "notes" to payment.notes,
+                        "updatedAt" to payment.updatedAt
+                    )
+                    val docRef = userRef.collection("payments").document(payment.id.toString())
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
                     }
+                    paymentsToMarkSynced.add(payment.id)
                 }
-                if (missingRemoteExpenses.isNotEmpty()) {
-                    db.expenseDao().insertExpenses(missingRemoteExpenses)
-                    Log.d(TAG, "Sync: Ingested ${missingRemoteExpenses.size} remote expenses into local DB.")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error processing remote expenses: ${e.message}")
-            }
-            expenses.forEach { expense ->
-                if (deletedRecords.contains("expenses:${expense.id}")) return@forEach
-                val map = mapOf(
-                    "id" to expense.id,
-                    "title" to expense.title,
-                    "amount" to expense.amount,
-                    "category" to expense.category,
-                    "date" to expense.date,
-                    "paymentMethod" to expense.paymentMethod,
-                    "note" to expense.note,
-                    "receiptPath" to (expense.receiptPath ?: ""),
-                    "createdAt" to expense.createdAt,
-                    "updatedAt" to expense.updatedAt
-                )
-                userRef.collection("expenses").document(expense.id.toString())
-                    .set(map, SetOptions.merge()).await()
             }
 
-            // 6. Sync Categories
-            val localCategoryIds = categories.map { it.id.toString() }.toSet()
-            val missingRemoteCategories = mutableListOf<ExpenseCategoryEntity>()
-            try {
-                val remoteCategories = userRef.collection("expense_categories").get().await()
-                remoteCategories.documents.forEach { doc ->
-                    if (deletedRecords.contains("expense_categories:${doc.id}")) {
-                        userRef.collection("expense_categories").document(doc.id).delete().await()
-                        Log.d(TAG, "Sync: Deleted category ${doc.id} from cloud because it is tombstoned.")
-                    } else if (!localCategoryIds.contains(doc.id)) {
-                        try {
-                            val catId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
-                            missingRemoteCategories.add(
-                                ExpenseCategoryEntity(
-                                    id = catId,
-                                    name = doc.getString("name") ?: ""
-                                )
-                            )
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error parsing remote category ${doc.id}: ${e.message}")
-                        }
+            // 6. Expenses
+            for (expense in dirtyExpenses) {
+                val rTime = remoteTimestamps["expenses:${expense.id}"]
+                if (rTime != null && rTime > expense.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Expense ${expense.id}: remote ($rTime) > local (${expense.updatedAt}). Preserving remote.")
+                    expensesToMarkSynced.add(expense.id)
+                } else {
+                    val map = mapOf(
+                        "id" to expense.id,
+                        "title" to expense.title,
+                        "amount" to expense.amount,
+                        "category" to expense.category,
+                        "date" to expense.date,
+                        "paymentMethod" to expense.paymentMethod,
+                        "note" to expense.note,
+                        "receiptPath" to (expense.receiptPath ?: ""),
+                        "createdAt" to expense.createdAt,
+                        "updatedAt" to expense.updatedAt
+                    )
+                    val docRef = userRef.collection("expenses").document(expense.id.toString())
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
                     }
+                    expensesToMarkSynced.add(expense.id)
                 }
-                if (missingRemoteCategories.isNotEmpty()) {
-                    db.expenseDao().insertCategories(missingRemoteCategories)
-                    Log.d(TAG, "Sync: Ingested ${missingRemoteCategories.size} remote categories into local DB.")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Error processing remote categories: ${e.message}")
-            }
-            categories.forEach { cat ->
-                if (deletedRecords.contains("expense_categories:${cat.id}")) return@forEach
-                val map = mapOf(
-                    "id" to cat.id,
-                    "name" to cat.name,
-                    "updatedAt" to System.currentTimeMillis()
-                )
-                userRef.collection("expense_categories").document(cat.id.toString())
-                    .set(map, SetOptions.merge()).await()
             }
 
-            // 7. Sync Settings
-            if (settings != null) {
-                val map = mapOf(
-                    "id" to settings.id,
-                    "ispName" to settings.ispName,
-                    "hotline" to settings.hotline,
-                    "address" to settings.address,
-                    "currencySymbol" to settings.currencySymbol,
-                    "networkStatus" to settings.networkStatus,
-                    "themeMode" to settings.themeMode,
-                    "logoUri" to (settings.logoUri ?: ""),
-                    "updatedAt" to System.currentTimeMillis()
-                )
-                userRef.collection("settings").document("business_settings")
-                    .set(map, SetOptions.merge()).await()
+            // 7. Categories
+            for (cat in dirtyCategories) {
+                val rTime = remoteTimestamps["expense_categories:${cat.id}"]
+                if (rTime != null && rTime > cat.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Category ${cat.id}: remote ($rTime) > local (${cat.updatedAt}). Preserving remote.")
+                    categoriesToMarkSynced.add(cat.id)
+                } else {
+                    val map = mapOf(
+                        "id" to cat.id,
+                        "name" to cat.name,
+                        "updatedAt" to cat.updatedAt
+                    )
+                    val docRef = userRef.collection("expense_categories").document(cat.id.toString())
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
+                    }
+                    categoriesToMarkSynced.add(cat.id)
+                }
             }
 
-            // 8. Sync Network Diagrams, Nodes & Connections
-            try {
-                val diagrams = db.networkDiagramDao().getAllDiagramsList()
-                diagrams.forEach { diag ->
+            // 8. Settings
+            if (dirtySettings != null) {
+                val rTime = remoteTimestamps["settings:business_settings"]
+                if (rTime != null && rTime > dirtySettings.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Business Settings: remote ($rTime) > local (${dirtySettings.updatedAt}). Preserving remote.")
+                    settingsToMarkSynced = true
+                } else {
+                    val map = mapOf(
+                        "id" to dirtySettings.id,
+                        "ispName" to dirtySettings.ispName,
+                        "hotline" to dirtySettings.hotline,
+                        "address" to dirtySettings.address,
+                        "currencySymbol" to dirtySettings.currencySymbol,
+                        "networkStatus" to dirtySettings.networkStatus,
+                        "themeMode" to dirtySettings.themeMode,
+                        "logoUri" to (dirtySettings.logoUri ?: ""),
+                        "email" to (dirtySettings.email ?: ""),
+                        "updatedAt" to dirtySettings.updatedAt
+                    )
+                    val docRef = userRef.collection("settings").document("business_settings")
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
+                    }
+                    settingsToMarkSynced = true
+                }
+            }
+
+            // 9. Network Diagrams
+            for (diag in dirtyDiagrams) {
+                val rTime = remoteTimestamps["network_diagrams:${diag.id}"]
+                if (rTime != null && rTime > diag.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Diagram ${diag.id}: remote ($rTime) > local (${diag.updatedAt}). Preserving remote.")
+                    diagramsToMarkSynced.add(diag.id)
+                } else {
                     val map = mapOf(
                         "id" to diag.id,
                         "name" to diag.name,
@@ -617,80 +557,142 @@ object FirestoreSyncManager {
                         "createdAt" to diag.createdAt,
                         "updatedAt" to diag.updatedAt
                     )
-                    userRef.collection("network_diagrams").document(diag.id.toString())
-                        .set(map, SetOptions.merge()).await()
-
-                    val nodes = db.networkDiagramDao().getNodesListForDiagram(diag.id)
-                    nodes.forEach { node ->
-                        val nodeMap = mapOf(
-                            "id" to node.id,
-                            "diagramId" to node.diagramId,
-                            "name" to node.name,
-                            "type" to node.type,
-                            "ipAddress" to node.ipAddress,
-                            "location" to node.location,
-                            "areaZone" to node.areaZone,
-                            "portInfo" to node.portInfo,
-                            "customerRef" to node.customerRef,
-                            "customerId" to node.customerId,
-                            "notes" to node.notes,
-                            "positionX" to node.positionX,
-                            "positionY" to node.positionY
-                        )
-                        userRef.collection("network_nodes").document(node.id)
-                            .set(nodeMap, SetOptions.merge()).await()
+                    val docRef = userRef.collection("network_diagrams").document(diag.id.toString())
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
                     }
-
-                    val connections = db.networkDiagramDao().getConnectionsListForDiagram(diag.id)
-                    connections.forEach { conn ->
-                        val connMap = mapOf(
-                            "id" to conn.id,
-                            "diagramId" to conn.diagramId,
-                            "fromNodeId" to conn.fromNodeId,
-                            "toNodeId" to conn.toNodeId,
-                            "label" to conn.label,
-                            "notes" to conn.notes
-                        )
-                        userRef.collection("network_connections").document(conn.id)
-                            .set(connMap, SetOptions.merge()).await()
-                    }
+                    diagramsToMarkSynced.add(diag.id)
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Network diagram sync warning: ${e.message}")
             }
 
-            try {
-                val auditLogs = db.auditLogDao().getAllAuditLogs().first()
-                for (log in auditLogs) {
-                    val logMap = mapOf(
-                        "id" to log.id,
-                        "action" to log.action,
-                        "actionType" to log.actionType,
-                        "details" to log.details,
-                        "userEmail" to log.userEmail,
-                        "userRole" to log.userRole,
-                        "targetEntity" to log.targetEntity,
-                        "targetId" to log.targetId,
-                        "previousState" to log.previousState,
-                        "newState" to log.newState,
-                        "status" to log.status,
-                        "timestamp" to log.timestamp
+            // 10. Network Nodes
+            for (node in dirtyNodes) {
+                val rTime = remoteTimestamps["network_nodes:${node.id}"]
+                if (rTime != null && rTime > node.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Node ${node.id}: remote ($rTime) > local (${node.updatedAt}). Preserving remote.")
+                    nodesToMarkSynced.add(node.id)
+                } else {
+                    val nodeMap = mapOf(
+                        "id" to node.id,
+                        "diagramId" to node.diagramId,
+                        "name" to node.name,
+                        "type" to node.type,
+                        "ipAddress" to node.ipAddress,
+                        "location" to node.location,
+                        "areaZone" to node.areaZone,
+                        "portInfo" to node.portInfo,
+                        "customerRef" to node.customerRef,
+                        "customerId" to node.customerId,
+                        "notes" to node.notes,
+                        "positionX" to node.positionX,
+                        "positionY" to node.positionY,
+                        "updatedAt" to node.updatedAt
                     )
-                    userRef.collection("audit_logs").document(log.id.toString())
-                        .set(logMap, SetOptions.merge()).await()
+                    val docRef = userRef.collection("network_nodes").document(node.id)
+                    batchOperations.add { batch ->
+                        batch.set(docRef, nodeMap, SetOptions.merge())
+                    }
+                    nodesToMarkSynced.add(node.id)
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Sync: Audit logs sync warning: ${e.message}")
             }
 
-            // Status record
+            // 11. Network Connections
+            for (conn in dirtyConnections) {
+                val rTime = remoteTimestamps["network_connections:${conn.id}"]
+                if (rTime != null && rTime > conn.updatedAt) {
+                    Log.w(TAG, "Conflict detected for Connection ${conn.id}: remote ($rTime) > local (${conn.updatedAt}). Preserving remote.")
+                    connectionsToMarkSynced.add(conn.id)
+                } else {
+                    val connMap = mapOf(
+                        "id" to conn.id,
+                        "diagramId" to conn.diagramId,
+                        "fromNodeId" to conn.fromNodeId,
+                        "toNodeId" to conn.toNodeId,
+                        "label" to conn.label,
+                        "notes" to conn.notes,
+                        "updatedAt" to conn.updatedAt
+                    )
+                    val docRef = userRef.collection("network_connections").document(conn.id)
+                    batchOperations.add { batch ->
+                        batch.set(docRef, connMap, SetOptions.merge())
+                    }
+                    connectionsToMarkSynced.add(conn.id)
+                }
+            }
+
+            // 12. Audit Logs
+            for (log in dirtyAuditLogs) {
+                val logMap = mapOf(
+                    "id" to log.id,
+                    "action" to log.action,
+                    "actionType" to log.actionType,
+                    "details" to log.details,
+                    "userEmail" to log.userEmail,
+                    "userRole" to log.userRole,
+                    "targetEntity" to log.targetEntity,
+                    "targetId" to log.targetId,
+                    "previousState" to log.previousState,
+                    "newState" to log.newState,
+                    "status" to log.status,
+                    "timestamp" to log.timestamp
+                )
+                val docRef = userRef.collection("audit_logs").document(log.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, logMap, SetOptions.merge())
+                }
+                auditLogsToMarkSynced.add(log.id)
+            }
+
+            // Commit all batched operations to Firestore
+            commitBatchedOperations(firestore, batchOperations)
+
+            // Step 2: Mark successfully synced records locally in Room
+            db.withTransaction {
+                if (customersToMarkSynced.isNotEmpty()) {
+                    db.customerDao().markCustomersSynced(customersToMarkSynced)
+                }
+                if (packagesToMarkSynced.isNotEmpty()) {
+                    db.packageDao().markPackagesSynced(packagesToMarkSynced)
+                }
+                if (billsToMarkSynced.isNotEmpty()) {
+                    db.billDao().markBillsSynced(billsToMarkSynced)
+                }
+                if (paymentsToMarkSynced.isNotEmpty()) {
+                    db.paymentDao().markPaymentsSynced(paymentsToMarkSynced)
+                }
+                if (expensesToMarkSynced.isNotEmpty()) {
+                    db.expenseDao().markExpensesSynced(expensesToMarkSynced)
+                }
+                if (categoriesToMarkSynced.isNotEmpty()) {
+                    db.expenseDao().markCategoriesSynced(categoriesToMarkSynced)
+                }
+                if (settingsToMarkSynced) {
+                    db.settingsDao().markSettingsSynced()
+                }
+                if (diagramsToMarkSynced.isNotEmpty()) {
+                    db.networkDiagramDao().markDiagramsSynced(diagramsToMarkSynced)
+                }
+                if (nodesToMarkSynced.isNotEmpty()) {
+                    db.networkDiagramDao().markNodesSynced(nodesToMarkSynced)
+                }
+                if (connectionsToMarkSynced.isNotEmpty()) {
+                    db.networkDiagramDao().markConnectionsSynced(connectionsToMarkSynced)
+                }
+                if (auditLogsToMarkSynced.isNotEmpty()) {
+                    db.auditLogDao().markAuditLogsSynced(auditLogsToMarkSynced)
+                }
+                if (pendingDeletions.isNotEmpty()) {
+                    db.pendingDeletionDao().deletePendingDeletionsByIds(pendingDeletions.map { it.id })
+                }
+            }
+
+            // Status record update
             userRef.collection("sync_meta").document("status").set(
                 mapOf(
                     "lastSyncTimestamp" to System.currentTimeMillis(),
-                    "customerCount" to customers.size,
-                    "billCount" to bills.size,
-                    "paymentCount" to payments.size
-                )
+                    "lastBatchSize" to totalDirtyCount
+                ),
+                SetOptions.merge()
             ).await()
 
             prefs.edit()
@@ -699,7 +701,7 @@ object FirestoreSyncManager {
                 .putBoolean("is_syncing", false)
                 .apply()
 
-            Log.i(TAG, "Successfully synced all local data to Firestore for UID: $uid")
+            Log.i(TAG, "Successfully committed Delta Sync batch of $totalDirtyCount records for UID: $uid")
             true
         } catch (e: FirebaseFirestoreException) {
             context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
@@ -776,7 +778,9 @@ object FirestoreSyncManager {
                             oltName = doc.getString("oltName") ?: "",
                             ponPort = doc.getString("ponPort") ?: "",
                             onuSerial = doc.getString("onuSerial") ?: "",
-                            routerName = doc.getString("routerName") ?: ""
+                            routerName = doc.getString("routerName") ?: "",
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 }
@@ -792,7 +796,9 @@ object FirestoreSyncManager {
                             name = doc.getString("name") ?: "",
                             speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
                             monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
-                            description = doc.getString("description") ?: ""
+                            description = doc.getString("description") ?: "",
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 }
@@ -815,7 +821,9 @@ object FirestoreSyncManager {
                             dueAmount = doc.getDouble("dueAmount") ?: 0.0,
                             status = doc.getString("status") ?: "UNPAID",
                             generatedDate = doc.getString("generatedDate") ?: "",
-                            dueDate = doc.getString("dueDate") ?: ""
+                            dueDate = doc.getString("dueDate") ?: "",
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 }
@@ -843,7 +851,9 @@ object FirestoreSyncManager {
                             amount = doc.getDouble("amount") ?: 0.0,
                             paymentDate = doc.getString("paymentDate") ?: "",
                             paymentMethod = doc.getString("paymentMethod") ?: "Cash",
-                            notes = doc.getString("notes") ?: ""
+                            notes = doc.getString("notes") ?: "",
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 }
@@ -864,7 +874,8 @@ object FirestoreSyncManager {
                             note = doc.getString("note") ?: "",
                             receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
                             createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 }
@@ -877,7 +888,9 @@ object FirestoreSyncManager {
                     try {
                         ExpenseCategoryEntity(
                             id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
-                            name = doc.getString("name") ?: ""
+                            name = doc.getString("name") ?: "",
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 }
@@ -894,7 +907,9 @@ object FirestoreSyncManager {
                         networkStatus = settingsDoc.getString("networkStatus") ?: "Operational",
                         themeMode = settingsDoc.getString("themeMode") ?: "SYSTEM",
                         logoUri = settingsDoc.getString("logoUri")?.ifEmpty { null },
-                        email = settingsDoc.getString("email") ?: ""
+                        email = settingsDoc.getString("email") ?: "",
+                        updatedAt = settingsDoc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
                     )
                 } else null
 
@@ -909,7 +924,8 @@ object FirestoreSyncManager {
                             name = doc.getString("name") ?: "",
                             isDefault = doc.getBoolean("isDefault") ?: false,
                             createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 } ?: emptyList()
@@ -932,7 +948,9 @@ object FirestoreSyncManager {
                             customerId = doc.getString("customerId") ?: "",
                             notes = doc.getString("notes") ?: "",
                             positionX = (doc.getDouble("positionX") ?: 0.0).toFloat(),
-                            positionY = (doc.getDouble("positionY") ?: 0.0).toFloat()
+                            positionY = (doc.getDouble("positionY") ?: 0.0).toFloat(),
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 } ?: emptyList()
@@ -948,7 +966,9 @@ object FirestoreSyncManager {
                             fromNodeId = doc.getString("fromNodeId") ?: "",
                             toNodeId = doc.getString("toNodeId") ?: "",
                             label = doc.getString("label") ?: "",
-                            notes = doc.getString("notes") ?: ""
+                            notes = doc.getString("notes") ?: "",
+                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 } ?: emptyList()
@@ -971,7 +991,8 @@ object FirestoreSyncManager {
                             previousState = doc.getString("previousState") ?: "",
                             newState = doc.getString("newState") ?: "",
                             status = doc.getString("status") ?: "SUCCESS",
-                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
+                            syncStatus = 0
                         )
                     } catch (e: Exception) { null }
                 } ?: emptyList()
@@ -1018,6 +1039,7 @@ object FirestoreSyncManager {
                 db.networkDiagramDao().deleteAllNodes()
                 db.networkDiagramDao().deleteAllConnections()
                 db.auditLogDao().deleteAllLogs()
+                db.pendingDeletionDao().clearAllPendingDeletions()
 
                 if (restoredData.customers.isNotEmpty()) {
                     db.customerDao().insertCustomers(restoredData.customers)

@@ -26,6 +26,15 @@ interface CustomerDao {
     @Query("SELECT * FROM customers")
     suspend fun getAllCustomersList(): List<CustomerEntity>
 
+    @Query("SELECT * FROM customers WHERE syncStatus = 1")
+    suspend fun getDirtyCustomers(): List<CustomerEntity>
+
+    @Query("UPDATE customers SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markCustomersSynced(ids: List<Long>)
+
+    @Query("UPDATE customers SET syncStatus = :status WHERE id = :id")
+    suspend fun updateCustomerSyncStatus(id: Long, status: Int)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCustomer(customer: CustomerEntity): Long
 
@@ -49,6 +58,12 @@ interface CustomerDao {
 interface IspPackageDao {
     @Query("SELECT * FROM packages ORDER BY speedMbps ASC")
     fun getAllPackages(): Flow<List<IspPackageEntity>>
+
+    @Query("SELECT * FROM packages WHERE syncStatus = 1")
+    suspend fun getDirtyPackages(): List<IspPackageEntity>
+
+    @Query("UPDATE packages SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markPackagesSynced(ids: List<Long>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPackage(pkg: IspPackageEntity): Long
@@ -76,6 +91,12 @@ interface BillDao {
 
     @Query("SELECT * FROM bills")
     suspend fun getAllBillsList(): List<BillEntity>
+
+    @Query("SELECT * FROM bills WHERE syncStatus = 1")
+    suspend fun getDirtyBills(): List<BillEntity>
+
+    @Query("UPDATE bills SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markBillsSynced(ids: List<Long>)
 
     @Query("SELECT * FROM bills WHERE customerId = :customerId ORDER BY id DESC")
     suspend fun getBillsListForCustomer(customerId: Long): List<BillEntity>
@@ -115,6 +136,12 @@ interface BillDao {
 interface PaymentDao {
     @Query("SELECT * FROM payments ORDER BY id DESC")
     fun getAllPayments(): Flow<List<PaymentEntity>>
+
+    @Query("SELECT * FROM payments WHERE syncStatus = 1")
+    suspend fun getDirtyPayments(): List<PaymentEntity>
+
+    @Query("UPDATE payments SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markPaymentsSynced(ids: List<Long>)
 
     @Query("SELECT * FROM payments WHERE customerId = :customerId ORDER BY id DESC")
     fun getPaymentsForCustomer(customerId: Long): Flow<List<PaymentEntity>>
@@ -158,6 +185,11 @@ interface BusinessSettingsDao {
     @Query("SELECT * FROM business_settings WHERE id = 1 LIMIT 1")
     fun getSettings(): Flow<BusinessSettingsEntity?>
 
+    @Query("SELECT * FROM business_settings WHERE id = 1 AND syncStatus = 1 LIMIT 1")
+    suspend fun getDirtySettings(): BusinessSettingsEntity?
+
+    @Query("UPDATE business_settings SET syncStatus = 0 WHERE id = 1")
+    suspend fun markSettingsSynced()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateSettings(settings: BusinessSettingsEntity)
@@ -170,6 +202,12 @@ interface BusinessSettingsDao {
 interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY date DESC, id DESC")
     fun getAllExpenses(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE syncStatus = 1")
+    suspend fun getDirtyExpenses(): List<ExpenseEntity>
+
+    @Query("UPDATE expenses SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markExpensesSynced(ids: List<Long>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExpense(expense: ExpenseEntity): Long
@@ -188,6 +226,12 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expense_categories ORDER BY name ASC")
     fun getAllCategories(): Flow<List<ExpenseCategoryEntity>>
+
+    @Query("SELECT * FROM expense_categories WHERE syncStatus = 1")
+    suspend fun getDirtyCategories(): List<ExpenseCategoryEntity>
+
+    @Query("UPDATE expense_categories SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markCategoriesSynced(ids: List<Long>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: ExpenseCategoryEntity): Long
