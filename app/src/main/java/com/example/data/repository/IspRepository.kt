@@ -47,6 +47,12 @@ class IspRepository(
     private val db: IspDatabase,
     private val context: Context? = null
 ) {
+    @Volatile private var idCounter = 0
+    private fun generateUniqueId(): Long {
+        val count = synchronized(this) { idCounter++ }
+        return (System.currentTimeMillis() * 10000L) + (1000..8999).random() + (count % 1000)
+    }
+
     val customers: Flow<List<CustomerEntity>> = customerDao.getAllCustomers()
     val packages: Flow<List<IspPackageEntity>> = packageDao.getAllPackages()
     val bills: Flow<List<BillEntity>> = billDao.getAllBills()
@@ -124,6 +130,7 @@ class IspRepository(
                 ?: runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email }.getOrNull()
                 ?: "admin@isp.com"
             val log = AuditLogEntity(
+                id = generateUniqueId(),
                 action = action,
                 actionType = actionType,
                 details = details,
@@ -159,7 +166,8 @@ class IspRepository(
     }
 
     suspend fun saveExpense(expense: ExpenseEntity): Long {
-        val result = expenseDao.insertExpense(expense)
+        val expenseToSave = if (expense.id == 0L) expense.copy(id = generateUniqueId()) else expense
+        val result = expenseDao.insertExpense(expenseToSave)
         logActivity(
             action = "EXPENSE_ADDED",
             actionType = "EXPENSE",
@@ -203,7 +211,7 @@ class IspRepository(
     }
 
     suspend fun saveExpenseCategory(categoryName: String): Long {
-        val result = expenseDao.insertCategory(ExpenseCategoryEntity(name = categoryName.trim()))
+        val result = expenseDao.insertCategory(ExpenseCategoryEntity(id = generateUniqueId(), name = categoryName.trim()))
         logActivity(
             action = "EXPENSE_CATEGORY_ADDED",
             actionType = "EXPENSE",
@@ -217,14 +225,15 @@ class IspRepository(
 
     suspend fun saveCustomer(customer: CustomerEntity): Long {
         val isNew = customer.id == 0L
-        val result = customerDao.insertCustomer(customer)
+        val customerToSave = if (isNew) customer.copy(id = generateUniqueId()) else customer
+        val result = customerDao.insertCustomer(customerToSave)
         val actionName = if (isNew) "CUSTOMER_CREATE" else "CUSTOMER_EDIT"
         logActivity(
             action = actionName,
             actionType = "CUSTOMER",
             details = if (isNew) "Created customer: ${customer.name} (${customer.pppoeUsername})" else "Updated customer: ${customer.name} (${customer.pppoeUsername})",
             targetEntity = "Customer",
-            targetId = if (isNew) result.toString() else customer.id.toString(),
+            targetId = if (isNew) result.toString() else customerToSave.id.toString(),
             newState = "Package: ${customer.packageName}, Fee: ৳${customer.monthlyFee}, Status: ${customer.status}"
         )
         notifyCloudSync()
@@ -247,6 +256,7 @@ class IspRepository(
             val billingMonth = "${item.month} ${item.year}"
             val billNo = "PREV-BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customerId}-${item.month.take(3)}"
             BillEntity(
+                id = generateUniqueId(),
                 billNumber = billNo,
                 customerId = customerId,
                 customerName = customer.name,
@@ -274,7 +284,8 @@ class IspRepository(
     }
 
     suspend fun saveCustomers(customers: List<CustomerEntity>) {
-        customerDao.insertCustomers(customers)
+        val customersToSave = customers.map { if (it.id == 0L) it.copy(id = generateUniqueId()) else it }
+        customerDao.insertCustomers(customersToSave)
         logActivity(
             action = "CUSTOMER_CREATE",
             actionType = "CUSTOMER",
@@ -357,13 +368,14 @@ class IspRepository(
 
     suspend fun savePackage(pkg: IspPackageEntity): Long {
         val isNew = pkg.id == 0L
-        val result = packageDao.insertPackage(pkg)
+        val pkgToSave = if (isNew) pkg.copy(id = generateUniqueId()) else pkg
+        val result = packageDao.insertPackage(pkgToSave)
         logActivity(
             action = if (isNew) "PACKAGE_CREATE" else "PACKAGE_EDIT",
             actionType = "PACKAGE",
             details = if (isNew) "Created ISP package: ${pkg.name} (${pkg.speedMbps} Mbps)" else "Updated ISP package: ${pkg.name}",
             targetEntity = "IspPackage",
-            targetId = if (isNew) result.toString() else pkg.id.toString(),
+            targetId = if (isNew) result.toString() else pkgToSave.id.toString(),
             newState = "Speed: ${pkg.speedMbps} Mbps, Price: ৳${pkg.monthlyPrice}"
         )
         notifyCloudSync()
@@ -477,7 +489,8 @@ class IspRepository(
             val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
             newBills.add(
                 BillEntity(
-                    billNumber = billNo,
+                    id = generateUniqueId(),
+                billNumber = billNo,
                     customerId = customer.id,
                     customerName = customer.name,
                     customerCode = customer.customerCode,
@@ -547,6 +560,7 @@ class IspRepository(
 
         val custName = targetBill.customerName
         val payment = PaymentEntity(
+            id = generateUniqueId(),
             paymentReceiptNo = receiptNo,
             billId = targetBill.id,
             customerId = customerId,
@@ -1354,6 +1368,7 @@ class IspRepository(
             return existing.first()
         }
         val defaultDiag = NetworkDiagramEntity(
+            id = generateUniqueId(),
             name = "Default Network Topology",
             isDefault = true
         )
@@ -1362,7 +1377,7 @@ class IspRepository(
     }
 
     suspend fun createNewDiagram(name: String): Long {
-        val diag = NetworkDiagramEntity(name = name.ifBlank { "Network Topology" })
+        val diag = NetworkDiagramEntity(id = generateUniqueId(), name = name.ifBlank { "Network Topology" })
         val id = networkDiagramDao.insertDiagram(diag)
         logActivity(
             action = "NETWORK_DIAGRAM_CREATE",
