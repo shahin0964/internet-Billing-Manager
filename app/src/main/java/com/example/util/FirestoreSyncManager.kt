@@ -718,6 +718,381 @@ object FirestoreSyncManager {
         }
     }
 
+    /**
+     * Performs Automatic Incremental Delta Pull from Firestore to Room.
+     * Fetches only records with updatedAt > lastPullTimestamp, skips locally dirty records (to avoid overwriting unsynced local mutations),
+     * and inserts/updates them in Room with syncStatus = 0 (loop prevention).
+     */
+    suspend fun pullDeltaFromCloud(context: Context): Boolean = withContext(Dispatchers.IO) {
+        com.example.IspApplication.ensureFirebaseInitialized(context)
+        val uid = getCurrentUid(context)
+        if (uid.isNullOrBlank()) {
+            Log.d(TAG, "Delta Pull skipped: User is guest or unauthenticated.")
+            return@withContext false
+        }
+
+        val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+        val lastPullKey = "last_delta_pull_time_$uid"
+        val lastPullTime = prefs.getLong(lastPullKey, 0L)
+        val pullStartTime = System.currentTimeMillis()
+
+        try {
+            val firestore = FirebaseFirestore.getInstance()
+            val userRef = firestore.collection("users").document(uid)
+            val db = IspDatabase.getDatabase(context)
+
+            // Step 1: Query only records modified after lastPullTime
+            var pulledCount = 0
+
+            // 1. Customers
+            val custQuery = if (lastPullTime > 0L) {
+                userRef.collection("customers").whereGreaterThan("updatedAt", lastPullTime)
+            } else {
+                userRef.collection("customers")
+            }
+            val custDocs = custQuery.get().await()
+            val dirtyCustIds = db.customerDao().getDirtyCustomers().map { it.id }.toSet()
+            val customersToApply = custDocs.documents.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyCustIds.contains(id)) return@mapNotNull null // Protect local dirty mutation
+                    CustomerEntity(
+                        id = id,
+                        customerCode = doc.getString("customerCode") ?: "CUST-$id",
+                        name = doc.getString("name") ?: "",
+                        phone = doc.getString("phone") ?: "",
+                        address = doc.getString("address") ?: "",
+                        pppoeUsername = doc.getString("pppoeUsername") ?: "",
+                        ipAddress = doc.getString("ipAddress") ?: "",
+                        packageId = doc.getLong("packageId") ?: 0L,
+                        packageName = doc.getString("packageName") ?: "",
+                        monthlyFee = doc.getDouble("monthlyFee") ?: 0.0,
+                        status = doc.getString("status") ?: "ACTIVE",
+                        joiningDate = doc.getString("joiningDate") ?: "",
+                        notes = doc.getString("notes") ?: "",
+                        area = doc.getString("area") ?: "",
+                        zone = doc.getString("zone") ?: "",
+                        latitude = doc.getDouble("latitude") ?: 0.0,
+                        longitude = doc.getDouble("longitude") ?: 0.0,
+                        oltName = doc.getString("oltName") ?: "",
+                        ponPort = doc.getString("ponPort") ?: "",
+                        onuSerial = doc.getString("onuSerial") ?: "",
+                        routerName = doc.getString("routerName") ?: "",
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            }
+            pulledCount += customersToApply.size
+
+            // 2. Packages
+            val pkgQuery = if (lastPullTime > 0L) {
+                userRef.collection("packages").whereGreaterThan("updatedAt", lastPullTime)
+            } else {
+                userRef.collection("packages")
+            }
+            val pkgDocs = pkgQuery.get().await()
+            val dirtyPkgIds = db.packageDao().getDirtyPackages().map { it.id }.toSet()
+            val packagesToApply = pkgDocs.documents.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyPkgIds.contains(id)) return@mapNotNull null
+                    IspPackageEntity(
+                        id = id,
+                        name = doc.getString("name") ?: "",
+                        speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
+                        monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
+                        description = doc.getString("description") ?: "",
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            }
+            pulledCount += packagesToApply.size
+
+            // 3. Bills
+            val billQuery = if (lastPullTime > 0L) {
+                userRef.collection("bills").whereGreaterThan("updatedAt", lastPullTime)
+            } else {
+                userRef.collection("bills")
+            }
+            val billDocs = billQuery.get().await()
+            val dirtyBillIds = db.billDao().getDirtyBills().map { it.id }.toSet()
+            val billsToApply = billDocs.documents.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyBillIds.contains(id)) return@mapNotNull null
+                    BillEntity(
+                        id = id,
+                        billNumber = doc.getString("billNumber") ?: "",
+                        customerId = doc.getLong("customerId") ?: 0L,
+                        customerName = doc.getString("customerName") ?: "",
+                        customerCode = doc.getString("customerCode") ?: "",
+                        billingMonth = doc.getString("billingMonth") ?: "",
+                        amount = doc.getDouble("amount") ?: 0.0,
+                        paidAmount = doc.getDouble("paidAmount") ?: 0.0,
+                        dueAmount = doc.getDouble("dueAmount") ?: 0.0,
+                        status = doc.getString("status") ?: "UNPAID",
+                        generatedDate = doc.getString("generatedDate") ?: "",
+                        dueDate = doc.getString("dueDate") ?: "",
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            }
+            pulledCount += billsToApply.size
+
+            // 4. Payments
+            val payQuery = if (lastPullTime > 0L) {
+                userRef.collection("payments").whereGreaterThan("updatedAt", lastPullTime)
+            } else {
+                userRef.collection("payments")
+            }
+            val payDocs = payQuery.get().await()
+            val dirtyPayIds = db.paymentDao().getDirtyPayments().map { it.id }.toSet()
+            val paymentsToApply = payDocs.documents.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyPayIds.contains(id)) return@mapNotNull null
+                    PaymentEntity(
+                        id = id,
+                        paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
+                        billId = doc.getLong("billId") ?: 0L,
+                        customerId = doc.getLong("customerId") ?: 0L,
+                        customerName = doc.getString("customerName") ?: "",
+                        amount = doc.getDouble("amount") ?: 0.0,
+                        paymentDate = doc.getString("paymentDate") ?: "",
+                        paymentMethod = doc.getString("paymentMethod") ?: "Cash",
+                        notes = doc.getString("notes") ?: "",
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            }
+            pulledCount += paymentsToApply.size
+
+            // 5. Expenses
+            val expQuery = if (lastPullTime > 0L) {
+                userRef.collection("expenses").whereGreaterThan("updatedAt", lastPullTime)
+            } else {
+                userRef.collection("expenses")
+            }
+            val expDocs = expQuery.get().await()
+            val dirtyExpIds = db.expenseDao().getDirtyExpenses().map { it.id }.toSet()
+            val expensesToApply = expDocs.documents.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyExpIds.contains(id)) return@mapNotNull null
+                    ExpenseEntity(
+                        id = id,
+                        title = doc.getString("title") ?: "",
+                        amount = doc.getDouble("amount") ?: 0.0,
+                        category = doc.getString("category") ?: "",
+                        date = doc.getString("date") ?: "",
+                        paymentMethod = doc.getString("paymentMethod") ?: "Cash",
+                        note = doc.getString("note") ?: "",
+                        receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
+                        createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            }
+            pulledCount += expensesToApply.size
+
+            // 6. Expense Categories
+            val catQuery = if (lastPullTime > 0L) {
+                userRef.collection("expense_categories").whereGreaterThan("updatedAt", lastPullTime)
+            } else {
+                userRef.collection("expense_categories")
+            }
+            val catDocs = catQuery.get().await()
+            val dirtyCatIds = db.expenseDao().getDirtyCategories().map { it.id }.toSet()
+            val categoriesToApply = catDocs.documents.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyCatIds.contains(id)) return@mapNotNull null
+                    ExpenseCategoryEntity(
+                        id = id,
+                        name = doc.getString("name") ?: "",
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            }
+            pulledCount += categoriesToApply.size
+
+            // 7. Business Settings
+            val settingsDoc = try {
+                userRef.collection("settings").document("business_settings").get().await()
+            } catch (e: Exception) { null }
+            val dirtySettings = db.settingsDao().getDirtySettings()
+            val settingsToApply = if (settingsDoc != null && settingsDoc.exists() && dirtySettings == null) {
+                val remoteUpdatedAt = settingsDoc.getLong("updatedAt") ?: 0L
+                if (remoteUpdatedAt > lastPullTime) {
+                    BusinessSettingsEntity(
+                        id = 1,
+                        ispName = settingsDoc.getString("ispName") ?: "",
+                        hotline = settingsDoc.getString("hotline") ?: "",
+                        address = settingsDoc.getString("address") ?: "",
+                        currencySymbol = settingsDoc.getString("currencySymbol") ?: "৳",
+                        networkStatus = settingsDoc.getString("networkStatus") ?: "Operational",
+                        themeMode = settingsDoc.getString("themeMode") ?: "SYSTEM",
+                        logoUri = settingsDoc.getString("logoUri")?.ifEmpty { null },
+                        email = settingsDoc.getString("email") ?: "",
+                        updatedAt = remoteUpdatedAt,
+                        syncStatus = 0
+                    )
+                } else null
+            } else null
+            if (settingsToApply != null) pulledCount += 1
+
+            // 8. Network Diagrams
+            val diagDocs = try {
+                val q = if (lastPullTime > 0L) userRef.collection("network_diagrams").whereGreaterThan("updatedAt", lastPullTime)
+                        else userRef.collection("network_diagrams")
+                q.get().await()
+            } catch (e: Exception) { null }
+            val dirtyDiagIds = db.networkDiagramDao().getDirtyDiagrams().map { it.id }.toSet()
+            val diagramsToApply = diagDocs?.documents?.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyDiagIds.contains(id)) return@mapNotNull null
+                    NetworkDiagramEntity(
+                        id = id,
+                        name = doc.getString("name") ?: "",
+                        isDefault = doc.getBoolean("isDefault") ?: false,
+                        createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            } ?: emptyList()
+            pulledCount += diagramsToApply.size
+
+            // 9. Network Nodes
+            val nodeDocs = try {
+                val q = if (lastPullTime > 0L) userRef.collection("network_nodes").whereGreaterThan("updatedAt", lastPullTime)
+                        else userRef.collection("network_nodes")
+                q.get().await()
+            } catch (e: Exception) { null }
+            val dirtyNodeIds = db.networkDiagramDao().getDirtyNodes().map { it.id }.toSet()
+            val nodesToApply = nodeDocs?.documents?.mapNotNull { doc ->
+                try {
+                    val id = doc.getString("id") ?: doc.id
+                    if (dirtyNodeIds.contains(id)) return@mapNotNull null
+                    NetworkNodeEntity(
+                        id = id,
+                        diagramId = doc.getLong("diagramId") ?: 0L,
+                        name = doc.getString("name") ?: "",
+                        type = doc.getString("type") ?: "MIKROTIK",
+                        ipAddress = doc.getString("ipAddress") ?: "",
+                        location = doc.getString("location") ?: "",
+                        areaZone = doc.getString("areaZone") ?: "",
+                        portInfo = doc.getString("portInfo") ?: "",
+                        customerRef = doc.getString("customerRef") ?: "",
+                        customerId = doc.getString("customerId") ?: "",
+                        notes = doc.getString("notes") ?: "",
+                        positionX = (doc.getDouble("positionX") ?: 0.0).toFloat(),
+                        positionY = (doc.getDouble("positionY") ?: 0.0).toFloat(),
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            } ?: emptyList()
+            pulledCount += nodesToApply.size
+
+            // 10. Network Connections
+            val connDocs = try {
+                val q = if (lastPullTime > 0L) userRef.collection("network_connections").whereGreaterThan("updatedAt", lastPullTime)
+                        else userRef.collection("network_connections")
+                q.get().await()
+            } catch (e: Exception) { null }
+            val dirtyConnIds = db.networkDiagramDao().getDirtyConnections().map { it.id }.toSet()
+            val connectionsToApply = connDocs?.documents?.mapNotNull { doc ->
+                try {
+                    val id = doc.getString("id") ?: doc.id
+                    if (dirtyConnIds.contains(id)) return@mapNotNull null
+                    NetworkConnectionEntity(
+                        id = id,
+                        diagramId = doc.getLong("diagramId") ?: 0L,
+                        fromNodeId = doc.getString("fromNodeId") ?: "",
+                        toNodeId = doc.getString("toNodeId") ?: "",
+                        label = doc.getString("label") ?: "",
+                        notes = doc.getString("notes") ?: "",
+                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            } ?: emptyList()
+            pulledCount += connectionsToApply.size
+
+            // 11. Audit Logs
+            val auditDocs = try {
+                val q = if (lastPullTime > 0L) userRef.collection("audit_logs").whereGreaterThan("timestamp", lastPullTime)
+                        else userRef.collection("audit_logs")
+                q.get().await()
+            } catch (e: Exception) { null }
+            val dirtyLogIds = db.auditLogDao().getDirtyAuditLogs().map { it.id }.toSet()
+            val logsToApply = auditDocs?.documents?.mapNotNull { doc ->
+                try {
+                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    if (dirtyLogIds.contains(id)) return@mapNotNull null
+                    AuditLogEntity(
+                        id = id,
+                        action = doc.getString("action") ?: "",
+                        actionType = doc.getString("actionType") ?: "",
+                        details = doc.getString("details") ?: "",
+                        userEmail = doc.getString("userEmail") ?: "",
+                        userRole = doc.getString("userRole") ?: "",
+                        targetEntity = doc.getString("targetEntity") ?: "",
+                        targetId = doc.getString("targetId") ?: "",
+                        previousState = doc.getString("previousState") ?: "",
+                        newState = doc.getString("newState") ?: "",
+                        status = doc.getString("status") ?: "SUCCESS",
+                        timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            } ?: emptyList()
+            pulledCount += logsToApply.size
+
+            // Step 2: Apply pulled delta records transactionally to Room
+            if (pulledCount > 0) {
+                db.withTransaction {
+                    if (customersToApply.isNotEmpty()) db.customerDao().insertCustomers(customersToApply)
+                    if (packagesToApply.isNotEmpty()) db.packageDao().insertPackages(packagesToApply)
+                    if (billsToApply.isNotEmpty()) db.billDao().insertBills(billsToApply)
+                    if (paymentsToApply.isNotEmpty()) db.paymentDao().insertPayments(paymentsToApply)
+                    if (expensesToApply.isNotEmpty()) db.expenseDao().insertExpenses(expensesToApply)
+                    if (categoriesToApply.isNotEmpty()) db.expenseDao().insertCategories(categoriesToApply)
+                    if (settingsToApply != null) db.settingsDao().insertOrUpdateSettings(settingsToApply)
+                    if (diagramsToApply.isNotEmpty()) diagramsToApply.forEach { db.networkDiagramDao().insertDiagram(it) }
+                    if (nodesToApply.isNotEmpty()) db.networkDiagramDao().insertNodes(nodesToApply)
+                    if (connectionsToApply.isNotEmpty()) db.networkDiagramDao().insertConnections(connectionsToApply)
+                    if (logsToApply.isNotEmpty()) db.auditLogDao().insertLogs(logsToApply)
+                }
+                Log.i(TAG, "Delta Pull: Successfully applied $pulledCount changed records into Room")
+            } else {
+                Log.d(TAG, "Delta Pull: No remote changes found since $lastPullTime")
+            }
+
+            // Step 3: Advance last successful pull position only upon successful completion
+            prefs.edit().putLong(lastPullKey, pullStartTime).apply()
+            true
+        } catch (e: FirebaseFirestoreException) {
+            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                Log.w(TAG, "Delta Pull skipped (Permission Denied): Check Firestore security rules or authentication status.")
+            } else {
+                Log.w(TAG, "Firestore error pulling delta data: ${e.message}")
+            }
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Error pulling delta data from Firestore: ${e.message}")
+            false
+        }
+    }
+
     private data class RestoredCloudPayload(
         val customers: List<CustomerEntity>,
         val packages: List<IspPackageEntity>,
@@ -1106,8 +1481,9 @@ class CloudSyncWorker(
 
     override suspend fun doWork(): Result {
         Log.d("CloudSyncWorker", "Executing scheduled background cloud sync...")
-        val success = FirestoreSyncManager.syncLocalToCloud(context)
-        return if (success) {
+        val uploadSuccess = FirestoreSyncManager.syncLocalToCloud(context)
+        val pullSuccess = FirestoreSyncManager.pullDeltaFromCloud(context)
+        return if (uploadSuccess || pullSuccess) {
             Result.success()
         } else {
             Result.failure()
