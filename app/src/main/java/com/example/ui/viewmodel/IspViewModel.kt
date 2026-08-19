@@ -461,10 +461,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         amount: Double,
         paymentMethod: String,
         notes: String,
+        advanceMonths: Int = 0,
         onSuccess: ((PaymentEntity) -> Unit)? = null
     ) {
         viewModelScope.launch {
-            val payment = repository.recordPayment(billId, customerId, amount, paymentMethod, notes)
+            val payment = repository.recordPayment(billId, customerId, amount, paymentMethod, notes, advanceMonths)
             if (payment != null) {
                 _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_payment_recorded, settings.value.currencySymbol, amount.formatAmount())
                 onSuccess?.invoke(payment)

@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -587,12 +588,26 @@ class IspRepository(
         return@withLock generatedCount
     }
 
+    private fun getNextMonth(currentMonthYear: String): String {
+        val sdf = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+        return try {
+            val date = sdf.parse(currentMonthYear) ?: return ""
+            val calendar = Calendar.getInstance()
+            calendar.time = date
+            calendar.add(Calendar.MONTH, 1)
+            sdf.format(calendar.time)
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     suspend fun recordPayment(
         billId: Long,
         customerId: Long,
         amount: Double,
         paymentMethod: String,
-        notes: String
+        notes: String,
+        advanceMonths: Int = 0
     ): PaymentEntity? {
         val allBills = bills.first()
         val targetBill = allBills.find { it.id == billId } 
@@ -603,6 +618,38 @@ class IspRepository(
         val todayStr = sdf.format(Date())
         val receiptNo = "PAY-${System.currentTimeMillis().toString().takeLast(6)}"
 
+        val now = System.currentTimeMillis()
+        
+        // If advance months, create future bills and mark them PAID
+        if (advanceMonths > 0) {
+            db.withTransaction {
+                var currentMonth = targetBill.billingMonth
+                for (i in 1..advanceMonths) {
+                    currentMonth = getNextMonth(currentMonth)
+                    
+                    // Create new bill
+                    val billNo = "ADV-BILL-${System.currentTimeMillis()}-$i"
+                    val bill = BillEntity(
+                        id = generateUniqueId(),
+                        billNumber = billNo,
+                        customerId = customerId,
+                        customerName = targetBill.customerName,
+                        customerCode = targetBill.customerCode,
+                        billingMonth = currentMonth,
+                        amount = targetBill.amount,
+                        paidAmount = targetBill.amount,
+                        dueAmount = 0.0,
+                        status = "PAID",
+                        generatedDate = todayStr,
+                        dueDate = todayStr,
+                        updatedAt = now,
+                        syncStatus = 1
+                    )
+                    billDao.insertBill(bill)
+                }
+            }
+        }
+
         val newPaid = targetBill.paidAmount + amount
         val newDue = (targetBill.amount - newPaid).coerceAtLeast(0.0)
         val newStatus = when {
@@ -611,7 +658,6 @@ class IspRepository(
             else -> "UNPAID"
         }
 
-        val now = System.currentTimeMillis()
         val updatedBill = targetBill.copy(
             paidAmount = newPaid,
             dueAmount = newDue,
@@ -639,7 +685,7 @@ class IspRepository(
         logActivity(
             action = "PAYMENT_ADDED",
             actionType = "PAYMENT",
-            details = "Recorded payment of ৳${amount} for ${custName} via ${paymentMethod}",
+            details = "Recorded payment of ৳${amount} for ${custName} via ${paymentMethod}" + (if(advanceMonths > 0) " (Advance: $advanceMonths months)" else ""),
             targetEntity = "Payment",
             targetId = pId.toString(),
             newState = "Amount: ৳${amount}, Method: ${paymentMethod}, Receipt: ${receiptNo}"
