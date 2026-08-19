@@ -11,13 +11,13 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 35
 
   defaultConfig {
     
     applicationId = "com.aistudio.ispbilling.control"
     minSdk = 24
-    targetSdk = 36
+    targetSdk = 35
     val envVersionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() }
       ?: project.findProperty("versionName")?.toString()?.takeIf { it.isNotBlank() }
     val envVersionCode = System.getenv("VERSION_CODE")?.takeIf { it.isNotBlank() }?.toIntOrNull()
