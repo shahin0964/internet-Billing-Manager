@@ -34,6 +34,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.BillEntity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Add
+import com.example.data.model.PreviousDueItem
 
 @Composable
 fun PaymentDialog(
@@ -52,7 +61,27 @@ fun PaymentDialog(
     var notes by remember { mutableStateOf("") }
     
     var isAdvancePayment by remember { mutableStateOf(false) }
-    var advanceMonths by remember { mutableStateOf("1") }
+    var advancePaymentsList by remember { mutableStateOf(listOf<PreviousDueItem>()) }
+
+    val monthsList = remember {
+        listOf(
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        )
+    }
+    
+    val currentCal = remember { java.util.Calendar.getInstance() }
+    val currentYearVal = remember { currentCal.get(java.util.Calendar.YEAR) }
+    val yearsList = remember(currentYearVal) {
+        ((currentYearVal - 4)..(currentYearVal + 2)).map { it.toString() }
+    }
+    
+    var selectedAdvanceMonth by remember { mutableStateOf(monthsList[currentCal.get(java.util.Calendar.MONTH)]) }
+    var selectedAdvanceYear by remember { mutableStateOf(currentYearVal.toString()) }
+    var advanceAmountInput by remember { mutableStateOf("") }
+    
+    var monthDropdownExpanded by remember { mutableStateOf(false) }
+    var yearDropdownExpanded by remember { mutableStateOf(false) }
 
     val methods = listOf(
         androidx.compose.ui.res.stringResource(com.example.R.string.cash),
@@ -201,7 +230,19 @@ fun PaymentDialog(
                     }
                 }
 
-                // 3. Advance Payment Toggle (exact design pattern matching CustomerDialog)
+                // 3. Advance Payment Section (exact layout matching CustomerDialog)
+                androidx.compose.material3.HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                )
+
+                Text(
+                    text = "Advance Payment",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                )
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -215,32 +256,186 @@ fun PaymentDialog(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "Advance Payment",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
 
-                // 4. Number of Future Months Input (visible when isAdvancePayment is true)
                 if (isAdvancePayment) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Month Selector
+                            Box(modifier = Modifier.weight(1f)) {
+                                OutlinedTextField(
+                                    value = selectedAdvanceMonth,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Month") },
+                                    trailingIcon = { Text("▼") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { monthDropdownExpanded = true }
+                                )
+                                DropdownMenu(
+                                    expanded = monthDropdownExpanded,
+                                    onDismissRequest = { monthDropdownExpanded = false }
+                                ) {
+                                    monthsList.forEach { m ->
+                                        DropdownMenuItem(
+                                            text = { Text(m) },
+                                            onClick = {
+                                                selectedAdvanceMonth = m
+                                                monthDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Year Selector
+                            Box(modifier = Modifier.weight(1f)) {
+                                OutlinedTextField(
+                                    value = selectedAdvanceYear,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Year") },
+                                    trailingIcon = { Text("▼") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { yearDropdownExpanded = true }
+                                )
+                                DropdownMenu(
+                                    expanded = yearDropdownExpanded,
+                                    onDismissRequest = { yearDropdownExpanded = false }
+                                ) {
+                                    yearsList.forEach { y ->
+                                        DropdownMenuItem(
+                                            text = { Text(y) },
+                                            onClick = {
+                                                selectedAdvanceYear = y
+                                                yearDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = advanceAmountInput,
+                                onValueChange = { advanceAmountInput = it },
+                                label = { Text("Advance Amount ($currencySymbol)") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1.5f)
+                            )
+
+                            Button(
+                                onClick = {
+                                    val amt = advanceAmountInput.replace(",", "").trim().toDoubleOrNull()
+                                    if (amt != null && amt > 0) {
+                                        val alreadyExists = advancePaymentsList.any { it.month == selectedAdvanceMonth && it.year == selectedAdvanceYear }
+                                        if (!alreadyExists) {
+                                            advancePaymentsList = advancePaymentsList + PreviousDueItem(
+                                                month = selectedAdvanceMonth,
+                                                year = selectedAdvanceYear,
+                                                amount = amt
+                                            )
+                                            advanceAmountInput = ""
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Add"
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add")
+                            }
+                        }
+
+                        if (advancePaymentsList.isNotEmpty()) {
+                            Text(
+                                text = "Added Advance Months:",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                            advancePaymentsList.forEach { item ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${item.month} ${item.year} — $currencySymbol${item.amount.formatAmount()}",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                advancePaymentsList = advancePaymentsList.filter { it != item }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isAdvancePayment) {
+                    val totalAmt = (selectedBill?.dueAmount ?: 0.0) + advancePaymentsList.sumOf { it.amount }
                     OutlinedTextField(
-                        value = advanceMonths,
-                        onValueChange = { advanceMonths = it },
-                        label = { Text("Number of Future Months") },
+                        value = "$currencySymbol${totalAmt.formatAmount()}",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Total Payment Amount") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
+                } else {
+                    // 5. Payment Amount Input (ALWAYS VISIBLE if not advance payment)
+                    OutlinedTextField(
+                        value = amountStr,
+                        onValueChange = { amountStr = it },
+                        label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.payment_amount_req)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                // 5. Payment Amount Input (ALWAYS VISIBLE)
-                OutlinedTextField(
-                    value = amountStr,
-                    onValueChange = { amountStr = it },
-                    label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.payment_amount_req)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // 6. Quick Amount Chips (Full / Half) if not advance payment
-                if (!isAdvancePayment) {
+                    // 6. Quick Amount Chips (Full / Half) if not advance payment
                     selectedBill?.let { bill ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -308,8 +503,16 @@ fun PaymentDialog(
             }
         },
         confirmButton = {
-            val parsedAmount = amountStr.replace(",", "").trim().toDoubleOrNull() ?: 0.0
-            val parsedMonths = advanceMonths.trim().toIntOrNull() ?: 0
+            val parsedAmount = if (isAdvancePayment) {
+                (selectedBill?.dueAmount ?: 0.0) + advancePaymentsList.sumOf { it.amount }
+            } else {
+                amountStr.replace(",", "").trim().toDoubleOrNull() ?: 0.0
+            }
+            val parsedMonths = if (isAdvancePayment) {
+                advancePaymentsList.size
+            } else {
+                0
+            }
             val targetCustId = selectedBill?.customerId ?: preSelectedBill?.customerId ?: 0L
 
             val isFormValid = if (isAdvancePayment) {

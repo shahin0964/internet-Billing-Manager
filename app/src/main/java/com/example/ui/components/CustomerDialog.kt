@@ -482,7 +482,16 @@ fun CustomerDialog(
                         monthlyFee = fee,
                         status = status,
                         joiningDate = joiningDate,
-                        notes = notes.trim()
+                        notes = notes.trim(),
+                        area = initialCustomer?.area ?: "",
+                        zone = initialCustomer?.zone ?: "",
+                        latitude = initialCustomer?.latitude ?: 0.0,
+                        longitude = initialCustomer?.longitude ?: 0.0,
+                        oltName = initialCustomer?.oltName ?: "",
+                        ponPort = initialCustomer?.ponPort ?: "",
+                        onuSerial = initialCustomer?.onuSerial ?: "",
+                        routerName = initialCustomer?.routerName ?: "",
+                        advanceBalance = initialCustomer?.advanceBalance ?: 0.0
                     )
                     val duesToSend = if (hasPreviousDue) previousDuesList else emptyList()
                     onSave(customerToSave, duesToSend)

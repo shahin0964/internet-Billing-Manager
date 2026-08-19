@@ -43,7 +43,7 @@ import com.example.data.model.PendingDeletionEntity
         AuditLogEntity::class,
         PendingDeletionEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class IspDatabase : RoomDatabase() {
@@ -230,6 +230,12 @@ abstract class IspDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE customers ADD COLUMN advanceBalance REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
         @Volatile
         private var INSTANCE: IspDatabase? = null
 
@@ -240,7 +246,7 @@ abstract class IspDatabase : RoomDatabase() {
                     IspDatabase::class.java,
                     "isp_control_center.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance

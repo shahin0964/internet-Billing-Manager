@@ -26,6 +26,7 @@ data class CustomerEntity(
     val ponPort: String = "",
     val onuSerial: String = "",
     val routerName: String = "",
+    val advanceBalance: Double = 0.0,
     val updatedAt: Long = System.currentTimeMillis(),
     val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )

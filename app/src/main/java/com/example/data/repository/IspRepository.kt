@@ -538,6 +538,38 @@ class IspRepository(
 
                 val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
                 val now = System.currentTimeMillis()
+
+                val currentAdvance = customer.advanceBalance
+                val billAmount: Double
+                val paidAmount: Double
+                val dueAmount: Double
+                val status: String
+                val advanceToDeduct: Double
+
+                if (currentAdvance >= customer.monthlyFee) {
+                    billAmount = customer.monthlyFee
+                    paidAmount = customer.monthlyFee
+                    dueAmount = 0.0
+                    status = "PAID"
+                    advanceToDeduct = customer.monthlyFee
+                } else {
+                    val applied = currentAdvance
+                    billAmount = customer.monthlyFee - applied
+                    paidAmount = 0.0
+                    dueAmount = billAmount
+                    status = "UNPAID"
+                    advanceToDeduct = applied
+                }
+
+                if (advanceToDeduct > 0.0) {
+                    val updatedCust = customer.copy(
+                        advanceBalance = (customer.advanceBalance - advanceToDeduct).coerceAtLeast(0.0),
+                        updatedAt = now,
+                        syncStatus = 1
+                    )
+                    customerDao.updateCustomer(updatedCust)
+                }
+
                 newBills.add(
                     BillEntity(
                         id = generateUniqueId(),
@@ -546,10 +578,10 @@ class IspRepository(
                         customerName = customer.name,
                         customerCode = customer.customerCode,
                         billingMonth = cleanMonth,
-                        amount = customer.monthlyFee,
-                        paidAmount = 0.0,
-                        dueAmount = customer.monthlyFee,
-                        status = "UNPAID",
+                        amount = billAmount,
+                        paidAmount = paidAmount,
+                        dueAmount = dueAmount,
+                        status = status,
                         generatedDate = todayStr,
                         dueDate = dueDate,
                         updatedAt = now,
@@ -620,37 +652,12 @@ class IspRepository(
 
         val now = System.currentTimeMillis()
         
-        // If advance months, create future bills and mark them PAID
-        if (advanceMonths > 0) {
-            db.withTransaction {
-                var currentMonth = targetBill.billingMonth
-                for (i in 1..advanceMonths) {
-                    currentMonth = getNextMonth(currentMonth)
-                    
-                    // Create new bill
-                    val billNo = "ADV-BILL-${System.currentTimeMillis()}-$i"
-                    val bill = BillEntity(
-                        id = generateUniqueId(),
-                        billNumber = billNo,
-                        customerId = customerId,
-                        customerName = targetBill.customerName,
-                        customerCode = targetBill.customerCode,
-                        billingMonth = currentMonth,
-                        amount = targetBill.amount,
-                        paidAmount = targetBill.amount,
-                        dueAmount = 0.0,
-                        status = "PAID",
-                        generatedDate = todayStr,
-                        dueDate = todayStr,
-                        updatedAt = now,
-                        syncStatus = 1
-                    )
-                    billDao.insertBill(bill)
-                }
-            }
-        }
+        val customer = customerDao.getCustomerById(customerId).first() ?: return null
+        val billDue = targetBill.dueAmount
+        val extra = (amount - billDue).coerceAtLeast(0.0)
 
-        val newPaid = targetBill.paidAmount + amount
+        val appliedToBill = if (amount >= billDue) billDue else amount
+        val newPaid = targetBill.paidAmount + appliedToBill
         val newDue = (targetBill.amount - newPaid).coerceAtLeast(0.0)
         val newStatus = when {
             newDue <= 0.0 -> "PAID"
@@ -666,6 +673,15 @@ class IspRepository(
             syncStatus = 1
         )
         billDao.updateBill(updatedBill)
+
+        if (extra > 0.0) {
+            val updatedCust = customer.copy(
+                advanceBalance = customer.advanceBalance + extra,
+                updatedAt = now,
+                syncStatus = 1
+            )
+            customerDao.updateCustomer(updatedCust)
+        }
 
         val custName = targetBill.customerName
         val payment = PaymentEntity(
@@ -1113,7 +1129,8 @@ class IspRepository(
                             monthlyFee = obj.optDouble("monthlyFee", 0.0),
                             status = obj.optString("status", "ACTIVE"),
                             joiningDate = obj.optString("joiningDate", ""),
-                            notes = obj.optString("notes", "")
+                            notes = obj.optString("notes", ""),
+                            advanceBalance = obj.optDouble("advanceBalance", 0.0)
                         )
                     )
                 }
@@ -1324,7 +1341,8 @@ class IspRepository(
                         monthlyFee = obj.optDouble("monthlyFee", 0.0),
                         status = obj.optString("status", "ACTIVE"),
                         joiningDate = obj.optString("joiningDate", ""),
-                        notes = obj.optString("notes", "")
+                        notes = obj.optString("notes", ""),
+                        advanceBalance = obj.optDouble("advanceBalance", 0.0)
                     )
                 )
             }

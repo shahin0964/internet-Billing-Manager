@@ -379,6 +379,7 @@ object FirestoreSyncManager {
                         "ponPort" to customer.ponPort,
                         "onuSerial" to customer.onuSerial,
                         "routerName" to customer.routerName,
+                        "advanceBalance" to customer.advanceBalance,
                         "updatedAt" to customer.updatedAt
                     )
                     val docRef = userRef.collection("customers").document(customer.id.toString())
@@ -778,6 +779,7 @@ object FirestoreSyncManager {
                         ponPort = doc.getString("ponPort") ?: "",
                         onuSerial = doc.getString("onuSerial") ?: "",
                         routerName = doc.getString("routerName") ?: "",
+                        advanceBalance = doc.getDouble("advanceBalance") ?: 0.0,
                         updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
                         syncStatus = 0
                     )
@@ -1154,6 +1156,7 @@ object FirestoreSyncManager {
                             ponPort = doc.getString("ponPort") ?: "",
                             onuSerial = doc.getString("onuSerial") ?: "",
                             routerName = doc.getString("routerName") ?: "",
+                            advanceBalance = doc.getDouble("advanceBalance") ?: 0.0,
                             updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
                             syncStatus = 0
                         )
