@@ -128,3 +128,13 @@ data class PreviousDueItem(
     val year: String,
     val amount: Double
 )
+
+@Entity(tableName = "specific_advances")
+data class SpecificAdvanceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val customerId: Long,
+    val billingMonth: String, // format e.g. "September 2026"
+    val amount: Double,
+    val isConsumed: Boolean = false,
+    val updatedAt: Long = System.currentTimeMillis()
+)

@@ -1002,8 +1002,8 @@ fun MainAppContent(
             preSelectedBill = preSelectedPaymentBill,
             currencySymbol = settings.currencySymbol,
             onDismiss = { showPaymentDialog = false },
-            onRecordPayment = { billId, customerId, amount, method, notes, advanceMonths ->
-                viewModel.recordPayment(billId, customerId, amount, method, notes, advanceMonths) { newPayment ->
+            onRecordPayment = { billId, customerId, amount, method, notes, advanceMonths, specificAdvances ->
+                viewModel.recordPayment(billId, customerId, amount, method, notes, advanceMonths, specificAdvances) { newPayment ->
                     activeReceiptPayment = newPayment
                     showPostPaymentReceiptPrompt = true
                 }

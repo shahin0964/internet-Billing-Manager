@@ -24,6 +24,7 @@ import com.example.data.model.NetworkDiagramEntity
 import com.example.data.model.NetworkNodeEntity
 import com.example.data.model.PaymentEntity
 import com.example.data.model.PreviousDueItem
+import com.example.data.model.SpecificAdvanceEntity
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -539,26 +540,51 @@ class IspRepository(
                 val billNo = "BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customer.id}"
                 val now = System.currentTimeMillis()
 
-                val currentAdvance = customer.advanceBalance
+                val specificAdvance = db.specificAdvanceDao().getUnconsumedSpecificAdvance(customer.id, cleanMonth)
                 val billAmount: Double
                 val paidAmount: Double
                 val dueAmount: Double
                 val status: String
-                val advanceToDeduct: Double
+                var advanceToDeduct = 0.0
 
-                if (currentAdvance >= customer.monthlyFee) {
-                    billAmount = customer.monthlyFee
-                    paidAmount = customer.monthlyFee
-                    dueAmount = 0.0
-                    status = "PAID"
-                    advanceToDeduct = customer.monthlyFee
+                if (specificAdvance != null && specificAdvance.amount > 0.0) {
+                    val advAmt = specificAdvance.amount
+                    if (advAmt >= customer.monthlyFee) {
+                        billAmount = customer.monthlyFee
+                        paidAmount = customer.monthlyFee
+                        dueAmount = 0.0
+                        status = "PAID"
+                        val remainingSpecific = advAmt - customer.monthlyFee
+                        if (remainingSpecific > 0.0) {
+                            db.specificAdvanceDao().insertSpecificAdvance(
+                                specificAdvance.copy(amount = remainingSpecific, updatedAt = now)
+                            )
+                        } else {
+                            db.specificAdvanceDao().markConsumed(specificAdvance.id, now)
+                        }
+                    } else {
+                        billAmount = customer.monthlyFee - advAmt
+                        paidAmount = 0.0
+                        dueAmount = billAmount
+                        status = "UNPAID"
+                        db.specificAdvanceDao().markConsumed(specificAdvance.id, now)
+                    }
                 } else {
-                    val applied = currentAdvance
-                    billAmount = customer.monthlyFee - applied
-                    paidAmount = 0.0
-                    dueAmount = billAmount
-                    status = "UNPAID"
-                    advanceToDeduct = applied
+                    val currentAdvance = customer.advanceBalance
+                    if (currentAdvance >= customer.monthlyFee) {
+                        billAmount = customer.monthlyFee
+                        paidAmount = customer.monthlyFee
+                        dueAmount = 0.0
+                        status = "PAID"
+                        advanceToDeduct = customer.monthlyFee
+                    } else {
+                        val applied = currentAdvance
+                        billAmount = customer.monthlyFee - applied
+                        paidAmount = 0.0
+                        dueAmount = billAmount
+                        status = "UNPAID"
+                        advanceToDeduct = applied
+                    }
                 }
 
                 if (advanceToDeduct > 0.0) {
@@ -639,7 +665,8 @@ class IspRepository(
         amount: Double,
         paymentMethod: String,
         notes: String,
-        advanceMonths: Int = 0
+        advanceMonths: Int = 0,
+        specificAdvances: List<PreviousDueItem> = emptyList()
     ): PaymentEntity? {
         if (amount <= 0.0) return null
 
@@ -730,13 +757,29 @@ class IspRepository(
                 }
 
                 // 5. If there is remaining payment (excess/advance), add to customer's advance balance
-                if (remainingPayment > 0.0 && customer != null) {
+                val specificTotal = specificAdvances.sumOf { it.amount }
+                val genericAdvanceAmount = (remainingPayment - specificTotal).coerceAtLeast(0.0)
+                if (genericAdvanceAmount > 0.0 && customer != null) {
                     val updatedCust = customer.copy(
-                        advanceBalance = customer.advanceBalance + remainingPayment,
+                        advanceBalance = customer.advanceBalance + genericAdvanceAmount,
                         updatedAt = now,
                         syncStatus = 1
                     )
                     customerDao.updateCustomer(updatedCust)
+                }
+
+                // 5b. Save specific advances
+                if (effectiveCustId != 0L) {
+                    for (adv in specificAdvances) {
+                        val entity = SpecificAdvanceEntity(
+                            customerId = effectiveCustId,
+                            billingMonth = "${adv.month} ${adv.year}",
+                            amount = adv.amount,
+                            isConsumed = false,
+                            updatedAt = now
+                        )
+                        db.specificAdvanceDao().insertSpecificAdvance(entity)
+                    }
                 }
 
                 // 6. Record payment entity

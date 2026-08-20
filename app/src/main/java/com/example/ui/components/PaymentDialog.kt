@@ -50,7 +50,7 @@ fun PaymentDialog(
     preSelectedBill: BillEntity? = null,
     currencySymbol: String,
     onDismiss: () -> Unit,
-    onRecordPayment: (billId: Long, customerId: Long, amount: Double, method: String, notes: String, advanceMonths: Int) -> Unit
+    onRecordPayment: (billId: Long, customerId: Long, amount: Double, method: String, notes: String, advanceMonths: Int, specificAdvances: List<PreviousDueItem>) -> Unit
 ) {
     var selectedBill by remember { mutableStateOf(preSelectedBill ?: unpaidBills.firstOrNull()) }
     var billDropdownExpanded by remember { mutableStateOf(false) }
@@ -526,13 +526,13 @@ fun PaymentDialog(
                     if (isAdvancePayment) {
                         if (targetCustId != 0L && parsedMonths > 0 && parsedAmount > 0) {
                             val billIdToPass = selectedBill?.id ?: preSelectedBill?.id ?: 0L
-                            onRecordPayment(billIdToPass, targetCustId, parsedAmount, paymentMethod, notes, parsedMonths)
+                            onRecordPayment(billIdToPass, targetCustId, parsedAmount, paymentMethod, notes, parsedMonths, advancePaymentsList)
                         }
                     } else {
                         val billIdToPass = selectedBill?.id ?: preSelectedBill?.id ?: 0L
                         val custIdToPass = targetCustId
                         if (parsedAmount > 0 && (billIdToPass != 0L || custIdToPass != 0L)) {
-                            onRecordPayment(billIdToPass, custIdToPass, parsedAmount, paymentMethod, notes, 0)
+                            onRecordPayment(billIdToPass, custIdToPass, parsedAmount, paymentMethod, notes, 0, emptyList())
                         }
                     }
                 },

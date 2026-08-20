@@ -15,6 +15,7 @@ import com.example.data.dao.IspPackageDao
 import com.example.data.dao.NetworkDiagramDao
 import com.example.data.dao.PaymentDao
 import com.example.data.dao.PendingDeletionDao
+import com.example.data.dao.SpecificAdvanceDao
 import com.example.data.model.AuditLogEntity
 import com.example.data.model.BillEntity
 import com.example.data.model.BusinessSettingsEntity
@@ -27,6 +28,7 @@ import com.example.data.model.NetworkDiagramEntity
 import com.example.data.model.NetworkNodeEntity
 import com.example.data.model.PaymentEntity
 import com.example.data.model.PendingDeletionEntity
+import com.example.data.model.SpecificAdvanceEntity
 
 @Database(
     entities = [
@@ -41,9 +43,10 @@ import com.example.data.model.PendingDeletionEntity
         NetworkNodeEntity::class,
         NetworkConnectionEntity::class,
         AuditLogEntity::class,
-        PendingDeletionEntity::class
+        PendingDeletionEntity::class,
+        SpecificAdvanceEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class IspDatabase : RoomDatabase() {
@@ -57,6 +60,7 @@ abstract class IspDatabase : RoomDatabase() {
     abstract fun networkDiagramDao(): NetworkDiagramDao
     abstract fun auditLogDao(): AuditLogDao
     abstract fun pendingDeletionDao(): PendingDeletionDao
+    abstract fun specificAdvanceDao(): SpecificAdvanceDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -236,6 +240,23 @@ abstract class IspDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `specific_advances` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `customerId` INTEGER NOT NULL,
+                        `billingMonth` TEXT NOT NULL,
+                        `amount` REAL NOT NULL,
+                        `isConsumed` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: IspDatabase? = null
 
@@ -246,7 +267,7 @@ abstract class IspDatabase : RoomDatabase() {
                     IspDatabase::class.java,
                     "isp_control_center.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
                 INSTANCE = instance

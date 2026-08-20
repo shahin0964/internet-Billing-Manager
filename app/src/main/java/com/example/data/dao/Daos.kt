@@ -13,6 +13,7 @@ import com.example.data.model.ExpenseCategoryEntity
 import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
+import com.example.data.model.SpecificAdvanceEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -242,3 +243,19 @@ interface ExpenseDao {
     @Query("DELETE FROM expense_categories")
     suspend fun deleteAllCategories()
 }
+
+@Dao
+interface SpecificAdvanceDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSpecificAdvance(advance: SpecificAdvanceEntity): Long
+
+    @Query("SELECT * FROM specific_advances WHERE customerId = :customerId AND billingMonth = :billingMonth AND isConsumed = 0 LIMIT 1")
+    suspend fun getUnconsumedSpecificAdvance(customerId: Long, billingMonth: String): SpecificAdvanceEntity?
+
+    @Query("UPDATE specific_advances SET isConsumed = 1, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun markConsumed(id: Long, updatedAt: Long)
+
+    @Query("DELETE FROM specific_advances")
+    suspend fun deleteAllSpecificAdvances()
+}
+
