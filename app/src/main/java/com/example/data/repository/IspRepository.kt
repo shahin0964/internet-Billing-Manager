@@ -641,80 +641,145 @@ class IspRepository(
         notes: String,
         advanceMonths: Int = 0
     ): PaymentEntity? {
-        val allBills = bills.first()
-        val targetBill = allBills.find { it.id == billId } 
-            ?: allBills.filter { it.customerId == customerId && it.dueAmount > 0 }.sortedBy { it.id }.firstOrNull()
-            ?: return null
+        if (amount <= 0.0) return null
 
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val todayStr = sdf.format(Date())
-        val receiptNo = "PAY-${System.currentTimeMillis().toString().takeLast(6)}"
+        return try {
+            db.withTransaction {
+                val allBills = billDao.getAllBillsList()
 
-        val now = System.currentTimeMillis()
-        
-        val customer = customerDao.getCustomerById(customerId).first() ?: return null
-        val billDue = targetBill.dueAmount
-        val extra = (amount - billDue).coerceAtLeast(0.0)
+                // 1. Resolve target customer ID
+                val targetCustId = if (customerId != 0L) {
+                    customerId
+                } else if (billId != 0L) {
+                    allBills.find { it.id == billId }?.customerId ?: 0L
+                } else {
+                    0L
+                }
 
-        val appliedToBill = if (amount >= billDue) billDue else amount
-        val newPaid = targetBill.paidAmount + appliedToBill
-        val newDue = (targetBill.amount - newPaid).coerceAtLeast(0.0)
-        val newStatus = when {
-            newDue <= 0.0 -> "PAID"
-            newPaid > 0.0 -> "PARTIAL"
-            else -> "UNPAID"
-        }
+                // 2. Resolve customer entity
+                val customer = if (targetCustId != 0L) {
+                    customerDao.getCustomerById(targetCustId).first()
+                } else null
 
-        val updatedBill = targetBill.copy(
-            paidAmount = newPaid,
-            dueAmount = newDue,
-            status = newStatus,
-            updatedAt = now,
-            syncStatus = 1
-        )
-        billDao.updateBill(updatedBill)
+                // 3. Resolve target bill
+                var targetBill: BillEntity? = if (billId != 0L) {
+                    allBills.find { it.id == billId }
+                } else null
 
-        if (extra > 0.0) {
-            val updatedCust = customer.copy(
-                advanceBalance = customer.advanceBalance + extra,
-                updatedAt = now,
-                syncStatus = 1
-            )
-            customerDao.updateCustomer(updatedCust)
-        }
+                if (targetBill == null && targetCustId != 0L) {
+                    val unpaidForCust = allBills.filter { it.customerId == targetCustId && it.dueAmount > 0 }.sortedBy { it.id }
+                    targetBill = unpaidForCust.firstOrNull()
+                        ?: allBills.filter { it.customerId == targetCustId }.maxByOrNull { it.id }
+                }
 
-        val custName = targetBill.customerName
-        val payment = PaymentEntity(
-            id = generateUniqueId(),
-            paymentReceiptNo = receiptNo,
-            billId = targetBill.id,
-            customerId = customerId,
-            customerName = custName,
-            amount = amount,
-            paymentDate = todayStr,
-            paymentMethod = paymentMethod,
-            notes = notes,
-            updatedAt = now,
-            syncStatus = 1
-        )
-        val pId = paymentDao.insertPayment(payment)
-        logActivity(
-            action = "PAYMENT_ADDED",
-            actionType = "PAYMENT",
-            details = "Recorded payment of ৳${amount} for ${custName} via ${paymentMethod}" + (if(advanceMonths > 0) " (Advance: $advanceMonths months)" else ""),
-            targetEntity = "Payment",
-            targetId = pId.toString(),
-            newState = "Amount: ৳${amount}, Method: ${paymentMethod}, Receipt: ${receiptNo}"
-        )
-        val createdPayment = payment.copy(id = pId)
-        try {
-            context?.let { com.example.util.AutomaticSmsManager.onPaymentRecorded(it, createdPayment) }
+                if (targetCustId == 0L && targetBill == null) {
+                    return@withTransaction null
+                }
+
+                val effectiveCustId = if (targetCustId != 0L) targetCustId else (targetBill?.customerId ?: 0L)
+                val now = System.currentTimeMillis()
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val todayStr = sdf.format(Date(now))
+                val receiptNo = "PAY-${System.currentTimeMillis().toString().takeLast(6)}"
+
+                var remainingPayment = amount
+
+                // 4. Apply payment to unpaid bills for this customer (oldest to newest)
+                if (effectiveCustId != 0L) {
+                    val unpaidBills = allBills.filter { it.customerId == effectiveCustId && it.dueAmount > 0 }.sortedBy { it.id }
+                    for (b in unpaidBills) {
+                        if (remainingPayment <= 0.0) break
+                        val due = b.dueAmount
+                        val applyAmount = minOf(remainingPayment, due)
+                        val newPaid = b.paidAmount + applyAmount
+                        val newDue = (b.amount - newPaid).coerceAtLeast(0.0)
+                        val newStatus = when {
+                            newDue <= 0.0 -> "PAID"
+                            newPaid > 0.0 -> "PARTIAL"
+                            else -> "UNPAID"
+                        }
+                        val updated = b.copy(
+                            paidAmount = newPaid,
+                            dueAmount = newDue,
+                            status = newStatus,
+                            updatedAt = now,
+                            syncStatus = 1
+                        )
+                        billDao.updateBill(updated)
+                        remainingPayment -= applyAmount
+                    }
+                } else if (targetBill != null && remainingPayment > 0.0) {
+                    val due = targetBill.dueAmount
+                    val applyAmount = minOf(remainingPayment, due)
+                    val newPaid = targetBill.paidAmount + applyAmount
+                    val newDue = (targetBill.amount - newPaid).coerceAtLeast(0.0)
+                    val newStatus = when {
+                        newDue <= 0.0 -> "PAID"
+                        newPaid > 0.0 -> "PARTIAL"
+                        else -> "UNPAID"
+                    }
+                    val updated = targetBill.copy(
+                        paidAmount = newPaid,
+                        dueAmount = newDue,
+                        status = newStatus,
+                        updatedAt = now,
+                        syncStatus = 1
+                    )
+                    billDao.updateBill(updated)
+                    remainingPayment -= applyAmount
+                }
+
+                // 5. If there is remaining payment (excess/advance), add to customer's advance balance
+                if (remainingPayment > 0.0 && customer != null) {
+                    val updatedCust = customer.copy(
+                        advanceBalance = customer.advanceBalance + remainingPayment,
+                        updatedAt = now,
+                        syncStatus = 1
+                    )
+                    customerDao.updateCustomer(updatedCust)
+                }
+
+                // 6. Record payment entity
+                val custName = customer?.name ?: targetBill?.customerName ?: "Customer #$effectiveCustId"
+                val linkedBillId = targetBill?.id ?: 0L
+                val payment = PaymentEntity(
+                    id = generateUniqueId(),
+                    paymentReceiptNo = receiptNo,
+                    billId = linkedBillId,
+                    customerId = effectiveCustId,
+                    customerName = custName,
+                    amount = amount,
+                    paymentDate = todayStr,
+                    paymentMethod = paymentMethod,
+                    notes = notes,
+                    updatedAt = now,
+                    syncStatus = 1
+                )
+                val pId = paymentDao.insertPayment(payment)
+                val createdPayment = payment.copy(id = pId)
+
+                logActivity(
+                    action = "PAYMENT_ADDED",
+                    actionType = "PAYMENT",
+                    details = "Recorded payment of ৳${amount} for ${custName} via ${paymentMethod}" + (if (advanceMonths > 0) " (Advance: $advanceMonths months)" else ""),
+                    targetEntity = "Payment",
+                    targetId = pId.toString(),
+                    newState = "Amount: ৳${amount}, Method: ${paymentMethod}, Receipt: ${receiptNo}"
+                )
+
+                try {
+                    context?.let { com.example.util.AutomaticSmsManager.onPaymentRecorded(it, createdPayment) }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to queue payment SMS: ${e.message}")
+                }
+                notifyCloudSync()
+
+                createdPayment
+            }
         } catch (e: Exception) {
-            Log.e("IspRepository", "Failed to queue payment SMS: ${e.message}")
+            Log.e("IspRepository", "Error in recordPayment", e)
+            null
         }
-        notifyCloudSync()
-
-        return createdPayment
     }
 
     suspend fun deletePayment(payment: PaymentEntity): Boolean {

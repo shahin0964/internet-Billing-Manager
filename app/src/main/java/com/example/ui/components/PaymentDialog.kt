@@ -518,20 +518,21 @@ fun PaymentDialog(
             val isFormValid = if (isAdvancePayment) {
                 targetCustId != 0L && parsedMonths > 0 && parsedAmount > 0
             } else {
-                selectedBill != null && parsedAmount > 0
+                (selectedBill != null || targetCustId != 0L) && parsedAmount > 0
             }
 
             Button(
                 onClick = {
                     if (isAdvancePayment) {
                         if (targetCustId != 0L && parsedMonths > 0 && parsedAmount > 0) {
-                            val billIdToPass = selectedBill?.id ?: 0L
+                            val billIdToPass = selectedBill?.id ?: preSelectedBill?.id ?: 0L
                             onRecordPayment(billIdToPass, targetCustId, parsedAmount, paymentMethod, notes, parsedMonths)
                         }
                     } else {
-                        val bill = selectedBill ?: return@Button
-                        if (parsedAmount > 0) {
-                            onRecordPayment(bill.id, bill.customerId, parsedAmount, paymentMethod, notes, 0)
+                        val billIdToPass = selectedBill?.id ?: preSelectedBill?.id ?: 0L
+                        val custIdToPass = targetCustId
+                        if (parsedAmount > 0 && (billIdToPass != 0L || custIdToPass != 0L)) {
+                            onRecordPayment(billIdToPass, custIdToPass, parsedAmount, paymentMethod, notes, 0)
                         }
                     }
                 },

@@ -16,7 +16,7 @@ android {
   defaultConfig {
     
     applicationId = "com.aistudio.ispbilling.control"
-    minSdk = 24
+    minSdk = 29
     targetSdk = 35
     val envVersionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() }
       ?: project.findProperty("versionName")?.toString()?.takeIf { it.isNotBlank() }
