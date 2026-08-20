@@ -497,4 +497,8 @@
     <string name="security_status_done">✓ সম্পন্ন</string>
     <string name="security_status_issue">⚠️ সমস্যা পাওয়া গেছে</string>
     <string name="security_status_not_checked">পরীক্ষা করা হয়নি</string>
+
+    <string name="delete_package_title">ইন্টারনেট প্যাকেজ মুছুন</string>
+    <string name="delete_package_confirm">আপনি কি নিশ্চিত যে আপনি এই ইন্টারনেট প্যাকেজটি মুছতে চান: %s?</string>
+    <string name="msg_package_in_use">এই প্যাকেজটি ডিলিট করা যাবে না কারণ এটি বর্তমানে এক বা একাধিক গ্রাহক ব্যবহার করছেন।</string>
 </resources>

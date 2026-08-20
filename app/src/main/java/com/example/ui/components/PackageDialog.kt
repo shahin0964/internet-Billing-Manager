@@ -25,12 +25,51 @@ fun PackageDialog(
     initialPackage: IspPackageEntity? = null,
     currencySymbol: String,
     onDismiss: () -> Unit,
-    onSave: (IspPackageEntity) -> Unit
+    onSave: (IspPackageEntity) -> Unit,
+    onDelete: ((IspPackageEntity) -> Unit)? = null
 ) {
     var name by remember { mutableStateOf(initialPackage?.name ?: "") }
     var speedStr by remember { mutableStateOf(initialPackage?.speedMbps?.toString() ?: "20") }
     var priceStr by remember { mutableStateOf(initialPackage?.monthlyPrice?.formatAmount() ?: "40") }
     var description by remember { mutableStateOf(initialPackage?.description ?: "") }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirm && initialPackage != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.delete_package_title),
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.delete_package_confirm, initialPackage.name),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete?.invoke(initialPackage)
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
+                }
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -104,8 +143,22 @@ fun PackageDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
+            androidx.compose.foundation.layout.Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (initialPackage != null && onDelete != null) {
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text(androidx.compose.ui.res.stringResource(com.example.R.string.delete))
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
+                }
             }
         }
     )

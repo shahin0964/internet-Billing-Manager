@@ -525,4 +525,8 @@
     <string name="security_status_done">✓ Done</string>
     <string name="security_status_issue">⚠️ Issue Found</string>
     <string name="security_status_not_checked">Not checked / Last known status</string>
+
+    <string name="delete_package_title">Delete Internet Package</string>
+    <string name="delete_package_confirm">Are you sure you want to delete this Internet Package: %s?</string>
+    <string name="msg_package_in_use">Cannot delete this package as it is currently assigned to one or more customers.</string>
 </resources>
