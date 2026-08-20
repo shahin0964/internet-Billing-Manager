@@ -26,6 +26,7 @@ import com.example.data.model.NetworkNodeEntity
 import com.example.data.model.PendingDeletionEntity
 import androidx.room.withTransaction
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
@@ -44,6 +45,33 @@ object FirestoreSyncManager {
     private const val TAG = "FirestoreSyncManager"
     private const val WORK_NAME_PERIODIC = "cloud_sync_periodic"
     private const val WORK_NAME_ONE_TIME = "cloud_sync_one_time"
+
+    private fun DocumentSnapshot.safeDouble(field: String, default: Double = 0.0): Double {
+        val v = this.get(field)
+        return when (v) {
+            is Number -> v.toDouble()
+            is String -> v.toDoubleOrNull() ?: default
+            else -> default
+        }
+    }
+
+    private fun DocumentSnapshot.safeLong(field: String, default: Long = 0L): Long {
+        val v = this.get(field)
+        return when (v) {
+            is Number -> v.toLong()
+            is String -> v.toLongOrNull() ?: default
+            else -> default
+        }
+    }
+
+    private fun DocumentSnapshot.safeInt(field: String, default: Int = 0): Int {
+        val v = this.get(field)
+        return when (v) {
+            is Number -> v.toInt()
+            is String -> v.toIntOrNull() ?: default
+            else -> default
+        }
+    }
 
     /**
      * Helper to execute WriteBatch in chunks (up to 450 operations per batch, well below Firestore 500 limit).
@@ -720,6 +748,357 @@ object FirestoreSyncManager {
     }
 
     /**
+     * Dedicated Safe Manual "Backup to Cloud" Operation:
+     * Reads ALL existing local customers from Room (db.customerDao().getAllCustomersList()) regardless of syncStatus (0 or 1),
+     * along with any other local entities, and safely uploads them to Firestore under users/{uid}/customers/{customerId}
+     * using SetOptions.merge() so that existing cloud data is never overwritten or deleted.
+     * Guarantees that local customers missing from Firestore are created, existing ones are merged,
+     * and returns true ONLY when all batch writes succeed.
+     */
+    suspend fun uploadAllLocalDataToCloud(context: Context): Boolean = withContext(Dispatchers.IO) {
+        com.example.IspApplication.ensureFirebaseInitialized(context)
+        val uid = getCurrentUid(context)
+        if (uid.isNullOrBlank()) {
+            Log.d(TAG, "Backup to Cloud failed: User is guest or unauthenticated.")
+            return@withContext false
+        }
+
+        try {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("is_syncing", true).apply()
+
+            val db = IspDatabase.getDatabase(context)
+            val firestore = FirebaseFirestore.getInstance()
+            val userRef = firestore.collection("users").document(uid)
+
+            // Step 1: Collect ALL local customers regardless of syncStatus (0 or 1)
+            val allCustomers = db.customerDao().getAllCustomersList()
+            
+            // Collect any other entities to ensure full synchronization
+            val dirtyPackages = db.packageDao().getDirtyPackages()
+            val dirtyBills = db.billDao().getDirtyBills()
+            val dirtyPayments = db.paymentDao().getDirtyPayments()
+            val dirtyExpenses = db.expenseDao().getDirtyExpenses()
+            val dirtyCategories = db.expenseDao().getDirtyCategories()
+            val dirtySettings = db.settingsDao().getDirtySettings()
+            val dirtyDiagrams = db.networkDiagramDao().getDirtyDiagrams()
+            val dirtyNodes = db.networkDiagramDao().getDirtyNodes()
+            val dirtyConnections = db.networkDiagramDao().getDirtyConnections()
+            val dirtyAuditLogs = db.auditLogDao().getDirtyAuditLogs()
+            val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions()
+
+            val batchOperations = mutableListOf<(WriteBatch) -> Unit>()
+            val customersToMarkSynced = mutableListOf<Long>()
+            val packagesToMarkSynced = mutableListOf<Long>()
+            val billsToMarkSynced = mutableListOf<Long>()
+            val paymentsToMarkSynced = mutableListOf<Long>()
+            val expensesToMarkSynced = mutableListOf<Long>()
+            val categoriesToMarkSynced = mutableListOf<Long>()
+            var settingsToMarkSynced = false
+            val diagramsToMarkSynced = mutableListOf<Long>()
+            val nodesToMarkSynced = mutableListOf<String>()
+            val connectionsToMarkSynced = mutableListOf<String>()
+            val auditLogsToMarkSynced = mutableListOf<Long>()
+
+            // 1. Pending Deletions
+            for (del in pendingDeletions) {
+                val docRef = userRef.collection(del.collectionName).document(del.documentId)
+                batchOperations.add { batch ->
+                    batch.delete(docRef)
+                }
+            }
+
+            // 2. ALL Local Customers -> users/{uid}/customers/{customerId} (Safe Merge)
+            for (customer in allCustomers) {
+                val map = mapOf(
+                    "id" to customer.id,
+                    "customerCode" to customer.customerCode,
+                    "name" to customer.name,
+                    "phone" to customer.phone,
+                    "address" to customer.address,
+                    "pppoeUsername" to customer.pppoeUsername,
+                    "ipAddress" to customer.ipAddress,
+                    "packageId" to customer.packageId,
+                    "packageName" to customer.packageName,
+                    "monthlyFee" to customer.monthlyFee,
+                    "status" to customer.status,
+                    "joiningDate" to customer.joiningDate,
+                    "notes" to customer.notes,
+                    "area" to customer.area,
+                    "zone" to customer.zone,
+                    "latitude" to customer.latitude,
+                    "longitude" to customer.longitude,
+                    "oltName" to customer.oltName,
+                    "ponPort" to customer.ponPort,
+                    "onuSerial" to customer.onuSerial,
+                    "routerName" to customer.routerName,
+                    "advanceBalance" to customer.advanceBalance,
+                    "updatedAt" to customer.updatedAt
+                )
+                val docRef = userRef.collection("customers").document(customer.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                customersToMarkSynced.add(customer.id)
+            }
+
+            // 3. Packages
+            for (pkg in dirtyPackages) {
+                val map = mapOf(
+                    "id" to pkg.id,
+                    "name" to pkg.name,
+                    "speedMbps" to pkg.speedMbps,
+                    "monthlyPrice" to pkg.monthlyPrice,
+                    "description" to pkg.description,
+                    "updatedAt" to pkg.updatedAt
+                )
+                val docRef = userRef.collection("packages").document(pkg.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                packagesToMarkSynced.add(pkg.id)
+            }
+
+            // 4. Bills
+            for (bill in dirtyBills) {
+                val map = mapOf(
+                    "id" to bill.id,
+                    "billNumber" to bill.billNumber,
+                    "customerId" to bill.customerId,
+                    "customerName" to bill.customerName,
+                    "customerCode" to bill.customerCode,
+                    "billingMonth" to bill.billingMonth,
+                    "amount" to bill.amount,
+                    "paidAmount" to bill.paidAmount,
+                    "dueAmount" to bill.dueAmount,
+                    "status" to bill.status,
+                    "generatedDate" to bill.generatedDate,
+                    "dueDate" to bill.dueDate,
+                    "updatedAt" to bill.updatedAt
+                )
+                val docRef = userRef.collection("bills").document(bill.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                billsToMarkSynced.add(bill.id)
+            }
+
+            // 5. Payments
+            for (payment in dirtyPayments) {
+                val map = mapOf(
+                    "id" to payment.id,
+                    "paymentReceiptNo" to payment.paymentReceiptNo,
+                    "billId" to payment.billId,
+                    "customerId" to payment.customerId,
+                    "customerName" to payment.customerName,
+                    "amount" to payment.amount,
+                    "paymentDate" to payment.paymentDate,
+                    "paymentMethod" to payment.paymentMethod,
+                    "notes" to payment.notes,
+                    "updatedAt" to payment.updatedAt
+                )
+                val docRef = userRef.collection("payments").document(payment.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                paymentsToMarkSynced.add(payment.id)
+            }
+
+            // 6. Expenses
+            for (expense in dirtyExpenses) {
+                val map = mapOf(
+                    "id" to expense.id,
+                    "title" to expense.title,
+                    "amount" to expense.amount,
+                    "category" to expense.category,
+                    "date" to expense.date,
+                    "paymentMethod" to expense.paymentMethod,
+                    "note" to expense.note,
+                    "receiptPath" to (expense.receiptPath ?: ""),
+                    "createdAt" to expense.createdAt,
+                    "updatedAt" to expense.updatedAt
+                )
+                val docRef = userRef.collection("expenses").document(expense.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                expensesToMarkSynced.add(expense.id)
+            }
+
+            // 7. Categories
+            for (cat in dirtyCategories) {
+                val map = mapOf(
+                    "id" to cat.id,
+                    "name" to cat.name,
+                    "updatedAt" to cat.updatedAt
+                )
+                val docRef = userRef.collection("expense_categories").document(cat.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                categoriesToMarkSynced.add(cat.id)
+            }
+
+            // 8. Settings
+            if (dirtySettings != null) {
+                val map = mapOf(
+                    "id" to dirtySettings.id,
+                    "ispName" to dirtySettings.ispName,
+                    "hotline" to dirtySettings.hotline,
+                    "address" to dirtySettings.address,
+                    "currencySymbol" to dirtySettings.currencySymbol,
+                    "networkStatus" to dirtySettings.networkStatus,
+                    "themeMode" to dirtySettings.themeMode,
+                    "logoUri" to (dirtySettings.logoUri ?: ""),
+                    "email" to (dirtySettings.email ?: ""),
+                    "updatedAt" to dirtySettings.updatedAt
+                )
+                val docRef = userRef.collection("settings").document("business_settings")
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                settingsToMarkSynced = true
+            }
+
+            // 9. Network Diagrams
+            for (diag in dirtyDiagrams) {
+                val map = mapOf(
+                    "id" to diag.id,
+                    "name" to diag.name,
+                    "isDefault" to diag.isDefault,
+                    "createdAt" to diag.createdAt,
+                    "updatedAt" to diag.updatedAt
+                )
+                val docRef = userRef.collection("network_diagrams").document(diag.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, map, SetOptions.merge())
+                }
+                diagramsToMarkSynced.add(diag.id)
+            }
+
+            // 10. Network Nodes
+            for (node in dirtyNodes) {
+                val nodeMap = mapOf(
+                    "id" to node.id,
+                    "diagramId" to node.diagramId,
+                    "name" to node.name,
+                    "type" to node.type,
+                    "ipAddress" to node.ipAddress,
+                    "location" to node.location,
+                    "areaZone" to node.areaZone,
+                    "portInfo" to node.portInfo,
+                    "customerRef" to node.customerRef,
+                    "customerId" to node.customerId,
+                    "notes" to node.notes,
+                    "positionX" to node.positionX,
+                    "positionY" to node.positionY,
+                    "updatedAt" to node.updatedAt
+                )
+                val docRef = userRef.collection("network_nodes").document(node.id)
+                batchOperations.add { batch ->
+                    batch.set(docRef, nodeMap, SetOptions.merge())
+                }
+                nodesToMarkSynced.add(node.id)
+            }
+
+            // 11. Network Connections
+            for (conn in dirtyConnections) {
+                val connMap = mapOf(
+                    "id" to conn.id,
+                    "diagramId" to conn.diagramId,
+                    "fromNodeId" to conn.fromNodeId,
+                    "toNodeId" to conn.toNodeId,
+                    "label" to conn.label,
+                    "notes" to conn.notes,
+                    "updatedAt" to conn.updatedAt
+                )
+                val docRef = userRef.collection("network_connections").document(conn.id)
+                batchOperations.add { batch ->
+                    batch.set(docRef, connMap, SetOptions.merge())
+                }
+                connectionsToMarkSynced.add(conn.id)
+            }
+
+            // 12. Audit Logs
+            for (log in dirtyAuditLogs) {
+                val logMap = mapOf(
+                    "id" to log.id,
+                    "action" to log.action,
+                    "actionType" to log.actionType,
+                    "details" to log.details,
+                    "userEmail" to log.userEmail,
+                    "userRole" to log.userRole,
+                    "targetEntity" to log.targetEntity,
+                    "targetId" to log.targetId,
+                    "previousState" to log.previousState,
+                    "newState" to log.newState,
+                    "status" to log.status,
+                    "timestamp" to log.timestamp
+                )
+                val docRef = userRef.collection("audit_logs").document(log.id.toString())
+                batchOperations.add { batch ->
+                    batch.set(docRef, logMap, SetOptions.merge())
+                }
+                auditLogsToMarkSynced.add(log.id)
+            }
+
+            if (batchOperations.isEmpty()) {
+                Log.d(TAG, "Backup to Cloud: No local records found to write.")
+                prefs.edit().putBoolean("is_syncing", false).apply()
+                return@withContext true
+            }
+
+            Log.i(TAG, "Backup to Cloud: Safely uploading ${allCustomers.size} total local customers (${batchOperations.size} operations total) to Firestore path users/$uid/...")
+            
+            // Execute batches safely in chunks
+            commitBatchedOperations(firestore, batchOperations)
+
+            // Step 3: Mark local entities as synced
+            db.withTransaction {
+                if (pendingDeletions.isNotEmpty()) {
+                    db.pendingDeletionDao().deletePendingDeletionsByIds(pendingDeletions.map { it.id })
+                }
+                if (customersToMarkSynced.isNotEmpty()) db.customerDao().markCustomersSynced(customersToMarkSynced)
+                if (packagesToMarkSynced.isNotEmpty()) db.packageDao().markPackagesSynced(packagesToMarkSynced)
+                if (billsToMarkSynced.isNotEmpty()) db.billDao().markBillsSynced(billsToMarkSynced)
+                if (paymentsToMarkSynced.isNotEmpty()) db.paymentDao().markPaymentsSynced(paymentsToMarkSynced)
+                if (expensesToMarkSynced.isNotEmpty()) db.expenseDao().markExpensesSynced(expensesToMarkSynced)
+                if (categoriesToMarkSynced.isNotEmpty()) db.expenseDao().markCategoriesSynced(categoriesToMarkSynced)
+                if (settingsToMarkSynced) db.settingsDao().markSettingsSynced()
+                if (diagramsToMarkSynced.isNotEmpty()) db.networkDiagramDao().markDiagramsSynced(diagramsToMarkSynced)
+                if (nodesToMarkSynced.isNotEmpty()) db.networkDiagramDao().markNodesSynced(nodesToMarkSynced)
+                if (connectionsToMarkSynced.isNotEmpty()) db.networkDiagramDao().markConnectionsSynced(connectionsToMarkSynced)
+                if (auditLogsToMarkSynced.isNotEmpty()) db.auditLogDao().markAuditLogsSynced(auditLogsToMarkSynced)
+            }
+
+            userRef.collection("sync_meta").document("status").set(
+                mapOf(
+                    "lastSyncTimestamp" to System.currentTimeMillis(),
+                    "lastBatchSize" to batchOperations.size
+                ),
+                SetOptions.merge()
+            ).await()
+
+            prefs.edit()
+                .putLong("last_cloud_sync_time", System.currentTimeMillis())
+                .putInt("pending_sync_count", 0)
+                .putBoolean("is_syncing", false)
+                .apply()
+
+            Log.i(TAG, "Backup to Cloud: Successfully completed backup of ${allCustomers.size} customers to Firestore!")
+            true
+        } catch (e: FirebaseFirestoreException) {
+            context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
+            Log.e(TAG, "Backup to Cloud failed with FirestoreException: ${e.message}", e)
+            false
+        } catch (e: Exception) {
+            context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
+            Log.e(TAG, "Backup to Cloud failed with exception: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
      * Performs Automatic Incremental Delta Pull from Firestore to Room.
      * Fetches only records with updatedAt > lastPullTimestamp, skips locally dirty records (to avoid overwriting unsynced local mutations),
      * and inserts/updates them in Room with syncStatus = 0 (loop prevention).
@@ -755,7 +1134,7 @@ object FirestoreSyncManager {
             val dirtyCustIds = db.customerDao().getDirtyCustomers().map { it.id }.toSet()
             val customersToApply = custDocs.documents.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyCustIds.contains(id)) return@mapNotNull null // Protect local dirty mutation
                     CustomerEntity(
                         id = id,
@@ -765,22 +1144,22 @@ object FirestoreSyncManager {
                         address = doc.getString("address") ?: "",
                         pppoeUsername = doc.getString("pppoeUsername") ?: "",
                         ipAddress = doc.getString("ipAddress") ?: "",
-                        packageId = doc.getLong("packageId") ?: 0L,
+                        packageId = doc.safeLong("packageId", 0L),
                         packageName = doc.getString("packageName") ?: "",
-                        monthlyFee = doc.getDouble("monthlyFee") ?: 0.0,
+                        monthlyFee = doc.safeDouble("monthlyFee", 0.0),
                         status = doc.getString("status") ?: "ACTIVE",
                         joiningDate = doc.getString("joiningDate") ?: "",
                         notes = doc.getString("notes") ?: "",
                         area = doc.getString("area") ?: "",
                         zone = doc.getString("zone") ?: "",
-                        latitude = doc.getDouble("latitude") ?: 0.0,
-                        longitude = doc.getDouble("longitude") ?: 0.0,
+                        latitude = doc.safeDouble("latitude", 0.0),
+                        longitude = doc.safeDouble("longitude", 0.0),
                         oltName = doc.getString("oltName") ?: "",
                         ponPort = doc.getString("ponPort") ?: "",
                         onuSerial = doc.getString("onuSerial") ?: "",
                         routerName = doc.getString("routerName") ?: "",
-                        advanceBalance = doc.getDouble("advanceBalance") ?: 0.0,
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        advanceBalance = doc.safeDouble("advanceBalance", 0.0),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -797,15 +1176,15 @@ object FirestoreSyncManager {
             val dirtyPkgIds = db.packageDao().getDirtyPackages().map { it.id }.toSet()
             val packagesToApply = pkgDocs.documents.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyPkgIds.contains(id)) return@mapNotNull null
                     IspPackageEntity(
                         id = id,
                         name = doc.getString("name") ?: "",
-                        speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
-                        monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
+                        speedMbps = doc.safeInt("speedMbps", 0),
+                        monthlyPrice = doc.safeDouble("monthlyPrice", 0.0),
                         description = doc.getString("description") ?: "",
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -822,22 +1201,22 @@ object FirestoreSyncManager {
             val dirtyBillIds = db.billDao().getDirtyBills().map { it.id }.toSet()
             val billsToApply = billDocs.documents.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyBillIds.contains(id)) return@mapNotNull null
                     BillEntity(
                         id = id,
                         billNumber = doc.getString("billNumber") ?: "",
-                        customerId = doc.getLong("customerId") ?: 0L,
+                        customerId = doc.safeLong("customerId", 0L),
                         customerName = doc.getString("customerName") ?: "",
                         customerCode = doc.getString("customerCode") ?: "",
                         billingMonth = doc.getString("billingMonth") ?: "",
-                        amount = doc.getDouble("amount") ?: 0.0,
-                        paidAmount = doc.getDouble("paidAmount") ?: 0.0,
-                        dueAmount = doc.getDouble("dueAmount") ?: 0.0,
+                        amount = doc.safeDouble("amount", 0.0),
+                        paidAmount = doc.safeDouble("paidAmount", 0.0),
+                        dueAmount = doc.safeDouble("dueAmount", 0.0),
                         status = doc.getString("status") ?: "UNPAID",
                         generatedDate = doc.getString("generatedDate") ?: "",
                         dueDate = doc.getString("dueDate") ?: "",
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -854,19 +1233,19 @@ object FirestoreSyncManager {
             val dirtyPayIds = db.paymentDao().getDirtyPayments().map { it.id }.toSet()
             val paymentsToApply = payDocs.documents.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyPayIds.contains(id)) return@mapNotNull null
                     PaymentEntity(
                         id = id,
                         paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
-                        billId = doc.getLong("billId") ?: 0L,
-                        customerId = doc.getLong("customerId") ?: 0L,
+                        billId = doc.safeLong("billId", 0L),
+                        customerId = doc.safeLong("customerId", 0L),
                         customerName = doc.getString("customerName") ?: "",
-                        amount = doc.getDouble("amount") ?: 0.0,
+                        amount = doc.safeDouble("amount", 0.0),
                         paymentDate = doc.getString("paymentDate") ?: "",
                         paymentMethod = doc.getString("paymentMethod") ?: "Cash",
                         notes = doc.getString("notes") ?: "",
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -883,19 +1262,19 @@ object FirestoreSyncManager {
             val dirtyExpIds = db.expenseDao().getDirtyExpenses().map { it.id }.toSet()
             val expensesToApply = expDocs.documents.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyExpIds.contains(id)) return@mapNotNull null
                     ExpenseEntity(
                         id = id,
                         title = doc.getString("title") ?: "",
-                        amount = doc.getDouble("amount") ?: 0.0,
+                        amount = doc.safeDouble("amount", 0.0),
                         category = doc.getString("category") ?: "",
                         date = doc.getString("date") ?: "",
                         paymentMethod = doc.getString("paymentMethod") ?: "Cash",
                         note = doc.getString("note") ?: "",
                         receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
-                        createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        createdAt = doc.safeLong("createdAt", System.currentTimeMillis()),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -912,12 +1291,12 @@ object FirestoreSyncManager {
             val dirtyCatIds = db.expenseDao().getDirtyCategories().map { it.id }.toSet()
             val categoriesToApply = catDocs.documents.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyCatIds.contains(id)) return@mapNotNull null
                     ExpenseCategoryEntity(
                         id = id,
                         name = doc.getString("name") ?: "",
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -930,7 +1309,7 @@ object FirestoreSyncManager {
             } catch (e: Exception) { null }
             val dirtySettings = db.settingsDao().getDirtySettings()
             val settingsToApply = if (settingsDoc != null && settingsDoc.exists() && dirtySettings == null) {
-                val remoteUpdatedAt = settingsDoc.getLong("updatedAt") ?: 0L
+                val remoteUpdatedAt = settingsDoc.safeLong("updatedAt", 0L)
                 if (remoteUpdatedAt > lastPullTime) {
                     BusinessSettingsEntity(
                         id = 1,
@@ -958,14 +1337,14 @@ object FirestoreSyncManager {
             val dirtyDiagIds = db.networkDiagramDao().getDirtyDiagrams().map { it.id }.toSet()
             val diagramsToApply = diagDocs?.documents?.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyDiagIds.contains(id)) return@mapNotNull null
                     NetworkDiagramEntity(
                         id = id,
                         name = doc.getString("name") ?: "",
                         isDefault = doc.getBoolean("isDefault") ?: false,
-                        createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        createdAt = doc.safeLong("createdAt", System.currentTimeMillis()),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -985,7 +1364,7 @@ object FirestoreSyncManager {
                     if (dirtyNodeIds.contains(id)) return@mapNotNull null
                     NetworkNodeEntity(
                         id = id,
-                        diagramId = doc.getLong("diagramId") ?: 0L,
+                        diagramId = doc.safeLong("diagramId", 0L),
                         name = doc.getString("name") ?: "",
                         type = doc.getString("type") ?: "MIKROTIK",
                         ipAddress = doc.getString("ipAddress") ?: "",
@@ -995,9 +1374,9 @@ object FirestoreSyncManager {
                         customerRef = doc.getString("customerRef") ?: "",
                         customerId = doc.getString("customerId") ?: "",
                         notes = doc.getString("notes") ?: "",
-                        positionX = (doc.getDouble("positionX") ?: 0.0).toFloat(),
-                        positionY = (doc.getDouble("positionY") ?: 0.0).toFloat(),
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        positionX = doc.safeDouble("positionX", 0.0).toFloat(),
+                        positionY = doc.safeDouble("positionY", 0.0).toFloat(),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -1017,12 +1396,12 @@ object FirestoreSyncManager {
                     if (dirtyConnIds.contains(id)) return@mapNotNull null
                     NetworkConnectionEntity(
                         id = id,
-                        diagramId = doc.getLong("diagramId") ?: 0L,
+                        diagramId = doc.safeLong("diagramId", 0L),
                         fromNodeId = doc.getString("fromNodeId") ?: "",
                         toNodeId = doc.getString("toNodeId") ?: "",
                         label = doc.getString("label") ?: "",
                         notes = doc.getString("notes") ?: "",
-                        updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -1038,7 +1417,7 @@ object FirestoreSyncManager {
             val dirtyLogIds = db.auditLogDao().getDirtyAuditLogs().map { it.id }.toSet()
             val logsToApply = auditDocs?.documents?.mapNotNull { doc ->
                 try {
-                    val id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyLogIds.contains(id)) return@mapNotNull null
                     AuditLogEntity(
                         id = id,
@@ -1052,7 +1431,7 @@ object FirestoreSyncManager {
                         previousState = doc.getString("previousState") ?: "",
                         newState = doc.getString("newState") ?: "",
                         status = doc.getString("status") ?: "SUCCESS",
-                        timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
+                        timestamp = doc.safeLong("timestamp", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
@@ -1130,10 +1509,10 @@ object FirestoreSyncManager {
                 // 1. Restore Customers
                 val custDocs = userRef.collection("customers").get().await()
                 val restoredCustomers = custDocs.documents.mapNotNull { doc ->
-                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    val idStr = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L).toString()
                     if (deletedRecords.contains("customers:$idStr")) return@mapNotNull null
                     try {
-                        val custId = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L
+                        val custId = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                         CustomerEntity(
                             id = custId,
                             customerCode = doc.getString("customerCode") ?: "CUST-$custId",
@@ -1142,22 +1521,22 @@ object FirestoreSyncManager {
                             address = doc.getString("address") ?: "",
                             pppoeUsername = doc.getString("pppoeUsername") ?: "",
                             ipAddress = doc.getString("ipAddress") ?: "",
-                            packageId = doc.getLong("packageId") ?: 0L,
+                            packageId = doc.safeLong("packageId", 0L),
                             packageName = doc.getString("packageName") ?: "",
-                            monthlyFee = doc.getDouble("monthlyFee") ?: 0.0,
+                            monthlyFee = doc.safeDouble("monthlyFee", 0.0),
                             status = doc.getString("status") ?: "ACTIVE",
                             joiningDate = doc.getString("joiningDate") ?: "",
                             notes = doc.getString("notes") ?: "",
                             area = doc.getString("area") ?: "",
                             zone = doc.getString("zone") ?: "",
-                            latitude = doc.getDouble("latitude") ?: 0.0,
-                            longitude = doc.getDouble("longitude") ?: 0.0,
+                            latitude = doc.safeDouble("latitude", 0.0),
+                            longitude = doc.safeDouble("longitude", 0.0),
                             oltName = doc.getString("oltName") ?: "",
                             ponPort = doc.getString("ponPort") ?: "",
                             onuSerial = doc.getString("onuSerial") ?: "",
                             routerName = doc.getString("routerName") ?: "",
-                            advanceBalance = doc.getDouble("advanceBalance") ?: 0.0,
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            advanceBalance = doc.safeDouble("advanceBalance", 0.0),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1166,16 +1545,16 @@ object FirestoreSyncManager {
                 // 2. Restore Packages
                 val pkgDocs = userRef.collection("packages").get().await()
                 val restoredPackages = pkgDocs.documents.mapNotNull { doc ->
-                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    val idStr = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L).toString()
                     if (deletedRecords.contains("packages:$idStr")) return@mapNotNull null
                     try {
                         IspPackageEntity(
-                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
                             name = doc.getString("name") ?: "",
-                            speedMbps = doc.getLong("speedMbps")?.toInt() ?: 0,
-                            monthlyPrice = doc.getDouble("monthlyPrice") ?: 0.0,
+                            speedMbps = doc.safeInt("speedMbps", 0),
+                            monthlyPrice = doc.safeDouble("monthlyPrice", 0.0),
                             description = doc.getString("description") ?: "",
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1184,23 +1563,23 @@ object FirestoreSyncManager {
                 // 3. Restore Bills
                 val billDocs = userRef.collection("bills").get().await()
                 val restoredBillsRaw = billDocs.documents.mapNotNull { doc ->
-                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    val idStr = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L).toString()
                     if (deletedRecords.contains("bills:$idStr")) return@mapNotNull null
                     try {
                         BillEntity(
-                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
                             billNumber = doc.getString("billNumber") ?: "",
-                            customerId = doc.getLong("customerId") ?: 0L,
+                            customerId = doc.safeLong("customerId", 0L),
                             customerName = doc.getString("customerName") ?: "",
                             customerCode = doc.getString("customerCode") ?: "",
                             billingMonth = doc.getString("billingMonth") ?: "",
-                            amount = doc.getDouble("amount") ?: 0.0,
-                            paidAmount = doc.getDouble("paidAmount") ?: 0.0,
-                            dueAmount = doc.getDouble("dueAmount") ?: 0.0,
+                            amount = doc.safeDouble("amount", 0.0),
+                            paidAmount = doc.safeDouble("paidAmount", 0.0),
+                            dueAmount = doc.safeDouble("dueAmount", 0.0),
                             status = doc.getString("status") ?: "UNPAID",
                             generatedDate = doc.getString("generatedDate") ?: "",
                             dueDate = doc.getString("dueDate") ?: "",
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1217,20 +1596,20 @@ object FirestoreSyncManager {
                 // 4. Restore Payments
                 val payDocs = userRef.collection("payments").get().await()
                 val restoredPayments = payDocs.documents.mapNotNull { doc ->
-                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    val idStr = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L).toString()
                     if (deletedRecords.contains("payments:$idStr")) return@mapNotNull null
                     try {
                         PaymentEntity(
-                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
                             paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
-                            billId = doc.getLong("billId") ?: 0L,
-                            customerId = doc.getLong("customerId") ?: 0L,
+                            billId = doc.safeLong("billId", 0L),
+                            customerId = doc.safeLong("customerId", 0L),
                             customerName = doc.getString("customerName") ?: "",
-                            amount = doc.getDouble("amount") ?: 0.0,
+                            amount = doc.safeDouble("amount", 0.0),
                             paymentDate = doc.getString("paymentDate") ?: "",
                             paymentMethod = doc.getString("paymentMethod") ?: "Cash",
                             notes = doc.getString("notes") ?: "",
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1239,20 +1618,20 @@ object FirestoreSyncManager {
                 // 5. Restore Expenses
                 val expDocs = userRef.collection("expenses").get().await()
                 val restoredExpenses = expDocs.documents.mapNotNull { doc ->
-                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    val idStr = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L).toString()
                     if (deletedRecords.contains("expenses:$idStr")) return@mapNotNull null
                     try {
                         ExpenseEntity(
-                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
                             title = doc.getString("title") ?: "",
-                            amount = doc.getDouble("amount") ?: 0.0,
+                            amount = doc.safeDouble("amount", 0.0),
                             category = doc.getString("category") ?: "",
                             date = doc.getString("date") ?: "",
                             paymentMethod = doc.getString("paymentMethod") ?: "Cash",
                             note = doc.getString("note") ?: "",
                             receiptPath = doc.getString("receiptPath")?.ifEmpty { null },
-                            createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            createdAt = doc.safeLong("createdAt", System.currentTimeMillis()),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1261,13 +1640,13 @@ object FirestoreSyncManager {
                 // 6. Restore Categories
                 val catDocs = userRef.collection("expense_categories").get().await()
                 val restoredCategories = catDocs.documents.mapNotNull { doc ->
-                    val idStr = doc.getLong("id")?.toString() ?: doc.id
+                    val idStr = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L).toString()
                     if (deletedRecords.contains("expense_categories:$idStr")) return@mapNotNull null
                     try {
                         ExpenseCategoryEntity(
-                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
                             name = doc.getString("name") ?: "",
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1286,7 +1665,7 @@ object FirestoreSyncManager {
                         themeMode = settingsDoc.getString("themeMode") ?: "SYSTEM",
                         logoUri = settingsDoc.getString("logoUri")?.ifEmpty { null },
                         email = settingsDoc.getString("email") ?: "",
-                        updatedAt = settingsDoc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                        updatedAt = settingsDoc.safeLong("updatedAt", System.currentTimeMillis()),
                         syncStatus = 0
                     )
                 } else null
@@ -1298,11 +1677,11 @@ object FirestoreSyncManager {
                 val restoredDiagrams = diagDocs?.documents?.mapNotNull { doc ->
                     try {
                         NetworkDiagramEntity(
-                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
                             name = doc.getString("name") ?: "",
                             isDefault = doc.getBoolean("isDefault") ?: false,
-                            createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            createdAt = doc.safeLong("createdAt", System.currentTimeMillis()),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1315,7 +1694,7 @@ object FirestoreSyncManager {
                     try {
                         NetworkNodeEntity(
                             id = doc.getString("id") ?: doc.id,
-                            diagramId = doc.getLong("diagramId") ?: 0L,
+                            diagramId = doc.safeLong("diagramId", 0L),
                             name = doc.getString("name") ?: "",
                             type = doc.getString("type") ?: "MIKROTIK",
                             ipAddress = doc.getString("ipAddress") ?: "",
@@ -1325,9 +1704,9 @@ object FirestoreSyncManager {
                             customerRef = doc.getString("customerRef") ?: "",
                             customerId = doc.getString("customerId") ?: "",
                             notes = doc.getString("notes") ?: "",
-                            positionX = (doc.getDouble("positionX") ?: 0.0).toFloat(),
-                            positionY = (doc.getDouble("positionY") ?: 0.0).toFloat(),
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            positionX = doc.safeDouble("positionX", 0.0).toFloat(),
+                            positionY = doc.safeDouble("positionY", 0.0).toFloat(),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1340,12 +1719,12 @@ object FirestoreSyncManager {
                     try {
                         NetworkConnectionEntity(
                             id = doc.getString("id") ?: doc.id,
-                            diagramId = doc.getLong("diagramId") ?: 0L,
+                            diagramId = doc.safeLong("diagramId", 0L),
                             fromNodeId = doc.getString("fromNodeId") ?: "",
                             toNodeId = doc.getString("toNodeId") ?: "",
                             label = doc.getString("label") ?: "",
                             notes = doc.getString("notes") ?: "",
-                            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }
@@ -1358,7 +1737,7 @@ object FirestoreSyncManager {
                 val restoredLogs = auditDocs?.documents?.mapNotNull { doc ->
                     try {
                         AuditLogEntity(
-                            id = doc.getLong("id") ?: doc.id.toLongOrNull() ?: 0L,
+                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
                             action = doc.getString("action") ?: "",
                             actionType = doc.getString("actionType") ?: "",
                             details = doc.getString("details") ?: "",
@@ -1369,7 +1748,7 @@ object FirestoreSyncManager {
                             previousState = doc.getString("previousState") ?: "",
                             newState = doc.getString("newState") ?: "",
                             status = doc.getString("status") ?: "SUCCESS",
-                            timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
+                            timestamp = doc.safeLong("timestamp", System.currentTimeMillis()),
                             syncStatus = 0
                         )
                     } catch (e: Exception) { null }

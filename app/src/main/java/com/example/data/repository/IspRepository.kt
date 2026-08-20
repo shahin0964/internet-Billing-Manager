@@ -468,21 +468,44 @@ class IspRepository(
     }
 
     suspend fun updateBill(bill: BillEntity) {
-        val newDue = (bill.amount - bill.paidAmount).coerceAtLeast(0.0)
+        val originalBillNumber = if (bill.billNumber.startsWith("BREAKDOWN|")) {
+            bill.billNumber.substringAfterLast("|")
+        } else {
+            bill.billNumber
+        }
+
+        val previousDue = if (bill.billNumber.startsWith("BREAKDOWN|")) {
+            val allBills = billDao.getBillsListForCustomer(bill.customerId)
+            val unpaidOthers = allBills.filter { (it.status == "UNPAID" || it.status == "PARTIAL") && it.id != bill.id }
+            unpaidOthers.sumOf { it.dueAmount }
+        } else {
+            0.0
+        }
+
+        val individualAmount = (bill.amount - previousDue).coerceAtLeast(0.0)
+        val newDue = (individualAmount - bill.paidAmount).coerceAtLeast(0.0)
         val newStatus = when {
             newDue <= 0.0 -> "PAID"
             bill.paidAmount > 0.0 -> "PARTIAL"
             else -> "UNPAID"
         }
-        val finalBill = bill.copy(dueAmount = newDue, status = newStatus, updatedAt = System.currentTimeMillis(), syncStatus = 1)
+
+        val finalBill = bill.copy(
+            billNumber = originalBillNumber,
+            amount = individualAmount,
+            dueAmount = newDue,
+            status = newStatus,
+            updatedAt = System.currentTimeMillis(),
+            syncStatus = 1
+        )
         billDao.updateBill(finalBill)
         logActivity(
             action = "BILL_EDIT",
             actionType = "BILL",
-            details = "Updated bill #${bill.billNumber} for ${bill.customerName}",
+            details = "Updated bill #${originalBillNumber} for ${bill.customerName}",
             targetEntity = "Bill",
             targetId = bill.id.toString(),
-            newState = "Amount: ৳${bill.amount}, Paid: ৳${bill.paidAmount}, Due: ৳${newDue}, Status: ${newStatus}"
+            newState = "Amount: ৳${individualAmount}, Paid: ৳${bill.paidAmount}, Due: ৳${newDue}, Status: ${newStatus}"
         )
         notifyCloudSync()
     }

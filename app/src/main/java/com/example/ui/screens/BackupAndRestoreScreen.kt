@@ -357,7 +357,7 @@ fun BackupAndRestoreScreen(
                                             isCloudSyncing = true
                                             coroutineScope.launch {
                                                 try {
-                                                    val success = com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
+                                                    val success = com.example.util.FirestoreSyncManager.uploadAllLocalDataToCloud(context)
                                                     if (success) {
                                                         viewModel.showToast("Cloud backup successful")
                                                     } else {

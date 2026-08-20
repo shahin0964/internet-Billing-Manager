@@ -1083,13 +1083,8 @@ fun MainAppContent(
                 showPackageDialog = false
             },
             onDelete = { pkg ->
-                val isUsed = customers.any { it.packageId == pkg.id || it.packageName.equals(pkg.name, ignoreCase = true) }
-                if (isUsed) {
-                    viewModel.showToast(context.getString(com.example.R.string.msg_package_in_use))
-                } else {
-                    viewModel.deletePackage(pkg)
-                    showPackageDialog = false
-                }
+                viewModel.deletePackage(pkg)
+                showPackageDialog = false
             }
         )
     }
