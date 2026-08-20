@@ -60,6 +60,9 @@ interface IspPackageDao {
     @Query("SELECT * FROM packages ORDER BY speedMbps ASC")
     fun getAllPackages(): Flow<List<IspPackageEntity>>
 
+    @Query("SELECT * FROM packages")
+    suspend fun getAllPackagesList(): List<IspPackageEntity>
+
     @Query("SELECT * FROM packages WHERE syncStatus = 1")
     suspend fun getDirtyPackages(): List<IspPackageEntity>
 
@@ -138,6 +141,9 @@ interface PaymentDao {
     @Query("SELECT * FROM payments ORDER BY id DESC")
     fun getAllPayments(): Flow<List<PaymentEntity>>
 
+    @Query("SELECT * FROM payments")
+    suspend fun getAllPaymentsList(): List<PaymentEntity>
+
     @Query("SELECT * FROM payments WHERE syncStatus = 1")
     suspend fun getDirtyPayments(): List<PaymentEntity>
 
@@ -186,6 +192,9 @@ interface BusinessSettingsDao {
     @Query("SELECT * FROM business_settings WHERE id = 1 LIMIT 1")
     fun getSettings(): Flow<BusinessSettingsEntity?>
 
+    @Query("SELECT * FROM business_settings WHERE id = 1 LIMIT 1")
+    suspend fun getSettingsSingle(): BusinessSettingsEntity?
+
     @Query("SELECT * FROM business_settings WHERE id = 1 AND syncStatus = 1 LIMIT 1")
     suspend fun getDirtySettings(): BusinessSettingsEntity?
 
@@ -203,6 +212,9 @@ interface BusinessSettingsDao {
 interface ExpenseDao {
     @Query("SELECT * FROM expenses ORDER BY date DESC, id DESC")
     fun getAllExpenses(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses")
+    suspend fun getAllExpensesList(): List<ExpenseEntity>
 
     @Query("SELECT * FROM expenses WHERE syncStatus = 1")
     suspend fun getDirtyExpenses(): List<ExpenseEntity>
@@ -227,6 +239,9 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expense_categories ORDER BY name ASC")
     fun getAllCategories(): Flow<List<ExpenseCategoryEntity>>
+
+    @Query("SELECT * FROM expense_categories")
+    suspend fun getAllCategoriesList(): List<ExpenseCategoryEntity>
 
     @Query("SELECT * FROM expense_categories WHERE syncStatus = 1")
     suspend fun getDirtyCategories(): List<ExpenseCategoryEntity>

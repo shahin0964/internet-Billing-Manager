@@ -771,20 +771,18 @@ object FirestoreSyncManager {
             val firestore = FirebaseFirestore.getInstance()
             val userRef = firestore.collection("users").document(uid)
 
-            // Step 1: Collect ALL local customers regardless of syncStatus (0 or 1)
+            // Step 1: Collect ALL local entities regardless of syncStatus (0 or 1)
             val allCustomers = db.customerDao().getAllCustomersList()
-            
-            // Collect any other entities to ensure full synchronization
-            val dirtyPackages = db.packageDao().getDirtyPackages()
-            val dirtyBills = db.billDao().getDirtyBills()
-            val dirtyPayments = db.paymentDao().getDirtyPayments()
-            val dirtyExpenses = db.expenseDao().getDirtyExpenses()
-            val dirtyCategories = db.expenseDao().getDirtyCategories()
-            val dirtySettings = db.settingsDao().getDirtySettings()
-            val dirtyDiagrams = db.networkDiagramDao().getDirtyDiagrams()
-            val dirtyNodes = db.networkDiagramDao().getDirtyNodes()
-            val dirtyConnections = db.networkDiagramDao().getDirtyConnections()
-            val dirtyAuditLogs = db.auditLogDao().getDirtyAuditLogs()
+            val allPackages = db.packageDao().getAllPackagesList()
+            val allBills = db.billDao().getAllBillsList()
+            val allPayments = db.paymentDao().getAllPaymentsList()
+            val allExpenses = db.expenseDao().getAllExpensesList()
+            val allCategories = db.expenseDao().getAllCategoriesList()
+            val settings = db.settingsDao().getSettingsSingle()
+            val allDiagrams = db.networkDiagramDao().getAllDiagramsList()
+            val allNodes = db.networkDiagramDao().getAllNodesList()
+            val allConnections = db.networkDiagramDao().getAllConnectionsList()
+            val allAuditLogs = db.auditLogDao().getAllAuditLogsList()
             val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions()
 
             val batchOperations = mutableListOf<(WriteBatch) -> Unit>()
@@ -800,11 +798,32 @@ object FirestoreSyncManager {
             val connectionsToMarkSynced = mutableListOf<String>()
             val auditLogsToMarkSynced = mutableListOf<Long>()
 
-            // 1. Pending Deletions
+            // 1. Pending Deletions (Delta deleted records queue)
             for (del in pendingDeletions) {
                 val docRef = userRef.collection(del.collectionName).document(del.documentId)
                 batchOperations.add { batch ->
                     batch.delete(docRef)
+                }
+            }
+
+            // 1.5. deleted_records (Tombstones from SharedPreferences)
+            val deletedPrefs = context.getSharedPreferences("isp_deleted_records", Context.MODE_PRIVATE)
+            val localDeletedSet = deletedPrefs.getStringSet("deleted_ids", emptySet()) ?: emptySet()
+            for (key in localDeletedSet) {
+                val parts = key.split(":")
+                if (parts.size == 2) {
+                    val col = parts[0]
+                    val id = parts[1]
+                    val docId = "${col}_$id"
+                    val docRef = userRef.collection("deleted_records").document(docId)
+                    val map = mapOf(
+                        "collection" to col,
+                        "recordId" to id,
+                        "deletedAt" to System.currentTimeMillis()
+                    )
+                    batchOperations.add { batch ->
+                        batch.set(docRef, map, SetOptions.merge())
+                    }
                 }
             }
 
@@ -843,7 +862,7 @@ object FirestoreSyncManager {
             }
 
             // 3. Packages
-            for (pkg in dirtyPackages) {
+            for (pkg in allPackages) {
                 val map = mapOf(
                     "id" to pkg.id,
                     "name" to pkg.name,
@@ -860,7 +879,7 @@ object FirestoreSyncManager {
             }
 
             // 4. Bills
-            for (bill in dirtyBills) {
+            for (bill in allBills) {
                 val map = mapOf(
                     "id" to bill.id,
                     "billNumber" to bill.billNumber,
@@ -884,7 +903,7 @@ object FirestoreSyncManager {
             }
 
             // 5. Payments
-            for (payment in dirtyPayments) {
+            for (payment in allPayments) {
                 val map = mapOf(
                     "id" to payment.id,
                     "paymentReceiptNo" to payment.paymentReceiptNo,
@@ -905,7 +924,7 @@ object FirestoreSyncManager {
             }
 
             // 6. Expenses
-            for (expense in dirtyExpenses) {
+            for (expense in allExpenses) {
                 val map = mapOf(
                     "id" to expense.id,
                     "title" to expense.title,
@@ -926,7 +945,7 @@ object FirestoreSyncManager {
             }
 
             // 7. Categories
-            for (cat in dirtyCategories) {
+            for (cat in allCategories) {
                 val map = mapOf(
                     "id" to cat.id,
                     "name" to cat.name,
@@ -940,18 +959,18 @@ object FirestoreSyncManager {
             }
 
             // 8. Settings
-            if (dirtySettings != null) {
+            if (settings != null) {
                 val map = mapOf(
-                    "id" to dirtySettings.id,
-                    "ispName" to dirtySettings.ispName,
-                    "hotline" to dirtySettings.hotline,
-                    "address" to dirtySettings.address,
-                    "currencySymbol" to dirtySettings.currencySymbol,
-                    "networkStatus" to dirtySettings.networkStatus,
-                    "themeMode" to dirtySettings.themeMode,
-                    "logoUri" to (dirtySettings.logoUri ?: ""),
-                    "email" to (dirtySettings.email ?: ""),
-                    "updatedAt" to dirtySettings.updatedAt
+                    "id" to settings.id,
+                    "ispName" to settings.ispName,
+                    "hotline" to settings.hotline,
+                    "address" to settings.address,
+                    "currencySymbol" to settings.currencySymbol,
+                    "networkStatus" to settings.networkStatus,
+                    "themeMode" to settings.themeMode,
+                    "logoUri" to (settings.logoUri ?: ""),
+                    "email" to (settings.email ?: ""),
+                    "updatedAt" to settings.updatedAt
                 )
                 val docRef = userRef.collection("settings").document("business_settings")
                 batchOperations.add { batch ->
@@ -961,7 +980,7 @@ object FirestoreSyncManager {
             }
 
             // 9. Network Diagrams
-            for (diag in dirtyDiagrams) {
+            for (diag in allDiagrams) {
                 val map = mapOf(
                     "id" to diag.id,
                     "name" to diag.name,
@@ -977,7 +996,7 @@ object FirestoreSyncManager {
             }
 
             // 10. Network Nodes
-            for (node in dirtyNodes) {
+            for (node in allNodes) {
                 val nodeMap = mapOf(
                     "id" to node.id,
                     "diagramId" to node.diagramId,
@@ -1002,7 +1021,7 @@ object FirestoreSyncManager {
             }
 
             // 11. Network Connections
-            for (conn in dirtyConnections) {
+            for (conn in allConnections) {
                 val connMap = mapOf(
                     "id" to conn.id,
                     "diagramId" to conn.diagramId,
@@ -1020,7 +1039,7 @@ object FirestoreSyncManager {
             }
 
             // 12. Audit Logs
-            for (log in dirtyAuditLogs) {
+            for (log in allAuditLogs) {
                 val logMap = mapOf(
                     "id" to log.id,
                     "action" to log.action,
@@ -1048,7 +1067,7 @@ object FirestoreSyncManager {
                 return@withContext true
             }
 
-            Log.i(TAG, "Backup to Cloud: Safely uploading ${allCustomers.size} total local customers (${batchOperations.size} operations total) to Firestore path users/$uid/...")
+            Log.i(TAG, "Backup to Cloud: Safely uploading all local datasets (${batchOperations.size} operations total) to Firestore path users/$uid/...")
             
             // Execute batches safely in chunks
             commitBatchedOperations(firestore, batchOperations)
@@ -1085,7 +1104,7 @@ object FirestoreSyncManager {
                 .putBoolean("is_syncing", false)
                 .apply()
 
-            Log.i(TAG, "Backup to Cloud: Successfully completed backup of ${allCustomers.size} customers to Firestore!")
+            Log.i(TAG, "Backup to Cloud: Successfully completed full backup to Firestore!")
             true
         } catch (e: FirebaseFirestoreException) {
             context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()

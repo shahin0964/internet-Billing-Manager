@@ -38,6 +38,12 @@ interface NetworkDiagramDao {
     @Query("SELECT * FROM network_diagrams")
     suspend fun getAllDiagramsList(): List<NetworkDiagramEntity>
 
+    @Query("SELECT * FROM network_nodes")
+    suspend fun getAllNodesList(): List<NetworkNodeEntity>
+
+    @Query("SELECT * FROM network_connections")
+    suspend fun getAllConnectionsList(): List<NetworkConnectionEntity>
+
     @Query("SELECT * FROM network_diagrams WHERE syncStatus = 1")
     suspend fun getDirtyDiagrams(): List<NetworkDiagramEntity>
 
