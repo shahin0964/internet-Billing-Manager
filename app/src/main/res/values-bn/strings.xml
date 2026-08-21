@@ -66,6 +66,7 @@
     <string name="payment_due_date">পেমেন্টের শেষ তারিখ</string>
     <string name="today_collection">আজকের কালেকশন</string>
     <string name="total_collection">মোট কালেকশন</string>
+    <string name="monthly_collection">মাসিক কালেকশন</string>
     <string name="record_customer_payment">পেমেন্ট রেকর্ড করুন</string>
     <string name="collect">কালেকশন</string>
     <string name="search_payments_hint">গ্রাহক, রসিদ নম্বর, পেমেন্ট মাধ্যম খুঁজুন...</string>

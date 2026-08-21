@@ -66,6 +66,7 @@
     <string name="payment_due_date">Payment Due Date</string>
     <string name="today_collection">Today Collection</string>
     <string name="total_collection">Total Collection</string>
+    <string name="monthly_collection">Monthly Collection</string>
     <string name="record_customer_payment">Record Customer Payment</string>
     <string name="collect">Collect</string>
     <string name="search_payments_hint">Search customer, receipt #, payment method...</string>

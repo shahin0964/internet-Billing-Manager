@@ -81,12 +81,22 @@ fun DashboardScreen(
     val activeCount = customers.count { it.status == "ACTIVE" }
     val totalCount = customers.size
     val currentMonthStr = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())
-    val monthlyBillAmount = bills.filter { it.billingMonth.equals(currentMonthStr, ignoreCase = true) }.sumOf { it.amount }
+    
+    val currentMonthBills = androidx.compose.runtime.remember(bills, currentMonthStr) {
+        bills.filter { it.billingMonth.equals(currentMonthStr, ignoreCase = true) }
+    }
+    val currentMonthBillIds = androidx.compose.runtime.remember(currentMonthBills) {
+        currentMonthBills.map { it.id }.toSet()
+    }
+    val monthlyBillAmount = currentMonthBills.sumOf { it.amount }
+    val monthlyCollectedAmount = androidx.compose.runtime.remember(payments, currentMonthBillIds) {
+        payments.filter { it.billId in currentMonthBillIds }.sumOf { it.amount }
+    }
 
     val currency = settings.currencySymbol
 
     val totalBillingAmount = bills.sumOf { it.amount }
-    val totalCollectedAmount = payments.sumOf { it.amount }
+    val totalCollectedAmount = bills.sumOf { it.paidAmount }
     val totalDueAmount = bills.sumOf { it.dueAmount }
     
     val todayDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -245,11 +255,12 @@ tonalElevation = 2.dp,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     KpiCard(
-                        title = androidx.compose.ui.res.stringResource(com.example.R.string.total_collection),
-                        value = "$currency${totalCollectedAmount.formatAmount()}",
+                        title = androidx.compose.ui.res.stringResource(com.example.R.string.monthly_collection),
+                        value = "$currency${monthlyCollectedAmount.formatAmount()}",
                         icon = Icons.Default.CreditCard,
                         iconColor = EmeraldSuccess,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        subtitle = currentMonthStr
                     )
                     KpiCard(
                         title = androidx.compose.ui.res.stringResource(com.example.R.string.today_collection),
