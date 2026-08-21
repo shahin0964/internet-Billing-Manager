@@ -10,6 +10,10 @@
     <string name="total_collected">মোট কালেকশন</string>
     <string name="total_due">মোট বকেয়া</string>
     <string name="previous_due">পূর্ববর্তী বকেয়া</string>
+    <string name="bandwidth_bill">ব্যান্ডউইথ বিল</string>
+    <string name="monthly_profit">মাসিক লাভ</string>
+    <string name="edit_bandwidth_bill_title">ব্যান্ডউইথ বিল পরিবর্তন</string>
+    <string name="enter_amount">টাকার পরিমাণ লিখুন</string>
     <string name="add_customer">গ্রাহক যোগ করুন</string>
     <string name="collect_payment">পেমেন্ট নিন</string>
     <string name="generate_bills">বিল তৈরি করুন</string>

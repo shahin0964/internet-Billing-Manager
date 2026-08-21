@@ -25,6 +25,7 @@ import com.example.data.model.NetworkNodeEntity
 import com.example.data.model.PaymentEntity
 import com.example.data.model.PreviousDueItem
 import com.example.data.model.SpecificAdvanceEntity
+import com.example.data.model.BandwidthBillEntity
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -64,6 +65,20 @@ class IspRepository(
     val expenseCategories: Flow<List<ExpenseCategoryEntity>> = expenseDao.getAllCategories()
     val diagrams: Flow<List<NetworkDiagramEntity>> = networkDiagramDao.getAllDiagrams()
     val auditLogs: Flow<List<AuditLogEntity>> = auditLogDao.getAllAuditLogs()
+    val bandwidthBills: Flow<List<BandwidthBillEntity>> = db.bandwidthBillDao().getAllBandwidthBills()
+
+    suspend fun saveOrUpdateBandwidthBill(billingMonth: String, amount: Double) {
+        val now = System.currentTimeMillis()
+        db.bandwidthBillDao().insertOrUpdateBandwidthBill(
+            BandwidthBillEntity(
+                billingMonth = billingMonth,
+                amount = amount,
+                updatedAt = now,
+                syncStatus = 1
+            )
+        )
+        context?.let { com.example.util.FirestoreSyncManager.triggerSync(it) }
+    }
 
     companion object {
         private val globalBillGenerationMutex = Mutex()
@@ -799,7 +814,8 @@ class IspRepository(
                             billingMonth = "${adv.month} ${adv.year}",
                             amount = adv.amount,
                             isConsumed = false,
-                            updatedAt = now
+                            updatedAt = now,
+                            syncStatus = 1
                         )
                         db.specificAdvanceDao().insertSpecificAdvance(entity)
                     }
@@ -854,23 +870,91 @@ class IspRepository(
                 // Delete payment record locally
                 paymentDao.deletePaymentById(payment.id)
 
-                // Get the specific bill linked to this payment
-                val bill = billDao.getBillById(payment.billId).first()
-                if (bill != null) {
-                    val newPaid = (bill.paidAmount - payment.amount).coerceAtLeast(0.0)
-                    val newDue = (bill.amount - newPaid).coerceAtLeast(0.0)
-                    val newStatus = when {
-                        newDue <= 0.0 -> "PAID"
-                        newPaid > 0.0 -> "PARTIAL"
-                        else -> "UNPAID"
+                val customerId = payment.customerId
+                if (customerId != 0L) {
+                    val bills = billDao.getBillsListForCustomer(customerId).sortedBy { it.id }
+                    val remainingPayments = paymentDao.getPaymentsListForCustomer(customerId).sortedBy { it.id }
+
+                    val totalCurrentMoneyApplied = bills.sumOf { it.paidAmount }
+                    val totalPaymentsBeforeDelete = remainingPayments.sumOf { it.amount } + payment.amount
+                    val totalInitialAdvances = (totalCurrentMoneyApplied - totalPaymentsBeforeDelete).coerceAtLeast(0.0)
+
+                    var remainingAdvance = totalInitialAdvances
+                    val billsWithInitialPaid = bills.map { b ->
+                        val initialPaid = minOf(b.amount, remainingAdvance)
+                        remainingAdvance = (remainingAdvance - initialPaid).coerceAtLeast(0.0)
+                        b to initialPaid
                     }
 
-                    val updatedBill = bill.copy(
-                        paidAmount = newPaid,
-                        dueAmount = newDue,
-                        status = newStatus
-                    )
-                    billDao.updateBill(updatedBill)
+                    val billPaidMap = billsWithInitialPaid.associate { it.first.id to it.second }.toMutableMap()
+
+                    for (pay in remainingPayments) {
+                        var remainingPaymentAmount = pay.amount
+                        for (b in bills) {
+                            if (remainingPaymentAmount <= 0.0) break
+                            val currentPaid = billPaidMap[b.id] ?: 0.0
+                            val due = (b.amount - currentPaid).coerceAtLeast(0.0)
+                            if (due > 0.0) {
+                                val applyAmount = minOf(remainingPaymentAmount, due)
+                                billPaidMap[b.id] = currentPaid + applyAmount
+                                remainingPaymentAmount -= applyAmount
+                            }
+                        }
+                    }
+
+                    val now = System.currentTimeMillis()
+                    for (b in bills) {
+                        val newPaid = billPaidMap[b.id] ?: 0.0
+                        val newDue = (b.amount - newPaid).coerceAtLeast(0.0)
+                        val newStatus = when {
+                            newDue <= 0.0 -> "PAID"
+                            newPaid > 0.0 -> "PARTIAL"
+                            else -> "UNPAID"
+                        }
+                        val updatedBill = b.copy(
+                            paidAmount = newPaid,
+                            dueAmount = newDue,
+                            status = newStatus,
+                            updatedAt = now,
+                            syncStatus = 1
+                        )
+                        billDao.updateBill(updatedBill)
+                    }
+
+                    // Recalculate remaining advance balance for the customer
+                    val totalMoneyAvailable = totalInitialAdvances + remainingPayments.sumOf { it.amount }
+                    val totalMoneySpentOnBills = bills.sumOf { billPaidMap[it.id] ?: 0.0 }
+                    val remainingAdvanceBalance = (totalMoneyAvailable - totalMoneySpentOnBills).coerceAtLeast(0.0)
+
+                    val customer = customerDao.getCustomerById(customerId).first()
+                    if (customer != null) {
+                        val updatedCust = customer.copy(
+                            advanceBalance = remainingAdvanceBalance,
+                            updatedAt = now,
+                            syncStatus = 1
+                        )
+                        customerDao.updateCustomer(updatedCust)
+                    }
+                } else {
+                    // Fallback to old behavior if customerId is 0 (should not happen normally)
+                    val bill = billDao.getBillById(payment.billId).first()
+                    if (bill != null) {
+                        val newPaid = (bill.paidAmount - payment.amount).coerceAtLeast(0.0)
+                        val newDue = (bill.amount - newPaid).coerceAtLeast(0.0)
+                        val newStatus = when {
+                            newDue <= 0.0 -> "PAID"
+                            newPaid > 0.0 -> "PARTIAL"
+                            else -> "UNPAID"
+                        }
+                        val updatedBill = bill.copy(
+                            paidAmount = newPaid,
+                            dueAmount = newDue,
+                            status = newStatus,
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
+                        )
+                        billDao.updateBill(updatedBill)
+                    }
                 }
             }
 
@@ -923,6 +1007,8 @@ class IspRepository(
         val sttngs = settings.first()
         val exps = expenses.first()
         val cats = expenseCategories.first()
+        val bwBills = db.bandwidthBillDao().getAllBandwidthBillsList()
+        val specAdvs = db.specificAdvanceDao().getAllSpecificAdvancesList()
 
         val root = JSONObject()
         val custArray = JSONArray()
@@ -979,10 +1065,32 @@ class IspRepository(
             catArray.put(obj)
         }
 
+        val bwArray = JSONArray()
+        bwBills.forEach { b ->
+            val obj = JSONObject()
+            obj.put("billingMonth", b.billingMonth)
+            obj.put("amount", b.amount)
+            bwArray.put(obj)
+        }
+
+        val saArray = JSONArray()
+        specAdvs.forEach { sa ->
+            val obj = JSONObject()
+            obj.put("id", sa.id)
+            obj.put("customerId", sa.customerId)
+            obj.put("billingMonth", sa.billingMonth)
+            obj.put("amount", sa.amount)
+            obj.put("isConsumed", sa.isConsumed)
+            obj.put("updatedAt", sa.updatedAt)
+            saArray.put(obj)
+        }
+
         root.put("customers", custArray)
         root.put("packages", pkgArray)
         root.put("expenses", expArray)
         root.put("expenseCategories", catArray)
+        root.put("bandwidthBills", bwArray)
+        root.put("specificAdvances", saArray)
         root.put("billsCount", bls.size)
         root.put("paymentsCount", pymts.size)
         root.put("exportedAt", System.currentTimeMillis())
@@ -1032,6 +1140,48 @@ class IspRepository(
                 }
                 if (catList.isNotEmpty()) {
                     expenseDao.insertCategories(catList)
+                }
+            }
+
+            if (root.has("bandwidthBills")) {
+                val arr = root.getJSONArray("bandwidthBills")
+                val bwList = mutableListOf<BandwidthBillEntity>()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val month = obj.optString("billingMonth", "")
+                    val amount = obj.optDouble("amount", 0.0)
+                    if (month.isNotBlank()) {
+                        bwList.add(
+                            BandwidthBillEntity(
+                                billingMonth = month,
+                                amount = amount
+                            )
+                        )
+                    }
+                }
+                if (bwList.isNotEmpty()) {
+                    db.bandwidthBillDao().insertOrUpdateBandwidthBills(bwList)
+                }
+            }
+
+            if (root.has("specificAdvances")) {
+                val arr = root.getJSONArray("specificAdvances")
+                val saList = mutableListOf<SpecificAdvanceEntity>()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    saList.add(
+                        SpecificAdvanceEntity(
+                            id = if (obj.has("id")) obj.getLong("id") else 0L,
+                            customerId = obj.optLong("customerId", 0L),
+                            billingMonth = obj.optString("billingMonth", ""),
+                            amount = obj.optDouble("amount", 0.0),
+                            isConsumed = obj.optBoolean("isConsumed", false),
+                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                        )
+                    )
+                }
+                if (saList.isNotEmpty()) {
+                    db.specificAdvanceDao().insertSpecificAdvances(saList)
                 }
             }
             true
@@ -1089,6 +1239,8 @@ class IspRepository(
         val sttngs = kotlinx.coroutines.withTimeoutOrNull(5000L) { settings.first() }
         val exps = kotlinx.coroutines.withTimeoutOrNull(5000L) { expenses.first() } ?: emptyList()
         val cats = kotlinx.coroutines.withTimeoutOrNull(5000L) { expenseCategories.first() } ?: emptyList()
+        val bwBills = kotlinx.coroutines.withTimeoutOrNull(5000L) { bandwidthBills.first() } ?: emptyList()
+        val specAdvs = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.specificAdvanceDao().getAllSpecificAdvancesList() } ?: emptyList()
 
         val sharedPrefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val appLang = sharedPrefs.getString("app_lang", "en") ?: "en"
@@ -1196,6 +1348,30 @@ class IspRepository(
             catArray.put(obj)
         }
         root.put("expenseCategories", catArray)
+
+        // Bandwidth Bills
+        val bwArray = JSONArray()
+        bwBills.forEach { b ->
+            val obj = JSONObject()
+            obj.put("billingMonth", b.billingMonth)
+            obj.put("amount", b.amount)
+            bwArray.put(obj)
+        }
+        root.put("bandwidthBills", bwArray)
+
+        // Specific Advances
+        val saArray = JSONArray()
+        specAdvs.forEach { sa ->
+            val obj = JSONObject()
+            obj.put("id", sa.id)
+            obj.put("customerId", sa.customerId)
+            obj.put("billingMonth", sa.billingMonth)
+            obj.put("amount", sa.amount)
+            obj.put("isConsumed", sa.isConsumed)
+            obj.put("updatedAt", sa.updatedAt)
+            saArray.put(obj)
+        }
+        root.put("specificAdvances", saArray)
 
         // Business Settings
         if (sttngs != null) {
@@ -1389,6 +1565,42 @@ class IspRepository(
                 }
             }
 
+            val bandwidthBillList = mutableListOf<BandwidthBillEntity>()
+            if (root.has("bandwidthBills")) {
+                val arr = root.getJSONArray("bandwidthBills")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val month = obj.optString("billingMonth", "")
+                    val amount = obj.optDouble("amount", 0.0)
+                    if (month.isNotBlank()) {
+                        bandwidthBillList.add(
+                            BandwidthBillEntity(
+                                billingMonth = month,
+                                amount = amount
+                            )
+                        )
+                    }
+                }
+            }
+
+            val specificAdvanceList = mutableListOf<SpecificAdvanceEntity>()
+            if (root.has("specificAdvances")) {
+                val arr = root.getJSONArray("specificAdvances")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    specificAdvanceList.add(
+                        SpecificAdvanceEntity(
+                            id = if (obj.has("id")) obj.getLong("id") else 0L,
+                            customerId = obj.optLong("customerId", 0L),
+                            billingMonth = obj.optString("billingMonth", ""),
+                            amount = obj.optDouble("amount", 0.0),
+                            isConsumed = obj.optBoolean("isConsumed", false),
+                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                        )
+                    )
+                }
+            }
+
             var settingsObj: BusinessSettingsEntity? = null
             if (root.has("settings")) {
                 val obj = root.getJSONObject("settings")
@@ -1411,6 +1623,8 @@ class IspRepository(
                 paymentDao.deleteAllPayments()
                 expenseDao.deleteAllExpenses()
                 expenseDao.deleteAllCategories()
+                db.bandwidthBillDao().deleteAllBandwidthBills()
+                db.specificAdvanceDao().deleteAllSpecificAdvances()
                 settingsDao.deleteSettings()
 
                 if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
@@ -1419,6 +1633,8 @@ class IspRepository(
                 if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
                 if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
                 if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
+                if (bandwidthBillList.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bandwidthBillList)
+                if (specificAdvanceList.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(specificAdvanceList)
                 if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
             }
 
@@ -1571,6 +1787,40 @@ class IspRepository(
                 )
             }
         }
+        val bandwidthBillList = mutableListOf<BandwidthBillEntity>()
+        if (root.has("bandwidthBills")) {
+            val arr = root.getJSONArray("bandwidthBills")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val month = obj.optString("billingMonth", "")
+                val amount = obj.optDouble("amount", 0.0)
+                if (month.isNotBlank()) {
+                    bandwidthBillList.add(
+                        BandwidthBillEntity(
+                            billingMonth = month,
+                            amount = amount
+                        )
+                    )
+                }
+            }
+        }
+        val specificAdvanceList = mutableListOf<SpecificAdvanceEntity>()
+        if (root.has("specificAdvances")) {
+            val arr = root.getJSONArray("specificAdvances")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                specificAdvanceList.add(
+                    SpecificAdvanceEntity(
+                        id = if (obj.has("id")) obj.getLong("id") else 0L,
+                        customerId = obj.optLong("customerId", 0L),
+                        billingMonth = obj.optString("billingMonth", ""),
+                        amount = obj.optDouble("amount", 0.0),
+                        isConsumed = obj.optBoolean("isConsumed", false),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                )
+            }
+        }
         var settingsObj: BusinessSettingsEntity? = null
         if (root.has("settings")) {
             val obj = root.getJSONObject("settings")
@@ -1592,6 +1842,8 @@ class IspRepository(
             paymentDao.deleteAllPayments()
             expenseDao.deleteAllExpenses()
             expenseDao.deleteAllCategories()
+            db.bandwidthBillDao().deleteAllBandwidthBills()
+            db.specificAdvanceDao().deleteAllSpecificAdvances()
             settingsDao.deleteSettings()
 
             if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
@@ -1600,6 +1852,8 @@ class IspRepository(
             if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
             if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
             if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
+            if (bandwidthBillList.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bandwidthBillList)
+            if (specificAdvanceList.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(specificAdvanceList)
             if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
         }
     }
@@ -1612,6 +1866,8 @@ class IspRepository(
             paymentDao.deleteAllPayments()
             expenseDao.deleteAllExpenses()
             expenseDao.deleteAllCategories()
+            db.bandwidthBillDao().deleteAllBandwidthBills()
+            db.specificAdvanceDao().deleteAllSpecificAdvances()
             settingsDao.deleteSettings()
         }
     }

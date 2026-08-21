@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import com.example.ui.components.formatAmount
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +65,8 @@ import java.util.Locale
 fun CollectionScreen(
     payments: List<PaymentEntity>,
     bills: List<BillEntity>,
+    bandwidthBills: List<com.example.data.model.BandwidthBillEntity> = emptyList(),
+    onSaveBandwidthBill: (String, Double) -> Unit = { _, _ -> },
     currencySymbol: String,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
@@ -75,6 +78,10 @@ fun CollectionScreen(
     var monthOffset by remember { mutableIntStateOf(0) }
     var paymentToDelete by remember { mutableStateOf<PaymentEntity?>(null) }
     var showDailyBillEntryScreen by remember { mutableStateOf(false) }
+
+    var showBandwidthDialog by remember { mutableStateOf(false) }
+    var bandwidthInputText by remember { mutableStateOf("") }
+    var bandwidthInputError by remember { mutableStateOf<String?>(null) }
     
     val selectedMonthString = remember(monthOffset) {
         val calendar = Calendar.getInstance()
@@ -169,6 +176,11 @@ fun CollectionScreen(
 
     val totalOutstanding = previousBillsDue + totalMonthlyDue
 
+    val currentBandwidthBill = remember(bandwidthBills, selectedMonthString) {
+        bandwidthBills.find { it.billingMonth.equals(selectedMonthString, ignoreCase = true) }?.amount ?: 0.0
+    }
+    val profit = totalMonthlyCollected - currentBandwidthBill
+
     val filteredPayments = remember(payments, searchQuery) {
         if (searchQuery.isBlank()) payments
         else payments.filter {
@@ -248,6 +260,32 @@ fun CollectionScreen(
                     value = "$currencySymbol${totalOutstanding.formatAmount()}",
                     icon = Icons.Default.MoneyOff,
                     iconColor = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                KpiCard(
+                    title = androidx.compose.ui.res.stringResource(com.example.R.string.bandwidth_bill),
+                    value = "$currencySymbol${currentBandwidthBill.formatAmount()}",
+                    icon = Icons.Default.CreditCard,
+                    iconColor = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f).clickable {
+                        bandwidthInputText = if (currentBandwidthBill > 0) currentBandwidthBill.toInt().toString() else ""
+                        bandwidthInputError = null
+                        showBandwidthDialog = true
+                    }
+                )
+                KpiCard(
+                    title = androidx.compose.ui.res.stringResource(com.example.R.string.monthly_profit),
+                    value = "$currencySymbol${profit.formatAmount()}",
+                    icon = Icons.Default.Payments,
+                    iconColor = if (profit >= 0) EmeraldSuccess else MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -419,6 +457,74 @@ tonalElevation = 2.dp,
                 onBackClick = { showDailyBillEntryScreen = false }
             )
         }
+    }
+
+    if (showBandwidthDialog) {
+        AlertDialog(
+            onDismissRequest = { showBandwidthDialog = false },
+            title = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.edit_bandwidth_bill_title),
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                Column {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = bandwidthInputText,
+                        onValueChange = { input ->
+                            val cleanInput = input.filter { it.isDigit() || it == '.' }
+                            bandwidthInputText = cleanInput
+                            bandwidthInputError = null
+                        },
+                        label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.enter_amount)) },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        isError = bandwidthInputError != null,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (bandwidthInputError != null) {
+                        Text(
+                            text = bandwidthInputError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = bandwidthInputText.trim()
+                        if (trimmed.isEmpty()) {
+                            bandwidthInputError = "Amount cannot be empty"
+                            return@Button
+                        }
+                        val amount = trimmed.toDoubleOrNull()
+                        if (amount == null) {
+                            bandwidthInputError = "Please enter a valid number"
+                            return@Button
+                        }
+                        if (amount < 0) {
+                            bandwidthInputError = "Amount cannot be negative"
+                            return@Button
+                        }
+                        onSaveBandwidthBill(selectedMonthString, amount)
+                        showBandwidthDialog = false
+                    }
+                ) {
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBandwidthDialog = false }) {
+                    Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
+                }
+            }
+        )
     }
 }
 

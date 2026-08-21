@@ -14,6 +14,7 @@ import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
 import com.example.data.model.PreviousDueItem
+import com.example.data.model.BandwidthBillEntity
 import com.example.data.repository.IspRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,6 +41,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     val todayCollectionAmount: StateFlow<Double>
     val expenses: StateFlow<List<ExpenseEntity>>
     val expenseCategories: StateFlow<List<ExpenseCategoryEntity>>
+    val bandwidthBills: StateFlow<List<BandwidthBillEntity>>
 
     // UI state filters & queries
     val customerSearchQuery = MutableStateFlow("")
@@ -165,6 +167,10 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0
         )
 
+        bandwidthBills = repository.bandwidthBills.stateIn(
+            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+        )
+
         seedDefaultPackagesAndSettingsIfNeeded()
         autoGenerateCurrentMonthBills()
 
@@ -177,6 +183,12 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _isAppInitializing.value = false
             }
+        }
+    }
+
+    fun saveOrUpdateBandwidthBill(billingMonth: String, amount: Double) {
+        viewModelScope.launch {
+            repository.saveOrUpdateBandwidthBill(billingMonth, amount)
         }
     }
 

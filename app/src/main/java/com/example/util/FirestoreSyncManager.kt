@@ -24,6 +24,8 @@ import com.example.data.model.NetworkConnectionEntity
 import com.example.data.model.NetworkDiagramEntity
 import com.example.data.model.NetworkNodeEntity
 import com.example.data.model.PendingDeletionEntity
+import com.example.data.model.BandwidthBillEntity
+import com.example.data.model.SpecificAdvanceEntity
 import androidx.room.withTransaction
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
@@ -73,22 +75,45 @@ object FirestoreSyncManager {
         }
     }
 
+    private data class SyncOperation(
+        val writeOp: (WriteBatch) -> Unit,
+        val onSuccess: suspend (IspDatabase) -> Unit
+    )
+
     /**
      * Helper to execute WriteBatch in chunks (up to 450 operations per batch, well below Firestore 500 limit).
+     * Immediately marks only the successfully committed chunk's records as synced in Room local DB.
      */
-    private suspend fun commitBatchedOperations(
+    private suspend fun commitSyncOperationsInChunks(
         firestore: FirebaseFirestore,
-        operations: List<(WriteBatch) -> Unit>
-    ) {
-        if (operations.isEmpty()) return
+        db: IspDatabase,
+        operations: List<SyncOperation>
+    ): Boolean {
+        if (operations.isEmpty()) return true
         val chunkSize = 450
+        var allChunksSuccessful = true
+
         for (chunk in operations.chunked(chunkSize)) {
-            val batch = firestore.batch()
-            for (op in chunk) {
-                op(batch)
+            try {
+                val batch = firestore.batch()
+                for (op in chunk) {
+                    op.writeOp(batch)
+                }
+                batch.commit().await()
+
+                // Mark only the successfully committed chunk's records as synced locally in Room
+                db.withTransaction {
+                    for (op in chunk) {
+                        op.onSuccess(db)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Chunk commit failed: ${e.message}", e)
+                allChunksSuccessful = false
+                break
             }
-            batch.commit().await()
         }
+        return allChunksSuccessful
     }
 
     /**
@@ -306,12 +331,16 @@ object FirestoreSyncManager {
             val dirtyNodes = db.networkDiagramDao().getDirtyNodes()
             val dirtyConnections = db.networkDiagramDao().getDirtyConnections()
             val dirtyAuditLogs = db.auditLogDao().getDirtyAuditLogs()
+            val dirtyBandwidthBills = db.bandwidthBillDao().getDirtyBandwidthBills()
+            val dirtySpecificAdvances = db.specificAdvanceDao().getDirtySpecificAdvances()
             val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions()
 
             val totalDirtyCount = dirtyCustomers.size + dirtyPackages.size + dirtyBills.size +
                     dirtyPayments.size + dirtyExpenses.size + dirtyCategories.size +
                     (if (dirtySettings != null) 1 else 0) + dirtyDiagrams.size +
-                    dirtyNodes.size + dirtyConnections.size + dirtyAuditLogs.size + pendingDeletions.size
+                    dirtyNodes.size + dirtyConnections.size + dirtyAuditLogs.size +
+                    dirtyBandwidthBills.size + dirtySpecificAdvances.size +
+                    pendingDeletions.size
 
             if (totalDirtyCount == 0) {
                 Log.d(TAG, "Delta Sync: No dirty records or pending deletions to upload. Quota preserved.")
@@ -340,6 +369,8 @@ object FirestoreSyncManager {
             for (d in dirtyDiagrams) remoteDocsToFetch.add("network_diagrams:${d.id}" to userRef.collection("network_diagrams").document(d.id.toString()))
             for (n in dirtyNodes) remoteDocsToFetch.add("network_nodes:${n.id}" to userRef.collection("network_nodes").document(n.id))
             for (cn in dirtyConnections) remoteDocsToFetch.add("network_connections:${cn.id}" to userRef.collection("network_connections").document(cn.id))
+            for (b in dirtyBandwidthBills) remoteDocsToFetch.add("bandwidth_bills:${b.billingMonth}" to userRef.collection("bandwidth_bills").document(b.billingMonth))
+            for (sa in dirtySpecificAdvances) remoteDocsToFetch.add("specific_advances:${sa.id}" to userRef.collection("specific_advances").document(sa.id.toString()))
 
             // Fetch targeted remote snapshots in parallel/chunks without scanning full collections
             for (item in remoteDocsToFetch) {
@@ -355,25 +386,18 @@ object FirestoreSyncManager {
                 }
             }
 
-            val batchOperations = mutableListOf<(WriteBatch) -> Unit>()
-            val customersToMarkSynced = mutableListOf<Long>()
-            val packagesToMarkSynced = mutableListOf<Long>()
-            val billsToMarkSynced = mutableListOf<Long>()
-            val paymentsToMarkSynced = mutableListOf<Long>()
-            val expensesToMarkSynced = mutableListOf<Long>()
-            val categoriesToMarkSynced = mutableListOf<Long>()
-            var settingsToMarkSynced = false
-            val diagramsToMarkSynced = mutableListOf<Long>()
-            val nodesToMarkSynced = mutableListOf<String>()
-            val connectionsToMarkSynced = mutableListOf<String>()
-            val auditLogsToMarkSynced = mutableListOf<Long>()
+            val syncOperations = mutableListOf<SyncOperation>()
 
             // 1. Pending Deletions
             for (del in pendingDeletions) {
                 val docRef = userRef.collection(del.collectionName).document(del.documentId)
-                batchOperations.add { batch ->
-                    batch.delete(docRef)
-                }
+                val delId = del.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.delete(docRef) },
+                        onSuccess = { database -> database.pendingDeletionDao().deletePendingDeletionsByIds(listOf(delId)) }
+                    )
+                )
             }
 
             // 2. Customers
@@ -383,7 +407,7 @@ object FirestoreSyncManager {
                     // Conflict: Remote document is NEWER than local dirty version.
                     // Server wins: do NOT overwrite remote. Mark locally synced to avoid infinite conflict loops.
                     Log.w(TAG, "Conflict detected for Customer ${customer.id}: remote ($rTime) is newer than local (${customer.updatedAt}). Preserving remote.")
-                    customersToMarkSynced.add(customer.id)
+                    db.customerDao().markCustomersSynced(listOf(customer.id))
                 } else {
                     val map = mapOf(
                         "id" to customer.id,
@@ -411,10 +435,13 @@ object FirestoreSyncManager {
                         "updatedAt" to customer.updatedAt
                     )
                     val docRef = userRef.collection("customers").document(customer.id.toString())
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    customersToMarkSynced.add(customer.id)
+                    val cid = customer.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.customerDao().markCustomersSynced(listOf(cid)) }
+                        )
+                    )
                 }
             }
 
@@ -423,7 +450,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["packages:${pkg.id}"]
                 if (rTime != null && rTime > pkg.updatedAt) {
                     Log.w(TAG, "Conflict detected for Package ${pkg.id}: remote ($rTime) > local (${pkg.updatedAt}). Preserving remote.")
-                    packagesToMarkSynced.add(pkg.id)
+                    db.packageDao().markPackagesSynced(listOf(pkg.id))
                 } else {
                     val map = mapOf(
                         "id" to pkg.id,
@@ -434,10 +461,13 @@ object FirestoreSyncManager {
                         "updatedAt" to pkg.updatedAt
                     )
                     val docRef = userRef.collection("packages").document(pkg.id.toString())
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    packagesToMarkSynced.add(pkg.id)
+                    val pid = pkg.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.packageDao().markPackagesSynced(listOf(pid)) }
+                        )
+                    )
                 }
             }
 
@@ -446,7 +476,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["bills:${bill.id}"]
                 if (rTime != null && rTime > bill.updatedAt) {
                     Log.w(TAG, "Conflict detected for Bill ${bill.id}: remote ($rTime) > local (${bill.updatedAt}). Preserving remote.")
-                    billsToMarkSynced.add(bill.id)
+                    db.billDao().markBillsSynced(listOf(bill.id))
                 } else {
                     val map = mapOf(
                         "id" to bill.id,
@@ -464,10 +494,13 @@ object FirestoreSyncManager {
                         "updatedAt" to bill.updatedAt
                     )
                     val docRef = userRef.collection("bills").document(bill.id.toString())
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    billsToMarkSynced.add(bill.id)
+                    val bid = bill.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.billDao().markBillsSynced(listOf(bid)) }
+                        )
+                    )
                 }
             }
 
@@ -476,7 +509,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["payments:${payment.id}"]
                 if (rTime != null && rTime > payment.updatedAt) {
                     Log.w(TAG, "Conflict detected for Payment ${payment.id}: remote ($rTime) > local (${payment.updatedAt}). Preserving remote.")
-                    paymentsToMarkSynced.add(payment.id)
+                    db.paymentDao().markPaymentsSynced(listOf(payment.id))
                 } else {
                     val map = mapOf(
                         "id" to payment.id,
@@ -491,10 +524,13 @@ object FirestoreSyncManager {
                         "updatedAt" to payment.updatedAt
                     )
                     val docRef = userRef.collection("payments").document(payment.id.toString())
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    paymentsToMarkSynced.add(payment.id)
+                    val payId = payment.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.paymentDao().markPaymentsSynced(listOf(payId)) }
+                        )
+                    )
                 }
             }
 
@@ -503,7 +539,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["expenses:${expense.id}"]
                 if (rTime != null && rTime > expense.updatedAt) {
                     Log.w(TAG, "Conflict detected for Expense ${expense.id}: remote ($rTime) > local (${expense.updatedAt}). Preserving remote.")
-                    expensesToMarkSynced.add(expense.id)
+                    db.expenseDao().markExpensesSynced(listOf(expense.id))
                 } else {
                     val map = mapOf(
                         "id" to expense.id,
@@ -518,10 +554,13 @@ object FirestoreSyncManager {
                         "updatedAt" to expense.updatedAt
                     )
                     val docRef = userRef.collection("expenses").document(expense.id.toString())
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    expensesToMarkSynced.add(expense.id)
+                    val expId = expense.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.expenseDao().markExpensesSynced(listOf(expId)) }
+                        )
+                    )
                 }
             }
 
@@ -530,7 +569,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["expense_categories:${cat.id}"]
                 if (rTime != null && rTime > cat.updatedAt) {
                     Log.w(TAG, "Conflict detected for Category ${cat.id}: remote ($rTime) > local (${cat.updatedAt}). Preserving remote.")
-                    categoriesToMarkSynced.add(cat.id)
+                    db.expenseDao().markCategoriesSynced(listOf(cat.id))
                 } else {
                     val map = mapOf(
                         "id" to cat.id,
@@ -538,10 +577,13 @@ object FirestoreSyncManager {
                         "updatedAt" to cat.updatedAt
                     )
                     val docRef = userRef.collection("expense_categories").document(cat.id.toString())
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    categoriesToMarkSynced.add(cat.id)
+                    val catId = cat.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.expenseDao().markCategoriesSynced(listOf(catId)) }
+                        )
+                    )
                 }
             }
 
@@ -550,7 +592,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["settings:business_settings"]
                 if (rTime != null && rTime > dirtySettings.updatedAt) {
                     Log.w(TAG, "Conflict detected for Business Settings: remote ($rTime) > local (${dirtySettings.updatedAt}). Preserving remote.")
-                    settingsToMarkSynced = true
+                    db.settingsDao().markSettingsSynced()
                 } else {
                     val map = mapOf(
                         "id" to dirtySettings.id,
@@ -565,10 +607,12 @@ object FirestoreSyncManager {
                         "updatedAt" to dirtySettings.updatedAt
                     )
                     val docRef = userRef.collection("settings").document("business_settings")
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    settingsToMarkSynced = true
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.settingsDao().markSettingsSynced() }
+                        )
+                    )
                 }
             }
 
@@ -577,7 +621,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["network_diagrams:${diag.id}"]
                 if (rTime != null && rTime > diag.updatedAt) {
                     Log.w(TAG, "Conflict detected for Diagram ${diag.id}: remote ($rTime) > local (${diag.updatedAt}). Preserving remote.")
-                    diagramsToMarkSynced.add(diag.id)
+                    db.networkDiagramDao().markDiagramsSynced(listOf(diag.id))
                 } else {
                     val map = mapOf(
                         "id" to diag.id,
@@ -587,10 +631,13 @@ object FirestoreSyncManager {
                         "updatedAt" to diag.updatedAt
                     )
                     val docRef = userRef.collection("network_diagrams").document(diag.id.toString())
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
-                    diagramsToMarkSynced.add(diag.id)
+                    val diagId = diag.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { database -> database.networkDiagramDao().markDiagramsSynced(listOf(diagId)) }
+                        )
+                    )
                 }
             }
 
@@ -599,7 +646,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["network_nodes:${node.id}"]
                 if (rTime != null && rTime > node.updatedAt) {
                     Log.w(TAG, "Conflict detected for Node ${node.id}: remote ($rTime) > local (${node.updatedAt}). Preserving remote.")
-                    nodesToMarkSynced.add(node.id)
+                    db.networkDiagramDao().markNodesSynced(listOf(node.id))
                 } else {
                     val nodeMap = mapOf(
                         "id" to node.id,
@@ -618,10 +665,13 @@ object FirestoreSyncManager {
                         "updatedAt" to node.updatedAt
                     )
                     val docRef = userRef.collection("network_nodes").document(node.id)
-                    batchOperations.add { batch ->
-                        batch.set(docRef, nodeMap, SetOptions.merge())
-                    }
-                    nodesToMarkSynced.add(node.id)
+                    val nodeId = node.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, nodeMap, SetOptions.merge()) },
+                            onSuccess = { database -> database.networkDiagramDao().markNodesSynced(listOf(nodeId)) }
+                        )
+                    )
                 }
             }
 
@@ -630,7 +680,7 @@ object FirestoreSyncManager {
                 val rTime = remoteTimestamps["network_connections:${conn.id}"]
                 if (rTime != null && rTime > conn.updatedAt) {
                     Log.w(TAG, "Conflict detected for Connection ${conn.id}: remote ($rTime) > local (${conn.updatedAt}). Preserving remote.")
-                    connectionsToMarkSynced.add(conn.id)
+                    db.networkDiagramDao().markConnectionsSynced(listOf(conn.id))
                 } else {
                     val connMap = mapOf(
                         "id" to conn.id,
@@ -642,10 +692,13 @@ object FirestoreSyncManager {
                         "updatedAt" to conn.updatedAt
                     )
                     val docRef = userRef.collection("network_connections").document(conn.id)
-                    batchOperations.add { batch ->
-                        batch.set(docRef, connMap, SetOptions.merge())
-                    }
-                    connectionsToMarkSynced.add(conn.id)
+                    val connId = conn.id
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, connMap, SetOptions.merge()) },
+                            onSuccess = { database -> database.networkDiagramDao().markConnectionsSynced(listOf(connId)) }
+                        )
+                    )
                 }
             }
 
@@ -666,72 +719,89 @@ object FirestoreSyncManager {
                     "timestamp" to log.timestamp
                 )
                 val docRef = userRef.collection("audit_logs").document(log.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, logMap, SetOptions.merge())
-                }
-                auditLogsToMarkSynced.add(log.id)
+                val logId = log.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, logMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.auditLogDao().markAuditLogsSynced(listOf(logId)) }
+                    )
+                )
             }
 
-            // Commit all batched operations to Firestore
-            commitBatchedOperations(firestore, batchOperations)
-
-            // Step 2: Mark successfully synced records locally in Room
-            db.withTransaction {
-                if (customersToMarkSynced.isNotEmpty()) {
-                    db.customerDao().markCustomersSynced(customersToMarkSynced)
+            // 13. Bandwidth Bills
+            for (b in dirtyBandwidthBills) {
+                val remoteTs = remoteTimestamps["bandwidth_bills:${b.billingMonth}"]
+                if (remoteTs != null && remoteTs > b.updatedAt) {
+                    Log.w(TAG, "Conflict detected for bandwidth_bill ${b.billingMonth}: Server ($remoteTs) > Local (${b.updatedAt}). Preserving server copy.")
+                    db.bandwidthBillDao().markBandwidthBillsSynced(listOf(b.billingMonth))
+                    continue
                 }
-                if (packagesToMarkSynced.isNotEmpty()) {
-                    db.packageDao().markPackagesSynced(packagesToMarkSynced)
-                }
-                if (billsToMarkSynced.isNotEmpty()) {
-                    db.billDao().markBillsSynced(billsToMarkSynced)
-                }
-                if (paymentsToMarkSynced.isNotEmpty()) {
-                    db.paymentDao().markPaymentsSynced(paymentsToMarkSynced)
-                }
-                if (expensesToMarkSynced.isNotEmpty()) {
-                    db.expenseDao().markExpensesSynced(expensesToMarkSynced)
-                }
-                if (categoriesToMarkSynced.isNotEmpty()) {
-                    db.expenseDao().markCategoriesSynced(categoriesToMarkSynced)
-                }
-                if (settingsToMarkSynced) {
-                    db.settingsDao().markSettingsSynced()
-                }
-                if (diagramsToMarkSynced.isNotEmpty()) {
-                    db.networkDiagramDao().markDiagramsSynced(diagramsToMarkSynced)
-                }
-                if (nodesToMarkSynced.isNotEmpty()) {
-                    db.networkDiagramDao().markNodesSynced(nodesToMarkSynced)
-                }
-                if (connectionsToMarkSynced.isNotEmpty()) {
-                    db.networkDiagramDao().markConnectionsSynced(connectionsToMarkSynced)
-                }
-                if (auditLogsToMarkSynced.isNotEmpty()) {
-                    db.auditLogDao().markAuditLogsSynced(auditLogsToMarkSynced)
-                }
-                if (pendingDeletions.isNotEmpty()) {
-                    db.pendingDeletionDao().deletePendingDeletionsByIds(pendingDeletions.map { it.id })
-                }
+                val bMap = mapOf(
+                    "billingMonth" to b.billingMonth,
+                    "amount" to b.amount,
+                    "updatedAt" to b.updatedAt
+                )
+                val docRef = userRef.collection("bandwidth_bills").document(b.billingMonth)
+                val bMonth = b.billingMonth
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, bMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.bandwidthBillDao().markBandwidthBillsSynced(listOf(bMonth)) }
+                    )
+                )
             }
 
-            // Status record update
-            userRef.collection("sync_meta").document("status").set(
-                mapOf(
-                    "lastSyncTimestamp" to System.currentTimeMillis(),
-                    "lastBatchSize" to totalDirtyCount
-                ),
-                SetOptions.merge()
-            ).await()
+            // 14. Specific Advances
+            for (sa in dirtySpecificAdvances) {
+                val remoteTs = remoteTimestamps["specific_advances:${sa.id}"]
+                if (remoteTs != null && remoteTs > sa.updatedAt) {
+                    Log.w(TAG, "Conflict detected for specific_advance ${sa.id}: Server ($remoteTs) > Local (${sa.updatedAt}). Preserving server copy.")
+                    db.specificAdvanceDao().markSpecificAdvancesSynced(listOf(sa.id))
+                    continue
+                }
+                val saMap = mapOf(
+                    "id" to sa.id,
+                    "customerId" to sa.customerId,
+                    "billingMonth" to sa.billingMonth,
+                    "amount" to sa.amount,
+                    "isConsumed" to sa.isConsumed,
+                    "updatedAt" to sa.updatedAt
+                )
+                val docRef = userRef.collection("specific_advances").document(sa.id.toString())
+                val saId = sa.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, saMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.specificAdvanceDao().markSpecificAdvancesSynced(listOf(saId)) }
+                    )
+                )
+            }
 
-            prefs.edit()
-                .putLong("last_cloud_sync_time", System.currentTimeMillis())
-                .putInt("pending_sync_count", 0)
-                .putBoolean("is_syncing", false)
-                .apply()
+            // Commit write operations in chunks and mark each chunk synced upon success
+            val syncSuccess = commitSyncOperationsInChunks(firestore, db, syncOperations)
 
-            Log.i(TAG, "Successfully committed Delta Sync batch of $totalDirtyCount records for UID: $uid")
-            true
+            if (syncSuccess) {
+                userRef.collection("sync_meta").document("status").set(
+                    mapOf(
+                        "lastSyncTimestamp" to System.currentTimeMillis(),
+                        "lastBatchSize" to totalDirtyCount
+                    ),
+                    SetOptions.merge()
+                ).await()
+
+                prefs.edit()
+                    .putLong("last_cloud_sync_time", System.currentTimeMillis())
+                    .putInt("pending_sync_count", 0)
+                    .putBoolean("is_syncing", false)
+                    .apply()
+
+                Log.i(TAG, "Successfully committed Delta Sync batch of $totalDirtyCount records for UID: $uid")
+                true
+            } else {
+                prefs.edit().putBoolean("is_syncing", false).apply()
+                Log.w(TAG, "Delta Sync partially completed: Successful chunks were marked synced; failed chunks remain dirty.")
+                false
+            }
         } catch (e: FirebaseFirestoreException) {
             context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
             if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
@@ -783,27 +853,22 @@ object FirestoreSyncManager {
             val allNodes = db.networkDiagramDao().getAllNodesList()
             val allConnections = db.networkDiagramDao().getAllConnectionsList()
             val allAuditLogs = db.auditLogDao().getAllAuditLogsList()
+            val allBwBills = db.bandwidthBillDao().getAllBandwidthBillsList()
+            val allSpecificAdvances = db.specificAdvanceDao().getAllSpecificAdvancesList()
             val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions()
 
-            val batchOperations = mutableListOf<(WriteBatch) -> Unit>()
-            val customersToMarkSynced = mutableListOf<Long>()
-            val packagesToMarkSynced = mutableListOf<Long>()
-            val billsToMarkSynced = mutableListOf<Long>()
-            val paymentsToMarkSynced = mutableListOf<Long>()
-            val expensesToMarkSynced = mutableListOf<Long>()
-            val categoriesToMarkSynced = mutableListOf<Long>()
-            var settingsToMarkSynced = false
-            val diagramsToMarkSynced = mutableListOf<Long>()
-            val nodesToMarkSynced = mutableListOf<String>()
-            val connectionsToMarkSynced = mutableListOf<String>()
-            val auditLogsToMarkSynced = mutableListOf<Long>()
+            val syncOperations = mutableListOf<SyncOperation>()
 
             // 1. Pending Deletions (Delta deleted records queue)
             for (del in pendingDeletions) {
                 val docRef = userRef.collection(del.collectionName).document(del.documentId)
-                batchOperations.add { batch ->
-                    batch.delete(docRef)
-                }
+                val delId = del.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.delete(docRef) },
+                        onSuccess = { database -> database.pendingDeletionDao().deletePendingDeletionsByIds(listOf(delId)) }
+                    )
+                )
             }
 
             // 1.5. deleted_records (Tombstones from SharedPreferences)
@@ -821,9 +886,12 @@ object FirestoreSyncManager {
                         "recordId" to id,
                         "deletedAt" to System.currentTimeMillis()
                     )
-                    batchOperations.add { batch ->
-                        batch.set(docRef, map, SetOptions.merge())
-                    }
+                    syncOperations.add(
+                        SyncOperation(
+                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                            onSuccess = { /* No Room status change required for preferences tombstone */ }
+                        )
+                    )
                 }
             }
 
@@ -855,10 +923,13 @@ object FirestoreSyncManager {
                     "updatedAt" to customer.updatedAt
                 )
                 val docRef = userRef.collection("customers").document(customer.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                customersToMarkSynced.add(customer.id)
+                val cid = customer.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.customerDao().markCustomersSynced(listOf(cid)) }
+                    )
+                )
             }
 
             // 3. Packages
@@ -872,10 +943,13 @@ object FirestoreSyncManager {
                     "updatedAt" to pkg.updatedAt
                 )
                 val docRef = userRef.collection("packages").document(pkg.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                packagesToMarkSynced.add(pkg.id)
+                val pid = pkg.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.packageDao().markPackagesSynced(listOf(pid)) }
+                    )
+                )
             }
 
             // 4. Bills
@@ -896,10 +970,13 @@ object FirestoreSyncManager {
                     "updatedAt" to bill.updatedAt
                 )
                 val docRef = userRef.collection("bills").document(bill.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                billsToMarkSynced.add(bill.id)
+                val bid = bill.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.billDao().markBillsSynced(listOf(bid)) }
+                    )
+                )
             }
 
             // 5. Payments
@@ -917,10 +994,13 @@ object FirestoreSyncManager {
                     "updatedAt" to payment.updatedAt
                 )
                 val docRef = userRef.collection("payments").document(payment.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                paymentsToMarkSynced.add(payment.id)
+                val payId = payment.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.paymentDao().markPaymentsSynced(listOf(payId)) }
+                    )
+                )
             }
 
             // 6. Expenses
@@ -938,10 +1018,13 @@ object FirestoreSyncManager {
                     "updatedAt" to expense.updatedAt
                 )
                 val docRef = userRef.collection("expenses").document(expense.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                expensesToMarkSynced.add(expense.id)
+                val expId = expense.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.expenseDao().markExpensesSynced(listOf(expId)) }
+                    )
+                )
             }
 
             // 7. Categories
@@ -952,10 +1035,13 @@ object FirestoreSyncManager {
                     "updatedAt" to cat.updatedAt
                 )
                 val docRef = userRef.collection("expense_categories").document(cat.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                categoriesToMarkSynced.add(cat.id)
+                val catId = cat.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.expenseDao().markCategoriesSynced(listOf(catId)) }
+                    )
+                )
             }
 
             // 8. Settings
@@ -973,10 +1059,12 @@ object FirestoreSyncManager {
                     "updatedAt" to settings.updatedAt
                 )
                 val docRef = userRef.collection("settings").document("business_settings")
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                settingsToMarkSynced = true
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.settingsDao().markSettingsSynced() }
+                    )
+                )
             }
 
             // 9. Network Diagrams
@@ -989,10 +1077,13 @@ object FirestoreSyncManager {
                     "updatedAt" to diag.updatedAt
                 )
                 val docRef = userRef.collection("network_diagrams").document(diag.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, map, SetOptions.merge())
-                }
-                diagramsToMarkSynced.add(diag.id)
+                val diagId = diag.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
+                        onSuccess = { database -> database.networkDiagramDao().markDiagramsSynced(listOf(diagId)) }
+                    )
+                )
             }
 
             // 10. Network Nodes
@@ -1014,10 +1105,13 @@ object FirestoreSyncManager {
                     "updatedAt" to node.updatedAt
                 )
                 val docRef = userRef.collection("network_nodes").document(node.id)
-                batchOperations.add { batch ->
-                    batch.set(docRef, nodeMap, SetOptions.merge())
-                }
-                nodesToMarkSynced.add(node.id)
+                val nodeId = node.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, nodeMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.networkDiagramDao().markNodesSynced(listOf(nodeId)) }
+                    )
+                )
             }
 
             // 11. Network Connections
@@ -1032,10 +1126,13 @@ object FirestoreSyncManager {
                     "updatedAt" to conn.updatedAt
                 )
                 val docRef = userRef.collection("network_connections").document(conn.id)
-                batchOperations.add { batch ->
-                    batch.set(docRef, connMap, SetOptions.merge())
-                }
-                connectionsToMarkSynced.add(conn.id)
+                val connId = conn.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, connMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.networkDiagramDao().markConnectionsSynced(listOf(connId)) }
+                    )
+                )
             }
 
             // 12. Audit Logs
@@ -1055,57 +1152,85 @@ object FirestoreSyncManager {
                     "timestamp" to log.timestamp
                 )
                 val docRef = userRef.collection("audit_logs").document(log.id.toString())
-                batchOperations.add { batch ->
-                    batch.set(docRef, logMap, SetOptions.merge())
-                }
-                auditLogsToMarkSynced.add(log.id)
+                val logId = log.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, logMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.auditLogDao().markAuditLogsSynced(listOf(logId)) }
+                    )
+                )
             }
 
-            if (batchOperations.isEmpty()) {
+            // 13. Bandwidth Bills
+            for (b in allBwBills) {
+                val bMap = mapOf(
+                    "billingMonth" to b.billingMonth,
+                    "amount" to b.amount,
+                    "updatedAt" to b.updatedAt
+                )
+                val docRef = userRef.collection("bandwidth_bills").document(b.billingMonth)
+                val bMonth = b.billingMonth
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, bMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.bandwidthBillDao().markBandwidthBillsSynced(listOf(bMonth)) }
+                    )
+                )
+            }
+
+            // 14. Specific Advances
+            for (sa in allSpecificAdvances) {
+                val saMap = mapOf(
+                    "id" to sa.id,
+                    "customerId" to sa.customerId,
+                    "billingMonth" to sa.billingMonth,
+                    "amount" to sa.amount,
+                    "isConsumed" to sa.isConsumed,
+                    "updatedAt" to sa.updatedAt
+                )
+                val docRef = userRef.collection("specific_advances").document(sa.id.toString())
+                val saId = sa.id
+                syncOperations.add(
+                    SyncOperation(
+                        writeOp = { batch -> batch.set(docRef, saMap, SetOptions.merge()) },
+                        onSuccess = { database -> database.specificAdvanceDao().markSpecificAdvancesSynced(listOf(saId)) }
+                    )
+                )
+            }
+
+            if (syncOperations.isEmpty()) {
                 Log.d(TAG, "Backup to Cloud: No local records found to write.")
                 prefs.edit().putBoolean("is_syncing", false).apply()
                 return@withContext true
             }
 
-            Log.i(TAG, "Backup to Cloud: Safely uploading all local datasets (${batchOperations.size} operations total) to Firestore path users/$uid/...")
+            Log.i(TAG, "Backup to Cloud: Safely uploading all local datasets (${syncOperations.size} operations total) to Firestore path users/$uid/...")
             
-            // Execute batches safely in chunks
-            commitBatchedOperations(firestore, batchOperations)
+            // Execute batches safely in chunks and mark each chunk synced upon success
+            val syncSuccess = commitSyncOperationsInChunks(firestore, db, syncOperations)
 
-            // Step 3: Mark local entities as synced
-            db.withTransaction {
-                if (pendingDeletions.isNotEmpty()) {
-                    db.pendingDeletionDao().deletePendingDeletionsByIds(pendingDeletions.map { it.id })
-                }
-                if (customersToMarkSynced.isNotEmpty()) db.customerDao().markCustomersSynced(customersToMarkSynced)
-                if (packagesToMarkSynced.isNotEmpty()) db.packageDao().markPackagesSynced(packagesToMarkSynced)
-                if (billsToMarkSynced.isNotEmpty()) db.billDao().markBillsSynced(billsToMarkSynced)
-                if (paymentsToMarkSynced.isNotEmpty()) db.paymentDao().markPaymentsSynced(paymentsToMarkSynced)
-                if (expensesToMarkSynced.isNotEmpty()) db.expenseDao().markExpensesSynced(expensesToMarkSynced)
-                if (categoriesToMarkSynced.isNotEmpty()) db.expenseDao().markCategoriesSynced(categoriesToMarkSynced)
-                if (settingsToMarkSynced) db.settingsDao().markSettingsSynced()
-                if (diagramsToMarkSynced.isNotEmpty()) db.networkDiagramDao().markDiagramsSynced(diagramsToMarkSynced)
-                if (nodesToMarkSynced.isNotEmpty()) db.networkDiagramDao().markNodesSynced(nodesToMarkSynced)
-                if (connectionsToMarkSynced.isNotEmpty()) db.networkDiagramDao().markConnectionsSynced(connectionsToMarkSynced)
-                if (auditLogsToMarkSynced.isNotEmpty()) db.auditLogDao().markAuditLogsSynced(auditLogsToMarkSynced)
+            if (syncSuccess) {
+                userRef.collection("sync_meta").document("status").set(
+                    mapOf(
+                        "lastSyncTimestamp" to System.currentTimeMillis(),
+                        "lastBatchSize" to syncOperations.size
+                    ),
+                    SetOptions.merge()
+                ).await()
+
+                prefs.edit()
+                    .putLong("last_cloud_sync_time", System.currentTimeMillis())
+                    .putInt("pending_sync_count", 0)
+                    .putBoolean("is_syncing", false)
+                    .apply()
+
+                Log.i(TAG, "Backup to Cloud: Successfully completed full backup to Firestore!")
+                true
+            } else {
+                prefs.edit().putBoolean("is_syncing", false).apply()
+                Log.w(TAG, "Backup to Cloud partially completed: Successful chunks were marked synced; failed chunks remain dirty.")
+                false
             }
-
-            userRef.collection("sync_meta").document("status").set(
-                mapOf(
-                    "lastSyncTimestamp" to System.currentTimeMillis(),
-                    "lastBatchSize" to batchOperations.size
-                ),
-                SetOptions.merge()
-            ).await()
-
-            prefs.edit()
-                .putLong("last_cloud_sync_time", System.currentTimeMillis())
-                .putInt("pending_sync_count", 0)
-                .putBoolean("is_syncing", false)
-                .apply()
-
-            Log.i(TAG, "Backup to Cloud: Successfully completed full backup to Firestore!")
-            true
         } catch (e: FirebaseFirestoreException) {
             context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
             Log.e(TAG, "Backup to Cloud failed with FirestoreException: ${e.message}", e)
@@ -1140,6 +1265,11 @@ object FirestoreSyncManager {
             val userRef = firestore.collection("users").document(uid)
             val db = IspDatabase.getDatabase(context)
 
+            // Retrieve all deleted records (from local tombstones, pending deletions, and remote tombstones)
+            val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions()
+            val pendingDeletedKeys = pendingDeletions.map { "${it.collectionName}:${it.documentId}" }.toSet()
+            val deletedRecords = syncAndGetDeletedRecords(context, userRef) + pendingDeletedKeys
+
             // Step 1: Query only records modified after lastPullTime
             var pulledCount = 0
 
@@ -1155,6 +1285,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyCustIds.contains(id)) return@mapNotNull null // Protect local dirty mutation
+                    if (deletedRecords.contains("customers:$id")) return@mapNotNull null // Protect local/pending deletion
                     CustomerEntity(
                         id = id,
                         customerCode = doc.getString("customerCode") ?: "CUST-$id",
@@ -1197,6 +1328,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyPkgIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("packages:$id")) return@mapNotNull null
                     IspPackageEntity(
                         id = id,
                         name = doc.getString("name") ?: "",
@@ -1222,6 +1354,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyBillIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("bills:$id")) return@mapNotNull null
                     BillEntity(
                         id = id,
                         billNumber = doc.getString("billNumber") ?: "",
@@ -1254,6 +1387,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyPayIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("payments:$id")) return@mapNotNull null
                     PaymentEntity(
                         id = id,
                         paymentReceiptNo = doc.getString("paymentReceiptNo") ?: "",
@@ -1283,6 +1417,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyExpIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("expenses:$id")) return@mapNotNull null
                     ExpenseEntity(
                         id = id,
                         title = doc.getString("title") ?: "",
@@ -1312,6 +1447,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyCatIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("expense_categories:$id")) return@mapNotNull null
                     ExpenseCategoryEntity(
                         id = id,
                         name = doc.getString("name") ?: "",
@@ -1358,6 +1494,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyDiagIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("network_diagrams:$id")) return@mapNotNull null
                     NetworkDiagramEntity(
                         id = id,
                         name = doc.getString("name") ?: "",
@@ -1381,6 +1518,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.getString("id") ?: doc.id
                     if (dirtyNodeIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("network_nodes:$id")) return@mapNotNull null
                     NetworkNodeEntity(
                         id = id,
                         diagramId = doc.safeLong("diagramId", 0L),
@@ -1413,6 +1551,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.getString("id") ?: doc.id
                     if (dirtyConnIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("network_connections:$id")) return@mapNotNull null
                     NetworkConnectionEntity(
                         id = id,
                         diagramId = doc.safeLong("diagramId", 0L),
@@ -1438,6 +1577,7 @@ object FirestoreSyncManager {
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyLogIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("audit_logs:$id")) return@mapNotNull null
                     AuditLogEntity(
                         id = id,
                         action = doc.getString("action") ?: "",
@@ -1457,6 +1597,53 @@ object FirestoreSyncManager {
             } ?: emptyList()
             pulledCount += logsToApply.size
 
+            // 12. Bandwidth Bills
+            val bwDocs = try {
+                val q = if (lastPullTime > 0L) userRef.collection("bandwidth_bills").whereGreaterThan("updatedAt", lastPullTime)
+                        else userRef.collection("bandwidth_bills")
+                q.get().await()
+            } catch (e: Exception) { null }
+            val dirtyBwMonths = db.bandwidthBillDao().getDirtyBandwidthBills().map { it.billingMonth }.toSet()
+            val bwToApply = bwDocs?.documents?.mapNotNull { doc ->
+                try {
+                    val month = doc.getString("billingMonth") ?: doc.id
+                    if (dirtyBwMonths.contains(month)) return@mapNotNull null
+                    if (deletedRecords.contains("bandwidth_bills:$month")) return@mapNotNull null
+                    val amount = doc.safeDouble("amount", 0.0)
+                    val updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis())
+                    if (month.isNotBlank()) BandwidthBillEntity(billingMonth = month, amount = amount, updatedAt = updatedAt, syncStatus = 0) else null
+                } catch (e: Exception) { null }
+            } ?: emptyList()
+            pulledCount += bwToApply.size
+
+            // 13. Specific Advances
+            val saQuery = if (lastPullTime > 0L) {
+                userRef.collection("specific_advances").whereGreaterThan("updatedAt", lastPullTime)
+            } else {
+                userRef.collection("specific_advances")
+            }
+            val saDocs = try {
+                saQuery.get().await()
+            } catch (e: Exception) { null }
+            val dirtySaIds = db.specificAdvanceDao().getDirtySpecificAdvances().map { it.id }.toSet()
+            val saToApply = saDocs?.documents?.mapNotNull { doc ->
+                try {
+                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
+                    if (dirtySaIds.contains(id)) return@mapNotNull null
+                    if (deletedRecords.contains("specific_advances:$id")) return@mapNotNull null
+                    SpecificAdvanceEntity(
+                        id = id,
+                        customerId = doc.safeLong("customerId", 0L),
+                        billingMonth = doc.getString("billingMonth") ?: "",
+                        amount = doc.safeDouble("amount", 0.0),
+                        isConsumed = doc.getBoolean("isConsumed") ?: false,
+                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
+                        syncStatus = 0
+                    )
+                } catch (e: Exception) { null }
+            } ?: emptyList()
+            pulledCount += saToApply.size
+
             // Step 2: Apply pulled delta records transactionally to Room
             if (pulledCount > 0) {
                 db.withTransaction {
@@ -1471,6 +1658,8 @@ object FirestoreSyncManager {
                     if (nodesToApply.isNotEmpty()) db.networkDiagramDao().insertNodes(nodesToApply)
                     if (connectionsToApply.isNotEmpty()) db.networkDiagramDao().insertConnections(connectionsToApply)
                     if (logsToApply.isNotEmpty()) db.auditLogDao().insertLogs(logsToApply)
+                    if (bwToApply.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bwToApply)
+                    if (saToApply.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(saToApply)
                 }
                 Log.i(TAG, "Delta Pull: Successfully applied $pulledCount changed records into Room")
             } else {
@@ -1504,7 +1693,9 @@ object FirestoreSyncManager {
         val diagrams: List<NetworkDiagramEntity>,
         val nodes: List<NetworkNodeEntity>,
         val connections: List<NetworkConnectionEntity>,
-        val auditLogs: List<AuditLogEntity>
+        val auditLogs: List<AuditLogEntity>,
+        val bandwidthBills: List<BandwidthBillEntity>,
+        val specificAdvances: List<SpecificAdvanceEntity>
     )
 
     /**
@@ -1773,12 +1964,43 @@ object FirestoreSyncManager {
                     } catch (e: Exception) { null }
                 } ?: emptyList()
 
+                // 10. Restore Bandwidth Bills
+                val bwDocs = try {
+                    userRef.collection("bandwidth_bills").get().await()
+                } catch (e: Exception) { null }
+                val restoredBwBills = bwDocs?.documents?.mapNotNull { doc ->
+                    try {
+                        val month = doc.getString("billingMonth") ?: doc.id
+                        val amount = doc.safeDouble("amount", 0.0)
+                        if (month.isNotBlank()) BandwidthBillEntity(billingMonth = month, amount = amount) else null
+                    } catch (e: Exception) { null }
+                } ?: emptyList()
+
+                // 11. Restore Specific Advances
+                val saDocs = try {
+                    userRef.collection("specific_advances").get().await()
+                } catch (e: Exception) { null }
+                val restoredSpecificAdvances = saDocs?.documents?.mapNotNull { doc ->
+                    try {
+                        val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
+                        SpecificAdvanceEntity(
+                            id = id,
+                            customerId = doc.safeLong("customerId", 0L),
+                            billingMonth = doc.getString("billingMonth") ?: "",
+                            amount = doc.safeDouble("amount", 0.0),
+                            isConsumed = doc.getBoolean("isConsumed") ?: false,
+                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis())
+                        )
+                    } catch (e: Exception) { null }
+                } ?: emptyList()
+
                 val hasData = restoredCustomers.isNotEmpty() || restoredPackages.isNotEmpty() ||
                         restoredBills.isNotEmpty() || restoredPayments.isNotEmpty() ||
                         restoredExpenses.isNotEmpty() || restoredCategories.isNotEmpty() ||
                         restoredSettings != null || restoredDiagrams.isNotEmpty() ||
                         restoredNodes.isNotEmpty() || restoredConnections.isNotEmpty() ||
-                        restoredLogs.isNotEmpty()
+                        restoredLogs.isNotEmpty() || restoredBwBills.isNotEmpty() ||
+                        restoredSpecificAdvances.isNotEmpty()
 
                 val payload = RestoredCloudPayload(
                     customers = restoredCustomers,
@@ -1791,7 +2013,9 @@ object FirestoreSyncManager {
                     diagrams = restoredDiagrams,
                     nodes = restoredNodes,
                     connections = restoredConnections,
-                    auditLogs = restoredLogs
+                    auditLogs = restoredLogs,
+                    bandwidthBills = restoredBwBills,
+                    specificAdvances = restoredSpecificAdvances
                 )
                 Pair(payload, hasData)
             }
@@ -1810,6 +2034,8 @@ object FirestoreSyncManager {
                 db.paymentDao().deleteAllPayments()
                 db.expenseDao().deleteAllExpenses()
                 db.expenseDao().deleteAllCategories()
+                db.bandwidthBillDao().deleteAllBandwidthBills()
+                db.specificAdvanceDao().deleteAllSpecificAdvances()
                 db.settingsDao().deleteSettings()
                 db.networkDiagramDao().deleteAllDiagrams()
                 db.networkDiagramDao().deleteAllNodes()
@@ -1834,6 +2060,12 @@ object FirestoreSyncManager {
                 }
                 if (restoredData.categories.isNotEmpty()) {
                     db.expenseDao().insertCategories(restoredData.categories)
+                }
+                if (restoredData.bandwidthBills.isNotEmpty()) {
+                    db.bandwidthBillDao().insertOrUpdateBandwidthBills(restoredData.bandwidthBills)
+                }
+                if (restoredData.specificAdvances.isNotEmpty()) {
+                    db.specificAdvanceDao().insertSpecificAdvances(restoredData.specificAdvances)
                 }
                 if (restoredData.settings != null) {
                     db.settingsDao().insertOrUpdateSettings(restoredData.settings)

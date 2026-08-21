@@ -233,8 +233,8 @@ tonalElevation = 2.dp,
                     KpiCard(
                         title = androidx.compose.ui.res.stringResource(com.example.R.string.inactive_susp),
                         value = "$currency${monthlyBillAmount.formatAmount()}",
-                        icon = Icons.Default.Warning,
-                        iconColor = AmberWarning,
+                        icon = Icons.Default.Payments,
+                        iconColor = EmeraldSuccess,
                         modifier = Modifier.weight(1f),
                         subtitle = currentMonthStr
                     )

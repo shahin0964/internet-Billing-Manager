@@ -218,6 +218,7 @@ fun MainAppContent(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val expenses by viewModel.expenses.collectAsStateWithLifecycle()
     val expenseCategories by viewModel.expenseCategories.collectAsStateWithLifecycle()
+    val bandwidthBills by viewModel.bandwidthBills.collectAsStateWithLifecycle()
 
     val customerQuery by viewModel.customerSearchQuery.collectAsStateWithLifecycle()
     val customerStatusFilter by viewModel.customerStatusFilter.collectAsStateWithLifecycle()
@@ -790,6 +791,10 @@ fun MainAppContent(
                     CollectionScreen(
                         payments = payments,
                         bills = bills,
+                        bandwidthBills = bandwidthBills,
+                        onSaveBandwidthBill = { month, amount ->
+                            viewModel.saveOrUpdateBandwidthBill(month, amount)
+                        },
                         currencySymbol = settings.currencySymbol,
                         searchQuery = collectionQuery,
                         onSearchQueryChange = { viewModel.collectionSearchQuery.value = it },

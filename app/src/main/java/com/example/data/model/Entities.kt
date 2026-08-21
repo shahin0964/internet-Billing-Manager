@@ -136,5 +136,14 @@ data class SpecificAdvanceEntity(
     val billingMonth: String, // format e.g. "September 2026"
     val amount: Double,
     val isConsumed: Boolean = false,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
+)
+
+@Entity(tableName = "bandwidth_bills")
+data class BandwidthBillEntity(
+    @PrimaryKey val billingMonth: String,
+    val amount: Double,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val syncStatus: Int = 0 // 0 = SYNCED, 1 = DIRTY
 )

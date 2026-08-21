@@ -14,6 +14,7 @@ import com.example.data.model.ExpenseEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PaymentEntity
 import com.example.data.model.SpecificAdvanceEntity
+import com.example.data.model.BandwidthBillEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -264,13 +265,52 @@ interface SpecificAdvanceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSpecificAdvance(advance: SpecificAdvanceEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSpecificAdvances(advances: List<SpecificAdvanceEntity>)
+
     @Query("SELECT * FROM specific_advances WHERE customerId = :customerId AND billingMonth = :billingMonth AND isConsumed = 0 LIMIT 1")
     suspend fun getUnconsumedSpecificAdvance(customerId: Long, billingMonth: String): SpecificAdvanceEntity?
 
-    @Query("UPDATE specific_advances SET isConsumed = 1, updatedAt = :updatedAt WHERE id = :id")
+    @Query("SELECT * FROM specific_advances")
+    suspend fun getAllSpecificAdvancesList(): List<SpecificAdvanceEntity>
+
+    @Query("SELECT * FROM specific_advances WHERE syncStatus = 1")
+    suspend fun getDirtySpecificAdvances(): List<SpecificAdvanceEntity>
+
+    @Query("UPDATE specific_advances SET syncStatus = 0 WHERE id IN (:ids)")
+    suspend fun markSpecificAdvancesSynced(ids: List<Long>)
+
+    @Query("UPDATE specific_advances SET isConsumed = 1, updatedAt = :updatedAt, syncStatus = 1 WHERE id = :id")
     suspend fun markConsumed(id: Long, updatedAt: Long)
 
     @Query("DELETE FROM specific_advances")
     suspend fun deleteAllSpecificAdvances()
+}
+
+@Dao
+interface BandwidthBillDao {
+    @Query("SELECT * FROM bandwidth_bills WHERE billingMonth = :billingMonth LIMIT 1")
+    suspend fun getBandwidthBillSingle(billingMonth: String): BandwidthBillEntity?
+
+    @Query("SELECT * FROM bandwidth_bills")
+    fun getAllBandwidthBills(): Flow<List<BandwidthBillEntity>>
+
+    @Query("SELECT * FROM bandwidth_bills")
+    suspend fun getAllBandwidthBillsList(): List<BandwidthBillEntity>
+
+    @Query("SELECT * FROM bandwidth_bills WHERE syncStatus = 1")
+    suspend fun getDirtyBandwidthBills(): List<BandwidthBillEntity>
+
+    @Query("UPDATE bandwidth_bills SET syncStatus = 0 WHERE billingMonth IN (:months)")
+    suspend fun markBandwidthBillsSynced(months: List<String>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateBandwidthBill(bill: BandwidthBillEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateBandwidthBills(bills: List<BandwidthBillEntity>)
+
+    @Query("DELETE FROM bandwidth_bills")
+    suspend fun deleteAllBandwidthBills()
 }
 
