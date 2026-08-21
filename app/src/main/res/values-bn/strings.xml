@@ -9,6 +9,7 @@
     <string name="total_bill">মোট বিল</string>
     <string name="total_collected">মোট কালেকশন</string>
     <string name="total_due">মোট বকেয়া</string>
+    <string name="previous_due">পূর্ববর্তী বকেয়া</string>
     <string name="add_customer">গ্রাহক যোগ করুন</string>
     <string name="collect_payment">পেমেন্ট নিন</string>
     <string name="generate_bills">বিল তৈরি করুন</string>

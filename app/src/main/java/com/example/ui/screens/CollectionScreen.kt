@@ -132,7 +132,42 @@ fun CollectionScreen(
     val totalMonthlyCollected = payments.filter { it.billId in monthlyBillIds }.sumOf { it.amount }
     val totalMonthlyDue = monthlyBills.sumOf { it.dueAmount }
 
-    val totalOutstanding = bills.sumOf { it.dueAmount }
+    val selectedMonthValue = remember(selectedMonthString) {
+        val monthsList = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+        val parts = selectedMonthString.trim().split(" ")
+        if (parts.size == 2) {
+            val monthName = parts[0]
+            val yearStr = parts[1]
+            val year = yearStr.toIntOrNull() ?: 0
+            val monthIndex = monthsList.indexOfFirst { it.equals(monthName, ignoreCase = true) }
+            if (monthIndex != -1) year * 12 + monthIndex else 0
+        } else {
+            0
+        }
+    }
+
+    val previousBillsDue = remember(bills, selectedMonthValue) {
+        val monthsList = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+        bills.filter { bill ->
+            val parts = bill.billingMonth.trim().split(" ")
+            if (parts.size == 2) {
+                val monthName = parts[0]
+                val yearStr = parts[1]
+                val year = yearStr.toIntOrNull() ?: 0
+                val monthIndex = monthsList.indexOfFirst { it.equals(monthName, ignoreCase = true) }
+                if (monthIndex != -1) {
+                    val billMonthValue = year * 12 + monthIndex
+                    billMonthValue < selectedMonthValue && bill.dueAmount > 0.0
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }.sumOf { it.dueAmount }
+    }
+
+    val totalOutstanding = previousBillsDue + totalMonthlyDue
 
     val filteredPayments = remember(payments, searchQuery) {
         if (searchQuery.isBlank()) payments
@@ -197,13 +232,25 @@ fun CollectionScreen(
         }
 
         item {
-            KpiCard(
-                title = androidx.compose.ui.res.stringResource(com.example.R.string.total_due),
-                value = "$currencySymbol${totalOutstanding.formatAmount()}",
-                icon = Icons.Default.MoneyOff,
-                iconColor = MaterialTheme.colorScheme.error,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                KpiCard(
+                    title = androidx.compose.ui.res.stringResource(com.example.R.string.previous_due),
+                    value = "$currencySymbol${previousBillsDue.formatAmount()}",
+                    icon = Icons.Default.CalendarToday,
+                    iconColor = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f)
+                )
+                KpiCard(
+                    title = androidx.compose.ui.res.stringResource(com.example.R.string.total_due),
+                    value = "$currencySymbol${totalOutstanding.formatAmount()}",
+                    icon = Icons.Default.MoneyOff,
+                    iconColor = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
 
         // Daily Bill Entry Card

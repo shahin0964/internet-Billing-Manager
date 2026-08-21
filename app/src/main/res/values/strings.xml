@@ -9,6 +9,7 @@
     <string name="total_bill">Total Bill</string>
     <string name="total_collected">Total Collected</string>
     <string name="total_due">Total Due</string>
+    <string name="previous_due">Previous Due</string>
     <string name="add_customer">Add Customer</string>
     <string name="collect_payment">Collect Payment</string>
     <string name="generate_bills">Generate Bills</string>
