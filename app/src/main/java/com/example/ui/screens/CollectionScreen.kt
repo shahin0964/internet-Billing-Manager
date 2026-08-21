@@ -136,7 +136,9 @@ fun CollectionScreen(
     }
 
     val totalMonthlyBill = monthlyBills.sumOf { it.amount }
-    val totalMonthlyCollected = payments.filter { it.billId in monthlyBillIds }.sumOf { it.amount }
+    val totalMonthlyCollected = remember(payments, monthlyBillIds, selectedMonthString) {
+        payments.filter { isPaymentInMonth(it, selectedMonthString, monthlyBillIds) }.sumOf { it.amount }
+    }
     val totalMonthlyDue = monthlyBills.sumOf { it.dueAmount }
 
     val selectedMonthValue = remember(selectedMonthString) {

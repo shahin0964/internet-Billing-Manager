@@ -89,14 +89,14 @@ fun DashboardScreen(
         currentMonthBills.map { it.id }.toSet()
     }
     val monthlyBillAmount = currentMonthBills.sumOf { it.amount }
-    val monthlyCollectedAmount = androidx.compose.runtime.remember(payments, currentMonthBillIds) {
-        payments.filter { it.billId in currentMonthBillIds }.sumOf { it.amount }
+    val monthlyCollectedAmount = androidx.compose.runtime.remember(payments, currentMonthBillIds, currentMonthStr) {
+        payments.filter { isPaymentInMonth(it, currentMonthStr, currentMonthBillIds) }.sumOf { it.amount }
     }
 
     val currency = settings.currencySymbol
 
     val totalBillingAmount = bills.sumOf { it.amount }
-    val totalCollectedAmount = bills.sumOf { it.paidAmount }
+    val totalCollectedAmount = payments.sumOf { it.amount }
     val totalDueAmount = bills.sumOf { it.dueAmount }
     
     val todayDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -443,4 +443,39 @@ tonalElevation = 2.dp,
 
         item { Spacer(modifier = Modifier.height(24.dp)) }
     }
+}
+
+internal fun isPaymentInMonth(
+    payment: com.example.data.model.PaymentEntity,
+    selectedMonthStr: String,
+    monthlyBillIds: Set<Long>
+): Boolean {
+    if (payment.billId != 0L && monthlyBillIds.contains(payment.billId)) {
+        return true
+    }
+    val date = payment.paymentDate.trim()
+    if (date.isEmpty()) return false
+
+    val monthsList = listOf(
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    )
+    val parts = selectedMonthStr.trim().split("\\s+".toRegex())
+    if (parts.size >= 2) {
+        val monthName = parts[0]
+        val yearStr = parts[1]
+        val monthIdx = monthsList.indexOfFirst { it.equals(monthName, ignoreCase = true) }
+        if (monthIdx != -1) {
+            val formattedMonth = String.format(java.util.Locale.US, "%02d", monthIdx + 1)
+            val yearMonthPrefix = "$yearStr-$formattedMonth"
+            
+            if (date.startsWith(yearMonthPrefix)) {
+                return true
+            }
+            if (date.contains(monthName, ignoreCase = true) && date.contains(yearStr)) {
+                return true
+            }
+        }
+    }
+    return false
 }
