@@ -199,7 +199,7 @@ fun CollectionScreen(
         item {
             KpiCard(
                 title = androidx.compose.ui.res.stringResource(com.example.R.string.total_due),
-                value = "$currencySymbol${totalMonthlyDue.formatAmount()}",
+                value = "$currencySymbol${totalOutstanding.formatAmount()}",
                 icon = Icons.Default.MoneyOff,
                 iconColor = MaterialTheme.colorScheme.error,
                 modifier = Modifier.fillMaxWidth()

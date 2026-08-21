@@ -586,10 +586,10 @@ class IspRepository(
                             db.specificAdvanceDao().markConsumed(specificAdvance.id, now)
                         }
                     } else {
-                        billAmount = customer.monthlyFee - advAmt
-                        paidAmount = 0.0
-                        dueAmount = billAmount
-                        status = "UNPAID"
+                        billAmount = customer.monthlyFee
+                        paidAmount = advAmt
+                        dueAmount = (customer.monthlyFee - advAmt).coerceAtLeast(0.0)
+                        status = if (dueAmount <= 0.0) "PAID" else if (paidAmount > 0.0) "PARTIAL" else "UNPAID"
                         db.specificAdvanceDao().markConsumed(specificAdvance.id, now)
                     }
                 } else {
@@ -602,10 +602,10 @@ class IspRepository(
                         advanceToDeduct = customer.monthlyFee
                     } else {
                         val applied = currentAdvance
-                        billAmount = customer.monthlyFee - applied
-                        paidAmount = 0.0
-                        dueAmount = billAmount
-                        status = "UNPAID"
+                        billAmount = customer.monthlyFee
+                        paidAmount = applied
+                        dueAmount = (customer.monthlyFee - applied).coerceAtLeast(0.0)
+                        status = if (dueAmount <= 0.0) "PAID" else if (paidAmount > 0.0) "PARTIAL" else "UNPAID"
                         advanceToDeduct = applied
                     }
                 }
