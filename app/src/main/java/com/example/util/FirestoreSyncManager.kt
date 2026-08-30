@@ -1350,7 +1350,7 @@ object FirestoreSyncManager {
             }
             val billDocs = billQuery.get().await()
             val dirtyBillIds = db.billDao().getDirtyBills().map { it.id }.toSet()
-            val billsToApply = billDocs.documents.mapNotNull { doc ->
+            val billsToApplyRaw = billDocs.documents.mapNotNull { doc ->
                 try {
                     val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
                     if (dirtyBillIds.contains(id)) return@mapNotNull null
@@ -1372,6 +1372,14 @@ object FirestoreSyncManager {
                         syncStatus = 0
                     )
                 } catch (e: Exception) { null }
+            }
+            val billsToApply = billsToApplyRaw.groupBy {
+                "${it.customerId}_${com.example.util.BillingMonthUtils.normalizeMonthKey(it.billingMonth)}"
+            }.map { (_, group) ->
+                if (group.size == 1) group.first()
+                else {
+                    group.maxByOrNull { it.paidAmount > 0 } ?: group.maxByOrNull { it.updatedAt } ?: group.maxByOrNull { it.id } ?: group.first()
+                }
             }
             pulledCount += billsToApply.size
 
@@ -1649,7 +1657,35 @@ object FirestoreSyncManager {
                 db.withTransaction {
                     if (customersToApply.isNotEmpty()) db.customerDao().insertCustomers(customersToApply)
                     if (packagesToApply.isNotEmpty()) db.packageDao().insertPackages(packagesToApply)
-                    if (billsToApply.isNotEmpty()) db.billDao().insertBills(billsToApply)
+                    if (billsToApply.isNotEmpty()) {
+                        val currentLocalBills = db.billDao().getAllBillsList()
+                        val finalBillsToInsert = mutableListOf<BillEntity>()
+                        for (remoteBill in billsToApply) {
+                            val matchingLocal = currentLocalBills.find {
+                                it.customerId == remoteBill.customerId &&
+                                com.example.util.BillingMonthUtils.isSameMonth(it.billingMonth, remoteBill.billingMonth)
+                            }
+                            if (matchingLocal != null && matchingLocal.id != remoteBill.id) {
+                                if (matchingLocal.paidAmount > remoteBill.paidAmount) {
+                                    // Local bill has higher paid amount, retain local bill
+                                    continue
+                                } else {
+                                    // Remote bill is authoritative. Re-link any local payments pointing to old local ID
+                                    val localPayments = db.paymentDao().getAllPaymentsList().filter { it.billId == matchingLocal.id }
+                                    for (p in localPayments) {
+                                        db.paymentDao().insertPayment(p.copy(billId = remoteBill.id))
+                                    }
+                                    db.billDao().deleteBill(matchingLocal)
+                                    finalBillsToInsert.add(remoteBill)
+                                }
+                            } else {
+                                finalBillsToInsert.add(remoteBill)
+                            }
+                        }
+                        if (finalBillsToInsert.isNotEmpty()) {
+                            db.billDao().insertBills(finalBillsToInsert)
+                        }
+                    }
                     if (paymentsToApply.isNotEmpty()) db.paymentDao().insertPayments(paymentsToApply)
                     if (expensesToApply.isNotEmpty()) db.expenseDao().insertExpenses(expensesToApply)
                     if (categoriesToApply.isNotEmpty()) db.expenseDao().insertCategories(categoriesToApply)
@@ -1795,11 +1831,11 @@ object FirestoreSyncManager {
                     } catch (e: Exception) { null }
                 }
                 val restoredBills = restoredBillsRaw.groupBy {
-                    "${it.customerId}_${it.billingMonth.trim().lowercase(java.util.Locale.ROOT)}"
+                    "${it.customerId}_${com.example.util.BillingMonthUtils.normalizeMonthKey(it.billingMonth)}"
                 }.map { (_, group) ->
                     if (group.size == 1) group.first()
                     else {
-                        group.maxByOrNull { it.paidAmount > 0 } ?: group.maxByOrNull { it.id } ?: group.first()
+                        group.maxByOrNull { it.paidAmount > 0 } ?: group.maxByOrNull { it.updatedAt } ?: group.maxByOrNull { it.id } ?: group.first()
                     }
                 }
 

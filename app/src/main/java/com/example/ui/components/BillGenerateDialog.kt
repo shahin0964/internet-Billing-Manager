@@ -56,8 +56,8 @@ fun BillGenerateDialog(
     onDismiss: () -> Unit,
     onGenerate: (billingMonth: String, dueDate: String, selectedCustomerIds: Set<Long>?) -> Unit
 ) {
-    val sdfMonth = remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()) }
-    val sdfDate = remember { SimpleDateFormat("yyyy-MM-10", Locale.getDefault()) }
+    val sdfMonth = remember { SimpleDateFormat("MMMM yyyy", Locale.US) }
+    val sdfDate = remember { SimpleDateFormat("yyyy-MM-10", Locale.US) }
 
     // Filter out free package customers
     val eligibleCustomers = remember(activeCustomers) {

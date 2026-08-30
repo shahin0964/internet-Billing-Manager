@@ -571,6 +571,12 @@ class IspRepository(
                     continue
                 }
 
+                // Cross-locale & historical month deduplication check
+                val existingCustomerBills = billDao.getBillsListForCustomer(customer.id)
+                if (existingCustomerBills.any { com.example.util.BillingMonthUtils.isSameMonth(it.billingMonth, cleanMonth) }) {
+                    continue
+                }
+
                 if (isAutoGeneration && isBillDeletedForMonth(customer.id, customer.customerCode, cleanMonth)) {
                     continue
                 }
@@ -685,13 +691,18 @@ class IspRepository(
     }
 
     private fun getNextMonth(currentMonthYear: String): String {
-        val sdf = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+        val sdfUs = SimpleDateFormat("MMMM yyyy", Locale.US)
+        val sdfDefault = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
         return try {
-            val date = sdf.parse(currentMonthYear) ?: return ""
+            val date = try {
+                sdfUs.parse(currentMonthYear)
+            } catch (e: Exception) {
+                sdfDefault.parse(currentMonthYear)
+            } ?: return ""
             val calendar = Calendar.getInstance()
             calendar.time = date
             calendar.add(Calendar.MONTH, 1)
-            sdf.format(calendar.time)
+            sdfUs.format(calendar.time)
         } catch (e: Exception) {
             ""
         }

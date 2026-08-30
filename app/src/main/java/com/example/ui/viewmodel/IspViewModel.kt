@@ -232,10 +232,8 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun autoGenerateCurrentMonthBills() {
         viewModelScope.launch {
-            val sdfMonth = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault())
-            val sdfDay = java.text.SimpleDateFormat("yyyy-MM-10", java.util.Locale.getDefault())
-            val currentMonth = sdfMonth.format(java.util.Date())
-            val dueDate = sdfDay.format(java.util.Date())
+            val currentMonth = com.example.util.BillingMonthUtils.formatStandardMonth()
+            val dueDate = com.example.util.BillingMonthUtils.formatStandardDueDate()
             repository.generateMonthlyBills(currentMonth, dueDate, isAutoGeneration = true)
         }
     }
