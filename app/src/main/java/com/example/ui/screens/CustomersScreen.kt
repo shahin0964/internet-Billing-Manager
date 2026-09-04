@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,11 +24,16 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -83,6 +89,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -224,17 +231,13 @@ fun CustomersScreen(
         )
     } else {
         // Customer List Screen
-        Scaffold(
-            floatingActionButton = {}
-        ) { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(horizontal = 16.dp)
-            ) {
-                Spacer(modifier = Modifier.height(12.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 16.dp)
+        ) {
+            Spacer(modifier = Modifier.height(12.dp))
 
                 // Search Bar
                 CustomSearchBar(
@@ -365,28 +368,25 @@ tonalElevation = 3.dp,
                                 item { Spacer(modifier = Modifier.height(80.dp)) }
                             }
 
-                            Column(
+                            AlphabetIndexSidebar(
+                                alphabet = alphabet,
+                                availableLetters = availableLetters,
                                 modifier = Modifier
                                     .fillMaxHeight()
-                                    .padding(start = 2.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                AlphabetIndexSidebar(
-                                    alphabet = alphabet,
-                                    availableLetters = availableLetters,
-                                    onLetterSelected = { letter ->
-                                        val targetIndex = filteredCustomers.indexOfFirst {
-                                            com.example.util.CustomerSortUtils.getSortKey(it.name).startsWith(letter)
-                                        }
-                                        if (targetIndex != -1) {
-                                            coroutineScope.launch {
-                                                listState.scrollToItem(targetIndex)
-                                            }
+                                    .padding(top = 4.dp, bottom = 12.dp, start = 4.dp, end = 2.dp),
+                                onLetterSelected = { letter ->
+                                    val targetIndex = filteredCustomers.indexOfFirst {
+                                        val sortKey = com.example.util.CustomerSortUtils.getSortKey(it.name)
+                                        sortKey.startsWith(letter, ignoreCase = true) || sortKey.uppercase() >= letter.toString()
+                                    }.let { if (it == -1 && filteredCustomers.isNotEmpty()) filteredCustomers.lastIndex else it }
+
+                                    if (targetIndex != -1) {
+                                        coroutineScope.launch {
+                                            listState.scrollToItem(targetIndex)
                                         }
                                     }
-                                )
-                            }
+                                }
+                            )
                         }
 
                         // Floating Action Button moved to EXACT CENTER horizontally
@@ -410,40 +410,68 @@ tonalElevation = 3.dp,
             }
         }
     }
-}
 
 @Composable
 fun AlphabetIndexSidebar(
     alphabet: List<Char>,
     availableLetters: Set<Char>,
-    onLetterSelected: (Char) -> Unit
+    onLetterSelected: (Char) -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    var sidebarHeightPx by remember { mutableFloatStateOf(1f) }
+
+    fun selectLetterAtY(y: Float) {
+        if (sidebarHeightPx <= 0f || alphabet.isEmpty()) return
+        val clampedY = y.coerceIn(0f, sidebarHeightPx - 1f)
+        val index = ((clampedY / sidebarHeightPx) * alphabet.size).toInt().coerceIn(0, alphabet.lastIndex)
+        onLetterSelected(alphabet[index])
+    }
+
     Column(
-        modifier = Modifier
-            .wrapContentHeight()
-            .width(20.dp)
-            .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(0.5.dp),
+        modifier = modifier
+            .fillMaxHeight()
+            .width(22.dp)
+            .onGloballyPositioned { coordinates ->
+                sidebarHeightPx = coordinates.size.height.toFloat()
+            }
+            .pointerInput(alphabet) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    selectLetterAtY(down.position.y)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        selectLetterAtY(change.position.y)
+                        change.consume()
+                    }
+                }
+            },
+        verticalArrangement = Arrangement.SpaceEvenly,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         alphabet.forEach { letter ->
             val isAvailable = availableLetters.contains(letter)
-            Text(
-                text = letter.toString(),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 8.5.sp,
-                    fontWeight = if (isAvailable) FontWeight.Bold else FontWeight.Normal,
-                    lineHeight = 10.sp
-                ),
-                color = if (isAvailable)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            Box(
                 modifier = Modifier
-                    .clip(CircleShape)
-                    .clickable { onLetterSelected(letter) }
-                    .padding(horizontal = 1.dp)
-            )
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = letter.toString(),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = if (isAvailable) FontWeight.Bold else FontWeight.Medium,
+                        lineHeight = 12.sp
+                    ),
+                    color = if (isAvailable)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
@@ -709,6 +737,7 @@ fun CustomerPreviewScreen(
     val matchedPackage = packages.find { it.id == customer.packageId }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {

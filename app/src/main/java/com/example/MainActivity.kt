@@ -636,7 +636,6 @@ fun MainAppContent(
                     }
                 } else {
                     NavigationBar(
-                        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
                         containerColor = MaterialTheme.colorScheme.surface,
                         contentColor = MaterialTheme.colorScheme.onSurface
                     ) {
@@ -792,6 +791,7 @@ fun MainAppContent(
                         payments = payments,
                         bills = bills,
                         bandwidthBills = bandwidthBills,
+                        expenses = expenses,
                         onSaveBandwidthBill = { month, amount ->
                             viewModel.saveOrUpdateBandwidthBill(month, amount)
                         },
@@ -812,6 +812,11 @@ fun MainAppContent(
                         onViewReceiptClick = { payment ->
                             activeReceiptPayment = payment
                             showReceiptModal = true
+                        },
+                        onOpenExpenseManagement = {
+                            runAction {
+                                showExpenseManagementScreen = true
+                            }
                         }
                     )
                 }

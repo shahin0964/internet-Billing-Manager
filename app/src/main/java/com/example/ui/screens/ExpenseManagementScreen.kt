@@ -89,6 +89,7 @@ import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CrimsonDanger
 import com.example.ui.theme.EmeraldSuccess
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -1070,18 +1071,72 @@ private fun AddEditExpenseDialog(
     onSave: (ExpenseEntity) -> Unit,
     onAddCategoryClick: () -> Unit
 ) {
-    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+    val context = LocalContext.current
+    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+
+    // Normalize initial date if editing legacy format (e.g., "04 September 2026")
+    val initialDateFormatted = remember(initialExpense) {
+        val raw = initialExpense?.date?.trim() ?: ""
+        if (raw.isNotBlank()) {
+            if (Regex("""^\d{4}-\d{2}-\d{2}$""").matches(raw)) {
+                raw
+            } else {
+                try {
+                    val parser = SimpleDateFormat("dd MMMM yyyy", Locale.ENGLISH).apply { isLenient = false }
+                    val parsed = parser.parse(raw)
+                    if (parsed != null) SimpleDateFormat("yyyy-MM-dd", Locale.US).format(parsed) else raw
+                } catch (_: Exception) {
+                    try {
+                        val parser = SimpleDateFormat("d MMMM yyyy", Locale.ENGLISH).apply { isLenient = false }
+                        val parsed = parser.parse(raw)
+                        if (parsed != null) SimpleDateFormat("yyyy-MM-dd", Locale.US).format(parsed) else raw
+                    } catch (_: Exception) {
+                        raw
+                    }
+                }
+            }
+        } else {
+            todayStr
+        }
+    }
 
     var title by remember { mutableStateOf(initialExpense?.title ?: "") }
     var amountStr by remember { mutableStateOf(initialExpense?.amount?.let { if (it > 0) it.toString() else "" } ?: "") }
     var category by remember { mutableStateOf(initialExpense?.category ?: if (allCategories.isNotEmpty()) allCategories.first() else "Other") }
-    var date by remember { mutableStateOf(initialExpense?.date ?: todayStr) }
+    var date by remember { mutableStateOf(initialDateFormatted) }
     var paymentMethod by remember { mutableStateOf(initialExpense?.paymentMethod ?: "Cash") }
     var note by remember { mutableStateOf(initialExpense?.note ?: "") }
     var receiptPath by remember { mutableStateOf(initialExpense?.receiptPath) }
 
     var titleError by remember { mutableStateOf(false) }
     var amountError by remember { mutableStateOf(false) }
+    var dateError by remember { mutableStateOf(false) }
+
+    val showDatePicker = {
+        val cal = Calendar.getInstance()
+        val trimmed = date.trim()
+        if (Regex("""^\d{4}-\d{2}-\d{2}$""").matches(trimmed)) {
+            try {
+                val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }.parse(trimmed)
+                if (parsed != null) {
+                    cal.time = parsed
+                }
+            } catch (_: Exception) {}
+        }
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val selectedCal = Calendar.getInstance().apply {
+                    set(year, month, dayOfMonth)
+                }
+                date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedCal.time)
+                dateError = false
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
 
     val paymentMethods = listOf("Cash", "Bank", "Mobile Banking", "Card", "Other")
 
@@ -1180,11 +1235,31 @@ private fun AddEditExpenseDialog(
                 item {
                     OutlinedTextField(
                         value = date,
-                        onValueChange = { date = it },
-                        label = { Text(stringResource(R.string.expense_date)) },
+                        onValueChange = {
+                            date = it
+                            dateError = false
+                        },
+                        label = { Text(stringResource(R.string.expense_date) + " (yyyy-MM-dd)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        placeholder = { Text("yyyy-MM-dd") }
+                        placeholder = { Text("yyyy-MM-dd") },
+                        isError = dateError,
+                        supportingText = {
+                            if (dateError) {
+                                Text("Invalid format. Required: yyyy-MM-dd (e.g. 2026-09-04)", color = MaterialTheme.colorScheme.error)
+                            } else {
+                                Text("Format: yyyy-MM-dd (Tap calendar to select)", style = MaterialTheme.typography.bodySmall)
+                            }
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { showDatePicker() }) {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = stringResource(R.string.expense_date),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     )
                 }
 
@@ -1285,13 +1360,30 @@ private fun AddEditExpenseDialog(
                         valid = false
                     }
 
+                    val trimmedDate = if (date.isBlank()) todayStr else date.trim()
+                    val isDateValid = if (Regex("""^\d{4}-\d{2}-\d{2}$""").matches(trimmedDate)) {
+                        try {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
+                            sdf.parse(trimmedDate) != null
+                        } catch (_: Exception) {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+
+                    if (!isDateValid) {
+                        dateError = true
+                        valid = false
+                    }
+
                     if (valid) {
                         val exp = ExpenseEntity(
                             id = initialExpense?.id ?: 0L,
                             title = title.trim(),
                             amount = parsedAmt!!,
                             category = category,
-                            date = if (date.isBlank()) todayStr else date.trim(),
+                            date = trimmedDate,
                             paymentMethod = paymentMethod,
                             note = note.trim(),
                             receiptPath = receiptPath,

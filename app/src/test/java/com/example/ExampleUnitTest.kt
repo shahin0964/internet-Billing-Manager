@@ -15,6 +15,8 @@ class ExampleUnitTest {
 
   @Test
   fun testCustomerSortWithCodesAndPrefixes() {
+    println("DEBUG: extractRealName(A6_Nafiz) = " + CustomerSortUtils.extractRealName("A6_Nafiz"))
+    println("DEBUG: extractRealName(jisan_A6) = " + CustomerSortUtils.extractRealName("jisan_A6"))
     val rawList = listOf(
       "r.jisan",
       "r.taslima",
@@ -72,6 +74,17 @@ class ExampleUnitTest {
     assertEquals("NAFIZ", CustomerSortUtils.getSortKey("A6_Nafiz"))
     assertEquals("MAMUN", CustomerSortUtils.getSortKey("r.mamun"))
     assertEquals("JAHANGIR", CustomerSortUtils.getSortKey("r.jahangir"))
+
+    // Advanced Prefix/Suffix/Formatting tests
+    assertEquals("jisan", CustomerSortUtils.extractRealName("jisan_A6"))
+    assertEquals("jisan", CustomerSortUtils.extractRealName("jisan A6"))
+    assertEquals("jisan", CustomerSortUtils.extractRealName("jisan [A6]"))
+    assertEquals("jisan", CustomerSortUtils.extractRealName("jisan (C-01)"))
+    assertEquals("jisan", CustomerSortUtils.extractRealName("r jisan"))
+    assertEquals("Jisan", CustomerSortUtils.extractRealName("[A6] Jisan"))
+    assertEquals("Jisan", CustomerSortUtils.extractRealName("#12 Jisan"))
+    assertEquals("jisan", CustomerSortUtils.extractRealName("jisan r."))
+    assertEquals("jisan", CustomerSortUtils.extractRealName("jisan 101"))
   }
 }
 

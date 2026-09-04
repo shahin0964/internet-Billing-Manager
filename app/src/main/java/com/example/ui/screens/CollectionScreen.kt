@@ -47,9 +47,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.BillEntity
+import com.example.data.model.ExpenseEntity
 import com.example.data.model.PaymentEntity
 import com.example.ui.components.CustomSearchBar
 import com.example.ui.components.EmptyStateView
@@ -66,13 +68,15 @@ fun CollectionScreen(
     payments: List<PaymentEntity>,
     bills: List<BillEntity>,
     bandwidthBills: List<com.example.data.model.BandwidthBillEntity> = emptyList(),
+    expenses: List<ExpenseEntity> = emptyList(),
     onSaveBandwidthBill: (String, Double) -> Unit = { _, _ -> },
     currencySymbol: String,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onCollectPaymentClick: () -> Unit,
     onDeletePaymentClick: (PaymentEntity) -> Unit = {},
-    onViewReceiptClick: ((PaymentEntity) -> Unit)? = null
+    onViewReceiptClick: ((PaymentEntity) -> Unit)? = null,
+    onOpenExpenseManagement: () -> Unit = {}
 ) {
     val sdfMonth = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
     var monthOffset by remember { mutableIntStateOf(0) }
@@ -181,11 +185,33 @@ fun CollectionScreen(
     val currentBandwidthBill = remember(bandwidthBills, selectedMonthString) {
         bandwidthBills.find { it.billingMonth.equals(selectedMonthString, ignoreCase = true) }?.amount ?: 0.0
     }
-    val profit = totalMonthlyCollected - currentBandwidthBill
 
-    val filteredPayments = remember(payments, searchQuery) {
-        if (searchQuery.isBlank()) payments
-        else payments.filter {
+    val monthlyExpenses = remember(expenses, monthOffset) {
+        val calendar = Calendar.getInstance()
+        calendar.add(Calendar.MONTH, monthOffset)
+        val yearMonthPrefix = SimpleDateFormat("yyyy-MM", Locale.US).format(calendar.time)
+        val monthYearEnglish = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(calendar.time)
+        expenses.filter { expense ->
+            val d = expense.date.trim()
+            d.startsWith(yearMonthPrefix) || d.contains(monthYearEnglish, ignoreCase = true)
+        }.sumOf { it.amount }
+    }
+
+    val existingProfit = totalMonthlyCollected - currentBandwidthBill
+    val profit = existingProfit - monthlyExpenses
+
+    val currentMonthPayments = remember(payments) {
+        val currentCal = Calendar.getInstance()
+        val currentYear = currentCal.get(Calendar.YEAR)
+        val currentMonth = currentCal.get(Calendar.MONTH) + 1
+        payments.filter { payment ->
+            isPaymentInCurrentMonth(payment.paymentDate, currentYear, currentMonth)
+        }
+    }
+
+    val filteredPayments = remember(currentMonthPayments, searchQuery) {
+        if (searchQuery.isBlank()) currentMonthPayments
+        else currentMonthPayments.filter {
             it.customerName.contains(searchQuery, ignoreCase = true) ||
                     it.paymentReceiptNo.contains(searchQuery, ignoreCase = true) ||
                     it.paymentMethod.contains(searchQuery, ignoreCase = true)
@@ -341,6 +367,72 @@ fun CollectionScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = androidx.compose.ui.res.stringResource(com.example.R.string.daily_bill_entry_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        // Expense Management Card
+        item {
+            Surface(
+                onClick = onOpenExpenseManagement,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("expense_management_card"),
+                shape = RoundedCornerShape(16.dp),
+                shadowElevation = 3.dp,
+                tonalElevation = 2.dp,
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Payments,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(com.example.R.string.expense_management),
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(com.example.R.string.expense_management_subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -634,4 +726,45 @@ fun PaymentReceiptCard(
             }
         }
     }
+}
+
+private fun isPaymentInCurrentMonth(paymentDateStr: String, currentYear: Int, currentMonth: Int): Boolean {
+    val d = paymentDateStr.trim()
+    if (d.isEmpty()) return false
+
+    val currentYearMonth = String.format(Locale.US, "%04d-%02d", currentYear, currentMonth)
+    if (d.startsWith(currentYearMonth)) return true
+
+    val currentYearMonthSlash = String.format(Locale.US, "%04d/%02d", currentYear, currentMonth)
+    if (d.startsWith(currentYearMonthSlash)) return true
+
+    val monthTwoDigits = String.format(Locale.US, "%02d", currentMonth)
+    if (d.endsWith("/$monthTwoDigits/$currentYear") || d.endsWith("-$monthTwoDigits-$currentYear")) {
+        return true
+    }
+
+    val monthsList = listOf(
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    )
+    val monthName = monthsList.getOrNull(currentMonth - 1)
+    if (monthName != null && d.contains(monthName, ignoreCase = true) && d.contains(currentYear.toString())) {
+        return true
+    }
+
+    val patterns = listOf("yyyy-MM-dd", "yyyy/MM/dd", "dd/MM/yyyy", "dd-MM-yyyy", "yyyy-MM-dd HH:mm:ss")
+    for (pat in patterns) {
+        try {
+            val sdf = SimpleDateFormat(pat, Locale.US).apply { isLenient = false }
+            val parsed = sdf.parse(d)
+            if (parsed != null) {
+                val cal = Calendar.getInstance().apply { time = parsed }
+                if (cal.get(Calendar.YEAR) == currentYear && (cal.get(Calendar.MONTH) + 1) == currentMonth) {
+                    return true
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    return false
 }
