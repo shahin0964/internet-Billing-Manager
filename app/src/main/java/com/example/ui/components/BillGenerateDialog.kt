@@ -82,7 +82,7 @@ fun BillGenerateDialog(
     var customerSearchQuery by remember { mutableStateOf("") }
 
     val filteredCustomers = remember(eligibleCustomers, customerSearchQuery) {
-        if (customerSearchQuery.isBlank()) {
+        val list = if (customerSearchQuery.isBlank()) {
             eligibleCustomers
         } else {
             eligibleCustomers.filter { customer ->
@@ -92,6 +92,9 @@ fun BillGenerateDialog(
                         customer.pppoeUsername.contains(customerSearchQuery, ignoreCase = true) ||
                         customer.packageName.contains(customerSearchQuery, ignoreCase = true)
             }
+        }
+        list.sortedWith { c1, c2 ->
+            com.example.util.CustomerSortUtils.compareCustomerNames(c1.name, c2.name)
         }
     }
 

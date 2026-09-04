@@ -58,6 +58,8 @@ fun BillingScreen(
                     bill.billingMonth.contains(searchQuery, ignoreCase = true)
 
             isUnpaid && matchesQuery
+        }.sortedWith { b1, b2 ->
+            com.example.util.CustomerSortUtils.compareCustomerNames(b1.customerName, b2.customerName)
         }
     }
 

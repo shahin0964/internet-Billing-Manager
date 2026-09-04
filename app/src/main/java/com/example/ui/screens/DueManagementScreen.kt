@@ -82,7 +82,7 @@ fun DueManagementScreen(
             .sortedWith { b1, b2 ->
                 when (sortOption) {
                     sortDueAsc -> b1.dueAmount.compareTo(b2.dueAmount)
-                    sortName -> b1.customerName.compareTo(b2.customerName, ignoreCase = true)
+                    sortName -> com.example.util.CustomerSortUtils.compareCustomerNames(b1.customerName, b2.customerName)
                     else -> b2.dueAmount.compareTo(b1.dueAmount) // DUE_DESC
                 }
             }

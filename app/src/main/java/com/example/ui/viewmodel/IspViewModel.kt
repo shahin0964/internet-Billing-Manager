@@ -227,7 +227,9 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         val paidBills = rawBills.filter { it.status == "PAID" }
         displayBills.addAll(paidBills)
         
-        displayBills
+        displayBills.sortedWith { b1, b2 ->
+            com.example.util.CustomerSortUtils.compareCustomerNames(b1.customerName, b2.customerName)
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private fun autoGenerateCurrentMonthBills() {

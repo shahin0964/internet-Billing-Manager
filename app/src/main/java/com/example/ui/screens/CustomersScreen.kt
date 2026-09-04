@@ -156,6 +156,8 @@ fun CustomersScreen(
                     c.address.contains(searchQuery, ignoreCase = true)
 
             matchesFilter && matchesQuery
+        }.sortedWith { c1, c2 ->
+            com.example.util.CustomerSortUtils.compareCustomerNames(c1.name, c2.name)
         }
     }
 
@@ -335,8 +337,8 @@ tonalElevation = 3.dp,
                     val alphabet = remember { ('A'..'Z').toList() }
                     val availableLetters = remember(filteredCustomers) {
                         filteredCustomers.mapNotNull {
-                            it.name.trim().firstOrNull()?.uppercaseChar()
-                        }.toSet()
+                            com.example.util.CustomerSortUtils.extractRealName(it.name).firstOrNull()?.uppercaseChar()
+                        }.filter { it in 'A'..'Z' }.toSet()
                     }
 
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -375,7 +377,7 @@ tonalElevation = 3.dp,
                                     availableLetters = availableLetters,
                                     onLetterSelected = { letter ->
                                         val targetIndex = filteredCustomers.indexOfFirst {
-                                            it.name.trim().uppercase(java.util.Locale.ROOT).startsWith(letter)
+                                            com.example.util.CustomerSortUtils.getSortKey(it.name).startsWith(letter)
                                         }
                                         if (targetIndex != -1) {
                                             coroutineScope.launch {
@@ -1224,7 +1226,7 @@ fun BulkSmsDialog(
     var isSending by remember { mutableStateOf(false) }
 
     val filteredCustomers = remember(customers, customerSearchQuery) {
-        if (customerSearchQuery.isBlank()) {
+        val list = if (customerSearchQuery.isBlank()) {
             customers
         } else {
             customers.filter {
@@ -1233,6 +1235,9 @@ fun BulkSmsDialog(
                 it.customerCode.contains(customerSearchQuery, ignoreCase = true) ||
                 it.packageName.contains(customerSearchQuery, ignoreCase = true)
             }
+        }
+        list.sortedWith { c1, c2 ->
+            com.example.util.CustomerSortUtils.compareCustomerNames(c1.name, c2.name)
         }
     }
 

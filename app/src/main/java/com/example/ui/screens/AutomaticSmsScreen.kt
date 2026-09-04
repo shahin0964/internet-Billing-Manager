@@ -560,6 +560,8 @@ fun AutomaticSmsScreen(
                                     it.name.contains(searchQuery, ignoreCase = true) ||
                                             it.phone.contains(searchQuery) ||
                                             it.customerCode.contains(searchQuery, ignoreCase = true)
+                                }.sortedWith { c1, c2 ->
+                                    com.example.util.CustomerSortUtils.compareCustomerNames(c1.name, c2.name)
                                 }
                                 if (filteredCustomers.isEmpty()) {
                                     Text(
