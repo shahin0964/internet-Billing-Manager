@@ -63,6 +63,7 @@ object ReceiptPrintUtils {
         settings: BusinessSettingsEntity,
         isBn: Boolean = true
     ): File {
+        val config = ReceiptCustomizationManager.getConfig(context)
         val ispName = settings.ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
         val hotline = settings.hotline.ifBlank { if (isBn) "০১৭০০-০০০০০০" else "01700-000000" }
         val address = settings.address.ifBlank { if (isBn) "হেড অফিস, ঢাকা, বাংলাদেশ" else "Head Office, Dhaka, Bangladesh" }
@@ -123,7 +124,10 @@ object ReceiptPrintUtils {
         currentY += 24f
 
         // 3. Receipt Title Pill
-        val badgeWidth = 260f
+        val titleText = config.receiptTitle.ifBlank {
+            if (isBn) "পেমেন্ট রশিদ (PAYMENT RECEIPT)" else "OFFICIAL PAYMENT RECEIPT"
+        }
+        val badgeWidth = (paint.measureText(titleText) + 60f).coerceIn(240f, 400f)
         val badgeHeight = 26f
         val badgeLeft = (pageWidth - badgeWidth) / 2f
         val badgeRect = RectF(badgeLeft, currentY, badgeLeft + badgeWidth, currentY + badgeHeight)
@@ -135,7 +139,7 @@ object ReceiptPrintUtils {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.CENTER
         canvas.drawText(
-            if (isBn) "পেমেন্ট রশিদ (PAYMENT RECEIPT)" else "OFFICIAL PAYMENT RECEIPT",
+            titleText,
             pageWidth / 2f,
             currentY + 17f,
             paint
@@ -149,8 +153,23 @@ object ReceiptPrintUtils {
         drawSectionHeader(canvas, paint, if (isBn) "গ্রাহকের তথ্য (CUSTOMER DETAILS)" else "CUSTOMER DETAILS", leftMargin, currentY, contentWidth)
         currentY += 22f
 
+        val customerRows = mutableListOf<Triple<String, String, Boolean>>()
+        customerRows.add(Triple(if (isBn) "গ্রাহকের নাম:" else "Customer Name:", "$custName ($custCode)", true))
+        if (config.showCustomerPhone) {
+            customerRows.add(Triple(if (isBn) "মোবাইল নম্বর:" else "Phone Number:", custPhone, false))
+        }
+        if (config.showCustomerPppoe) {
+            customerRows.add(Triple(if (isBn) "ইউজারনেম:" else "PPPoE Username:", pppoeUser, false))
+        }
+        if (config.showPackageName) {
+            customerRows.add(Triple(if (isBn) "প্যাকেজ:" else "Package:", packageName, false))
+        }
+        if (config.showCustomerAddress) {
+            customerRows.add(Triple(if (isBn) "ঠিকানা:" else "Address:", custAddress, false))
+        }
+
         val custBoxTop = currentY
-        val custBoxHeight = 115f
+        val custBoxHeight = 16f + (customerRows.size * 19f)
         val custBoxRect = RectF(leftMargin, custBoxTop, rightMargin, custBoxTop + custBoxHeight)
         paint.color = AndroidColor.parseColor("#F8FAFC")
         canvas.drawRoundRect(custBoxRect, 8f, 8f, paint)
@@ -160,16 +179,11 @@ object ReceiptPrintUtils {
         canvas.drawRoundRect(custBoxRect, 8f, 8f, paint)
         paint.style = Paint.Style.FILL
 
-        var rowY = custBoxTop + 20f
-        drawInfoRow(canvas, paint, if (isBn) "গ্রাহকের নাম:" else "Customer Name:", "$custName ($custCode)", leftMargin + 14f, rowY, contentWidth - 28f, true)
-        rowY += 18f
-        drawInfoRow(canvas, paint, if (isBn) "মোবাইল নম্বর:" else "Phone Number:", custPhone, leftMargin + 14f, rowY, contentWidth - 28f)
-        rowY += 18f
-        drawInfoRow(canvas, paint, if (isBn) "ইউজারনেম:" else "PPPoE Username:", pppoeUser, leftMargin + 14f, rowY, contentWidth - 28f)
-        rowY += 18f
-        drawInfoRow(canvas, paint, if (isBn) "প্যাকেজ:" else "Package:", packageName, leftMargin + 14f, rowY, contentWidth - 28f)
-        rowY += 18f
-        drawInfoRow(canvas, paint, if (isBn) "ঠিকানা:" else "Address:", custAddress, leftMargin + 14f, rowY, contentWidth - 28f)
+        var rowY = custBoxTop + 18f
+        for ((lbl, v, isBold) in customerRows) {
+            drawInfoRow(canvas, paint, lbl, v, leftMargin + 14f, rowY, contentWidth - 28f, isBold)
+            rowY += 19f
+        }
 
         currentY = custBoxTop + custBoxHeight + 20f
 
@@ -200,8 +214,13 @@ object ReceiptPrintUtils {
         currentY = payBoxTop + payBoxHeight + 20f
 
         // 6. Payment Amount Summary Box
+        val showDue = config.showRemainingDue
+        val showMethod = config.showPaymentMethod
+        var sumBoxHeight = 58f
+        if (showDue) sumBoxHeight += 24f
+        if (showMethod) sumBoxHeight += 32f
+
         val sumBoxTop = currentY
-        val sumBoxHeight = 135f
         val sumBoxRect = RectF(leftMargin, sumBoxTop, rightMargin, sumBoxTop + sumBoxHeight)
         paint.color = AndroidColor.parseColor("#F0FDF4")
         canvas.drawRoundRect(sumBoxRect, 10f, 10f, paint)
@@ -215,19 +234,22 @@ object ReceiptPrintUtils {
         drawAmountRow(canvas, paint, if (isBn) "মোট বিল পরিমাণ (Total Bill):" else "Total Bill Amount:", "$currency $billAmt", leftMargin + 18f, rowY, contentWidth - 36f, false, AndroidColor.parseColor("#374151"), 13f)
         rowY += 24f
         drawAmountRow(canvas, paint, if (isBn) "পরিশোধিত পরিমাণ (Paid Amount):" else "Paid Amount:", "$currency $paidAmt", leftMargin + 18f, rowY, contentWidth - 36f, true, AndroidColor.parseColor("#15803D"), 16f)
-        rowY += 22f
-        drawAmountRow(canvas, paint, if (isBn) "অবশিষ্ট বকেয়া (Remaining Due):" else "Remaining Due:", "$currency $dueAmt", leftMargin + 18f, rowY, contentWidth - 36f, false, if ((bill?.dueAmount ?: 0.0) > 0) AndroidColor.parseColor("#DC2626") else AndroidColor.parseColor("#4B5563"), 13f)
 
-        rowY += 14f
-        // Divider line in summary box
-        paint.color = AndroidColor.parseColor("#CBD5E1")
-        paint.strokeWidth = 1f
-        canvas.drawLine(leftMargin + 18f, rowY, rightMargin - 18f, rowY, paint)
-        rowY += 18f
+        if (showDue) {
+            rowY += 22f
+            drawAmountRow(canvas, paint, if (isBn) "অবশিষ্ট বকেয়া (Remaining Due):" else "Remaining Due:", "$currency $dueAmt", leftMargin + 18f, rowY, contentWidth - 36f, false, if ((bill?.dueAmount ?: 0.0) > 0) AndroidColor.parseColor("#DC2626") else AndroidColor.parseColor("#4B5563"), 13f)
+        }
 
-        drawAmountRow(canvas, paint, if (isBn) "পেমেন্ট মাধ্যম (Payment Method):" else "Payment Method:", payment.paymentMethod, leftMargin + 18f, rowY, contentWidth - 36f, true, AndroidColor.parseColor("#1E293B"), 12f)
+        if (showMethod) {
+            rowY += 14f
+            paint.color = AndroidColor.parseColor("#CBD5E1")
+            paint.strokeWidth = 1f
+            canvas.drawLine(leftMargin + 18f, rowY, rightMargin - 18f, rowY, paint)
+            rowY += 18f
+            drawAmountRow(canvas, paint, if (isBn) "পেমেন্ট মাধ্যম (Payment Method):" else "Payment Method:", payment.paymentMethod, leftMargin + 18f, rowY, contentWidth - 36f, true, AndroidColor.parseColor("#1E293B"), 12f)
+        }
 
-        currentY = sumBoxTop + sumBoxHeight + 35f
+        currentY = sumBoxTop + sumBoxHeight + 25f
 
         // 7. Status Stamp / Pill
         val statusText = if (isBn) "✓ PAID (পরিশোধিত)" else "✓ PAID (RECEIVED)"
@@ -236,7 +258,17 @@ object ReceiptPrintUtils {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.CENTER
         canvas.drawText(statusText, pageWidth / 2f, currentY, paint)
-        currentY += 40f
+        currentY += 26f
+
+        // Custom terms/notes
+        if (config.customNotes.isNotBlank()) {
+            paint.color = AndroidColor.parseColor("#64748B")
+            paint.textSize = 9.5f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            paint.textAlign = Paint.Align.CENTER
+            canvas.drawText(config.customNotes, pageWidth / 2f, currentY, paint)
+            currentY += 18f
+        }
 
         // 8. Footer & Thank you Note
         paint.color = AndroidColor.parseColor("#CBD5E1")
@@ -248,7 +280,10 @@ object ReceiptPrintUtils {
         paint.textSize = 11f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহার করার জন্য আপনাকে ধন্যবাদ!" else "Thank you for using our internet service!", pageWidth / 2f, currentY, paint)
+        val footerText = config.footerMessage.ifBlank {
+            if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহার করার জন্য আপনাকে ধন্যবাদ!" else "Thank you for using our internet service!"
+        }
+        canvas.drawText(footerText, pageWidth / 2f, currentY, paint)
         currentY += 14f
 
         paint.color = AndroidColor.parseColor("#9CA3AF")
@@ -617,8 +652,14 @@ object ReceiptPrintUtils {
         bill: BillEntity?,
         customer: CustomerEntity?,
         settings: BusinessSettingsEntity,
-        isBn: Boolean = true
+        isBn: Boolean = true,
+        config: ReceiptCustomizationConfig? = null,
+        context: Context? = null
     ): String {
+        val resolvedConfig = config 
+            ?: (context?.let { ReceiptCustomizationManager.getConfig(it) }) 
+            ?: ReceiptCustomizationManager.DEFAULT_CONFIG
+
         val ispName = settings.ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
         val hotline = settings.hotline.ifBlank { if (isBn) "০১৭০০-০০০০০০" else "01700-000000" }
         val address = settings.address.ifBlank { if (isBn) "হেড অফিস, ঢাকা, বাংলাদেশ" else "Head Office, Dhaka, Bangladesh" }
@@ -637,6 +678,73 @@ object ReceiptPrintUtils {
         val billAmt = String.format(Locale.US, "%.2f", bill?.amount ?: payment.amount)
         val paidAmt = String.format(Locale.US, "%.2f", payment.amount)
         val dueAmt = String.format(Locale.US, "%.2f", bill?.dueAmount ?: 0.0)
+
+        val receiptTitle = resolvedConfig.receiptTitle.ifBlank {
+            if (isBn) "পেমেন্ট রশিদ (OFFICIAL PAYMENT RECEIPT)" else "OFFICIAL PAYMENT RECEIPT"
+        }
+        val footerText = resolvedConfig.footerMessage.ifBlank {
+            if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহার করার জন্য আপনাকে ধন্যবাদ!" else "Thank you for using our internet service!"
+        }
+
+        // Check if thermal POS 80mm format requested
+        if (resolvedConfig.paperSize == "THERMAL_80MM") {
+            return """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <style>
+                        body {
+                            font-family: 'Courier New', Courier, monospace, sans-serif;
+                            font-size: 12px;
+                            line-height: 1.35;
+                            color: #000000;
+                            max-width: 320px;
+                            margin: 0 auto;
+                            padding: 8px;
+                            background: #ffffff;
+                        }
+                        .thermal-center { text-align: center; }
+                        .thermal-bold { font-weight: bold; }
+                        .thermal-title { font-size: 16px; font-weight: bold; margin: 4px 0; }
+                        .thermal-subtitle { font-size: 12px; font-weight: bold; border: 1px dashed #000; padding: 3px; display: inline-block; margin: 6px 0; }
+                        .dashed-divider { border-top: 1px dashed #000000; margin: 6px 0; }
+                        .thermal-row { display: flex; justify-content: space-between; margin: 2px 0; font-size: 12px; }
+                        .thermal-total { font-size: 14px; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    <div class="thermal-center">
+                        <div class="thermal-title">$ispName</div>
+                        <div>$address</div>
+                        <div>${if (isBn) "হটলাইন:" else "Tel:"} $hotline</div>
+                        <div class="thermal-subtitle">$receiptTitle</div>
+                    </div>
+                    <div class="dashed-divider"></div>
+                    <div class="thermal-row"><span>${if (isBn) "রশিদ নং:" else "Receipt #:"}</span><span class="thermal-bold">$receiptNo</span></div>
+                    <div class="thermal-row"><span>${if (isBn) "তারিখ:" else "Date:"}</span><span>${payment.paymentDate}</span></div>
+                    <div class="thermal-row"><span>${if (isBn) "ইনভয়েস নং:" else "Inv #:"}</span><span>$invNo</span></div>
+                    <div class="thermal-row"><span>${if (isBn) "মাস:" else "Month:"}</span><span>$billMonth</span></div>
+                    <div class="dashed-divider"></div>
+                    <div class="thermal-row"><span>${if (isBn) "গ্রাহক:" else "Customer:"}</span><span class="thermal-bold">$custName</span></div>
+                    <div class="thermal-row"><span>${if (isBn) "আইডি:" else "ID:"}</span><span>$custCode</span></div>
+                    ${if (resolvedConfig.showCustomerPhone) """<div class="thermal-row"><span>${if (isBn) "মোবাইল:" else "Phone:"}</span><span>$custPhone</span></div>""" else ""}
+                    ${if (resolvedConfig.showCustomerPppoe) """<div class="thermal-row"><span>${if (isBn) "ইউজার:" else "PPPoE:"}</span><span>$pppoeUser</span></div>""" else ""}
+                    ${if (resolvedConfig.showPackageName) """<div class="thermal-row"><span>${if (isBn) "প্যাকেজ:" else "Package:"}</span><span>$packageName</span></div>""" else ""}
+                    ${if (resolvedConfig.showCustomerAddress) """<div class="thermal-row"><span>${if (isBn) "ঠিকানা:" else "Address:"}</span><span>$custAddress</span></div>""" else ""}
+                    <div class="dashed-divider"></div>
+                    <div class="thermal-row"><span>${if (isBn) "মোট বিল:" else "Total Bill:"}</span><span>$currency $billAmt</span></div>
+                    <div class="thermal-row thermal-total"><span>${if (isBn) "পরিশোধিত:" else "PAID:"}</span><span>$currency $paidAmt</span></div>
+                    ${if (resolvedConfig.showRemainingDue) """<div class="thermal-row"><span>${if (isBn) "বকেয়া:" else "Due:"}</span><span>$currency $dueAmt</span></div>""" else ""}
+                    ${if (resolvedConfig.showPaymentMethod) """<div class="thermal-row"><span>${if (isBn) "মাধ্যম:" else "Method:"}</span><span>${payment.paymentMethod}</span></div>""" else ""}
+                    <div class="thermal-center thermal-bold" style="margin-top: 6px;">*** ${if (isBn) "পরিশোধ সম্পন্ন (PAID)" else "PAID FULLY"} ***</div>
+                    <div class="dashed-divider"></div>
+                    ${if (resolvedConfig.customNotes.isNotBlank()) """<div class="thermal-center" style="font-size: 10px; margin: 4px 0;">${resolvedConfig.customNotes}</div>""" else ""}
+                    <div class="thermal-center" style="font-size: 11px; margin-top: 6px;">$footerText</div>
+                </body>
+                </html>
+            """.trimIndent()
+        }
 
         return """
             <!DOCTYPE html>
@@ -759,7 +867,7 @@ object ReceiptPrintUtils {
                 </div>
 
                 <div class="badge-container">
-                    <div class="title-badge">${if (isBn) "পেমেন্ট রশিদ (OFFICIAL PAYMENT RECEIPT)" else "OFFICIAL PAYMENT RECEIPT"}</div>
+                    <div class="title-badge">$receiptTitle</div>
                 </div>
 
                 <div class="section-title">${if (isBn) "গ্রাহকের তথ্য (CUSTOMER DETAILS)" else "CUSTOMER DETAILS"}</div>
@@ -768,22 +876,10 @@ object ReceiptPrintUtils {
                         <td class="label">${if (isBn) "গ্রাহকের নাম (Customer Name):" else "Customer Name:"}</td>
                         <td class="val"><strong>$custName</strong> ($custCode)</td>
                     </tr>
-                    <tr>
-                        <td class="label">${if (isBn) "মোবাইল (Phone):" else "Phone Number:"}</td>
-                        <td class="val">$custPhone</td>
-                    </tr>
-                    <tr>
-                        <td class="label">${if (isBn) "ইউজারনেম (Username):" else "PPPoE Username:"}</td>
-                        <td class="val">$pppoeUser</td>
-                    </tr>
-                    <tr>
-                        <td class="label">${if (isBn) "প্যাকেজ (Package):" else "Package Name:"}</td>
-                        <td class="val">$packageName</td>
-                    </tr>
-                    <tr>
-                        <td class="label">${if (isBn) "ঠিকানা (Address):" else "Address:"}</td>
-                        <td class="val">$custAddress</td>
-                    </tr>
+                    ${if (resolvedConfig.showCustomerPhone) """<tr><td class="label">${if (isBn) "মোবাইল (Phone):" else "Phone Number:"}</td><td class="val">$custPhone</td></tr>""" else ""}
+                    ${if (resolvedConfig.showCustomerPppoe) """<tr><td class="label">${if (isBn) "ইউজারনেম (Username):" else "PPPoE Username:"}</td><td class="val">$pppoeUser</td></tr>""" else ""}
+                    ${if (resolvedConfig.showPackageName) """<tr><td class="label">${if (isBn) "প্যাকেজ (Package):" else "Package Name:"}</td><td class="val">$packageName</td></tr>""" else ""}
+                    ${if (resolvedConfig.showCustomerAddress) """<tr><td class="label">${if (isBn) "ঠিকানা (Address):" else "Address:"}</td><td class="val">$custAddress</td></tr>""" else ""}
                 </table>
 
                 <div class="section-title">${if (isBn) "পেমেন্ট ও বিল তথ্য (PAYMENT & BILL DETAILS)" else "PAYMENT & BILL DETAILS"}</div>
@@ -815,22 +911,32 @@ object ReceiptPrintUtils {
                         <span>${if (isBn) "পরিশোধিত পরিমাণ (Paid Amount):" else "Paid Amount:"}</span>
                         <span class="amount-paid">$currency $paidAmt</span>
                     </div>
+                    ${if (resolvedConfig.showRemainingDue) """
                     <div class="amount-row">
                         <span>${if (isBn) "অবশিষ্ট বকেয়া (Remaining Due):" else "Remaining Due:"}</span>
                         <span>$currency $dueAmt</span>
                     </div>
+                    """ else ""}
+                    ${if (resolvedConfig.showPaymentMethod) """
                     <div class="amount-row" style="margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 8px;">
                         <span>${if (isBn) "পেমেন্ট মাধ্যম (Method):" else "Payment Method:"}</span>
                         <span><strong>${payment.paymentMethod}</strong></span>
                     </div>
-                    <div class="amount-row">
+                    """ else ""}
+                    <div class="amount-row" style="${if (!resolvedConfig.showPaymentMethod) "margin-top: 8px; border-top: 1px dashed #cbd5e1; padding-top: 8px;" else ""}">
                         <span>${if (isBn) "পেমেন্ট স্ট্যাটাস (Status):" else "Payment Status:"}</span>
                         <span class="status-paid">${if (isBn) "PAID (পরিশোধিত)" else "PAID"}</span>
                     </div>
                 </div>
 
+                ${if (resolvedConfig.customNotes.isNotBlank()) """
+                <div style="background: #f1f5f9; border-radius: 6px; padding: 8px 12px; margin-top: 12px; font-size: 11px; color: #475569; text-align: center;">
+                    ${resolvedConfig.customNotes}
+                </div>
+                """ else ""}
+
                 <div class="footer">
-                    <p><strong>${if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহার করার জন্য আপনাকে ধন্যবাদ!" else "Thank you for using our internet service!"}</strong></p>
+                    <p><strong>$footerText</strong></p>
                     <p style="font-size:10px; font-style:italic;">This is a computer-generated digital receipt issued by $ispName.</p>
                 </div>
             </body>

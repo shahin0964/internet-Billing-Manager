@@ -242,12 +242,23 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun seedDefaultPackagesAndSettingsIfNeeded() {
         viewModelScope.launch {
+            // Do not seed default or dummy packages. Packages should only be created when the user adds them.
+            // Clean up any previously auto-seeded default dummy packages if they exist and are not used by any customer.
+            val dummyPackageNames = setOf(
+                "10 Mbps Starter Fiber",
+                "25 Mbps Standard Fiber",
+                "50 Mbps Ultra Fiber",
+                "100 Mbps Enterprise"
+            )
             val currentPkgs = repository.packages.first()
-            if (currentPkgs.isEmpty()) {
-                repository.savePackage(IspPackageEntity(name = "10 Mbps Starter Fiber", speedMbps = 10, monthlyPrice = 25.0, description = "Home browsing & SD streaming"))
-                repository.savePackage(IspPackageEntity(name = "25 Mbps Standard Fiber", speedMbps = 25, monthlyPrice = 40.0, description = "Multi-device HD streaming"))
-                repository.savePackage(IspPackageEntity(name = "50 Mbps Ultra Fiber", speedMbps = 50, monthlyPrice = 65.0, description = "4K streaming & gaming"))
-                repository.savePackage(IspPackageEntity(name = "100 Mbps Enterprise", speedMbps = 100, monthlyPrice = 110.0, description = "Gigabit dedicated line"))
+            val customers = repository.customers.first()
+            val usedPackageNames = customers.map { it.packageName }.toSet()
+            val usedPackageIds = customers.map { it.packageId }.toSet()
+
+            currentPkgs.forEach { pkg ->
+                if (pkg.name in dummyPackageNames && pkg.id !in usedPackageIds && pkg.name !in usedPackageNames) {
+                    repository.deletePackage(pkg)
+                }
             }
 
             val currentSettings = repository.settings.first()

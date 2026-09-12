@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.viewmodel.IspViewModel
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,6 +64,16 @@ fun AdvancedFeaturesScreen(
     var showWifiAnalyzer by remember { mutableStateOf(false) }
     var showImportCustomers by remember { mutableStateOf(false) }
     var showAutomaticSms by remember { mutableStateOf(false) }
+    var showReceiptCustomization by remember { mutableStateOf(false) }
+
+    if (showReceiptCustomization) {
+        BackHandler { showReceiptCustomization = false }
+        ReceiptCustomizationScreen(
+            viewModel = viewModel,
+            onBackClick = { showReceiptCustomization = false }
+        )
+        return
+    }
 
     if (showAutomaticSms) {
         BackHandler { showAutomaticSms = false }
@@ -136,6 +147,69 @@ fun AdvancedFeaturesScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Receipt Customization Feature Entry
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showReceiptCustomization = true },
+                    shape = RoundedCornerShape(18.dp),
+                    shadowElevation = 4.dp,
+                    tonalElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ReceiptLong,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier
+                                        .padding(10.dp)
+                                        .fillMaxSize()
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.receipt_customization),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(R.string.receipt_customization_subtitle),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             // Import Customers Feature Entry
             item {
                 Surface(

@@ -220,7 +220,8 @@ fun PaymentReceiptModal(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val htmlContent = ReceiptPrintUtils.generateReceiptHtml(payment, bill, customer, settings, isBn)
+    val config = androidx.compose.runtime.remember { com.example.util.ReceiptCustomizationManager.getConfig(context) }
+    val htmlContent = ReceiptPrintUtils.generateReceiptHtml(payment, bill, customer, settings, isBn, config, context)
 
     val ispName = settings.ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
     val hotline = settings.hotline.ifBlank { if (isBn) "০১৭০০-০০০০০০" else "01700-000000" }
@@ -240,6 +241,13 @@ fun PaymentReceiptModal(
     val billAmt = String.format("%.2f", bill?.amount ?: payment.amount)
     val paidAmt = String.format("%.2f", payment.amount)
     val dueAmt = String.format("%.2f", bill?.dueAmount ?: 0.0)
+
+    val displayTitle = config.receiptTitle.ifBlank {
+        if (isBn) "পেমেন্ট রশিদ" else "OFFICIAL PAYMENT RECEIPT"
+    }
+    val displayFooter = config.footerMessage.ifBlank {
+        if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহারের জন্য ধন্যবাদ!" else "Thank you for using our internet service!"
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -324,7 +332,7 @@ fun PaymentReceiptModal(
                             color = Color(0xFF2563EB)
                         ) {
                             Text(
-                                text = if (isBn) "পেমেন্ট রশিদ" else "OFFICIAL PAYMENT RECEIPT",
+                                text = displayTitle,
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -336,10 +344,18 @@ fun PaymentReceiptModal(
                         // Customer Details Table
                         ReceiptSectionHeader(title = if (isBn) "গ্রাহকের তথ্য" else "CUSTOMER DETAILS")
                         ReceiptDataRow(label = if (isBn) "গ্রাহকের নাম:" else "Customer Name:", value = "$custName ($custCode)", isBold = true)
-                        ReceiptDataRow(label = if (isBn) "মোবাইল:" else "Phone:", value = custPhone)
-                        ReceiptDataRow(label = if (isBn) "ইউজারনেম:" else "PPPoE Username:", value = pppoeUser)
-                        ReceiptDataRow(label = if (isBn) "প্যাকেজ:" else "Package:", value = packageName)
-                        ReceiptDataRow(label = if (isBn) "ঠিকানা:" else "Address:", value = custAddress)
+                        if (config.showCustomerPhone) {
+                            ReceiptDataRow(label = if (isBn) "মোবাইল:" else "Phone:", value = custPhone)
+                        }
+                        if (config.showCustomerPppoe) {
+                            ReceiptDataRow(label = if (isBn) "ইউজারনেম:" else "PPPoE Username:", value = pppoeUser)
+                        }
+                        if (config.showPackageName) {
+                            ReceiptDataRow(label = if (isBn) "প্যাকেজ:" else "Package:", value = packageName)
+                        }
+                        if (config.showCustomerAddress) {
+                            ReceiptDataRow(label = if (isBn) "ঠিকানা:" else "Address:", value = custAddress)
+                        }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -362,9 +378,13 @@ fun PaymentReceiptModal(
                             Column(modifier = Modifier.padding(12.dp)) {
                                 ReceiptDataRow(label = if (isBn) "মোট বিল:" else "Total Bill:", value = "$currency $billAmt")
                                 ReceiptDataRow(label = if (isBn) "পরিশোধিত:" else "Paid Amount:", value = "$currency $paidAmt", valueColor = Color(0xFF16A34A), isBold = true)
-                                ReceiptDataRow(label = if (isBn) "অবশিষ্ট বকেয়া:" else "Remaining Due:", value = "$currency $dueAmt")
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = Color(0xFFCBD5E1))
-                                ReceiptDataRow(label = if (isBn) "পেমেন্ট মেথড:" else "Method:", value = payment.paymentMethod, isBold = true)
+                                if (config.showRemainingDue) {
+                                    ReceiptDataRow(label = if (isBn) "অবশিষ্ট বকেয়া:" else "Remaining Due:", value = "$currency $dueAmt")
+                                }
+                                if (config.showPaymentMethod) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = Color(0xFFCBD5E1))
+                                    ReceiptDataRow(label = if (isBn) "পেমেন্ট মেথড:" else "Method:", value = payment.paymentMethod, isBold = true)
+                                }
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -388,11 +408,28 @@ fun PaymentReceiptModal(
                             }
                         }
 
+                        if (config.customNotes.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFF1F5F9),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = config.customNotes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF475569),
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // Footer Note
                         Text(
-                            text = if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহারের জন্য ধন্যবাদ!" else "Thank you for using our internet service!",
+                            text = displayFooter,
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                             color = Color(0xFF334155),
                             textAlign = TextAlign.Center
