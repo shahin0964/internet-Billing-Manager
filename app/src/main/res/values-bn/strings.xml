@@ -529,4 +529,25 @@
     <string name="delete_package_title">ইন্টারনেট প্যাকেজ মুছুন</string>
     <string name="delete_package_confirm">আপনি কি নিশ্চিত যে আপনি এই ইন্টারনেট প্যাকেজটি মুছতে চান: %s?</string>
     <string name="msg_package_in_use">এই প্যাকেজটি ডিলিট করা যাবে না কারণ এটি বর্তমানে এক বা একাধিক গ্রাহক ব্যবহার করছেন।</string>
+
+    <!-- Customer Export Feature -->
+    <string name="customer_import_export_title">গ্রাহক ইমপোর্ট ও এক্সপোর্ট</string>
+    <string name="customer_import_export_subtitle">CSV/Excel থেকে ইমপোর্ট বা A-Z ক্রমানুসারে এক্সপোর্ট করুন</string>
+    <string name="tab_import">📥 ইমপোর্ট</string>
+    <string name="tab_export">📤 এক্সপোর্ট</string>
+    <string name="export_customers_header">গ্রাহক তালিকা এক্সপোর্ট (A - Z)</string>
+    <string name="export_customers_description">গ্রাহকদের বর্ণানুক্রমিক (A-Z) সিরিয়ালে নাম, আইডি, ফোন, প্যাকেজ, মাসিক বিল, বকেয়া, PPPoE ইউজারনেম এবং পাসওয়ার্ডসহ এক্সপোর্ট করুন।</string>
+    <string name="export_sort_by">সাজানোর ক্রম</string>
+    <string name="export_filter_status">ফিল্টার</string>
+    <string name="export_csv_btn">এক্সেল / CSV এক্সপোর্ট</string>
+    <string name="export_share_btn">শেয়ার করুন</string>
+    <string name="export_print_pdf_btn">প্রিন্ট / PDF</string>
+    <string name="export_save_downloads_btn">ডাউনলোড ফোল্ডারে সেভ</string>
+    <string name="export_preview_title">এক্সপোর্ট প্রিভিউ ও গ্রাহক তালিকা</string>
+    <string name="export_total_records">মোট রেকর্ড: %1$d জন</string>
+    <string name="export_total_monthly">মোট মাসিক বিল: %1$s%2$s</string>
+    <string name="export_total_due">মোট বকেয়া: %1$s%2$s</string>
+    <string name="export_success_saved">ফাইলটি ডাউনলোড ফোল্ডারে সংরক্ষিত হয়েছে: %1$s</string>
+    <string name="export_success_generated">CSV ফাইল সফলভাবে তৈরি হয়েছে (%1$d জন গ্রাহক)</string>
+    <string name="export_no_customers">এক্সপোর্ট করার মতো কোনো গ্রাহক তথ্য পাওয়া যায়নি।</string>
 </resources>

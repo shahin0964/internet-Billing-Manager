@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
@@ -52,7 +53,10 @@ fun ImportCustomersScreen(
 
     val existingCustomers by viewModel.customers.collectAsStateWithLifecycle()
     val existingPackages by viewModel.packages.collectAsStateWithLifecycle()
+    val existingBills by viewModel.bills.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
 
+    var selectedTab by remember { mutableIntStateOf(0) }
     var parseResult by remember { mutableStateOf<ParseResult?>(null) }
     var isParsing by remember { mutableStateOf(false) }
     var columnMapping by remember { mutableStateOf<Map<CustomerField, Int>>(emptyMap()) }
@@ -104,7 +108,7 @@ fun ImportCustomersScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = stringResource(R.string.import_customers),
+                        text = stringResource(R.string.customer_import_export_title),
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -123,14 +127,38 @@ fun ImportCustomersScreen(
             )
         }
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            PrimaryTabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text(stringResource(R.string.tab_import), fontWeight = FontWeight.Bold) },
+                    icon = { Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text(stringResource(R.string.tab_export), fontWeight = FontWeight.Bold) },
+                    icon = { Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                )
+            }
+
+            if (selectedTab == 0) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
             // STEP 1: FILE SELECTION CARD
             item {
                 Surface(
@@ -456,7 +484,16 @@ fun ImportCustomersScreen(
                 }
             }
         }
+    } else {
+        CustomerExportContent(
+            customers = existingCustomers,
+            bills = existingBills,
+            settings = settings,
+            isBn = (java.util.Locale.getDefault().language == "bn")
+        )
     }
+}
+}
 }
 
 @Composable

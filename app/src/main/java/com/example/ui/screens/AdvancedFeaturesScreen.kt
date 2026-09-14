@@ -253,12 +253,12 @@ fun AdvancedFeaturesScreen(
                             Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 Text(
-                                    text = stringResource(R.string.import_customers),
+                                    text = stringResource(R.string.customer_import_export_title),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = stringResource(R.string.import_customers_subtitle),
+                                    text = stringResource(R.string.customer_import_export_subtitle),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
