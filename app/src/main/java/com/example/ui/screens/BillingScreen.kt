@@ -39,9 +39,19 @@ import com.example.ui.components.EmptyStateView
 import com.example.ui.components.StatusBadge
 import com.example.ui.theme.EmeraldSuccess
 
+import com.example.data.model.CustomerEntity
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 @Composable
 fun BillingScreen(
     bills: List<BillEntity>,
+    customers: List<CustomerEntity> = emptyList(),
     currencySymbol: String,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
@@ -49,7 +59,13 @@ fun BillingScreen(
     onRecordPaymentForBill: (BillEntity) -> Unit,
     onEditBill: (BillEntity) -> Unit = {}
 ) {
-    val filteredBills = remember(bills, searchQuery) {
+    var selectedStatusFilter by remember { mutableStateOf("ALL") }
+
+    val customerMap = remember(customers) {
+        customers.associateBy { it.id }
+    }
+
+    val filteredBills = remember(bills, searchQuery, selectedStatusFilter, customerMap) {
         bills.filter { bill ->
             val isUnpaid = bill.status == "UNPAID" || bill.status == "PARTIAL"
             val matchesQuery = searchQuery.isBlank() ||
@@ -57,7 +73,15 @@ fun BillingScreen(
                     bill.getDisplayBillNumber().contains(searchQuery, ignoreCase = true) ||
                     bill.billingMonth.contains(searchQuery, ignoreCase = true)
 
-            isUnpaid && matchesQuery
+            val cust = customerMap[bill.customerId]
+            val custStatus = cust?.status?.trim()?.uppercase(java.util.Locale.ROOT) ?: "ACTIVE"
+            val matchesStatus = when (selectedStatusFilter) {
+                "ACTIVE" -> custStatus == "ACTIVE"
+                "SUSPENDED" -> custStatus == "SUSPENDED" || custStatus == "INACTIVE"
+                else -> true
+            }
+
+            isUnpaid && matchesQuery && matchesStatus
         }.sortedWith { b1, b2 ->
             com.example.util.CustomerSortUtils.compareCustomerNames(b1.customerName, b2.customerName)
         }
@@ -130,6 +154,32 @@ tonalElevation = 2.dp,
             placeholder = androidx.compose.ui.res.stringResource(com.example.R.string.search_bills_hint)
         )
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Line Status Filter Chips
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                "ALL" to "All Bills",
+                "ACTIVE" to "Active Lines",
+                "SUSPENDED" to "Suspended / Inactive"
+            ).forEach { (key, label) ->
+                FilterChip(
+                    selected = (selectedStatusFilter == key),
+                    onClick = { selectedStatusFilter = key },
+                    label = { Text(label, fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(10.dp))
 
         if (filteredBills.isEmpty()) {
@@ -149,8 +199,10 @@ tonalElevation = 2.dp,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(filteredBills, key = { it.id }) { bill ->
+                    val cust = customerMap[bill.customerId]
                     BillItemCard(
                         bill = bill,
+                        customerStatus = cust?.status,
                         currencySymbol = currencySymbol,
                         onCollectPayment = { onRecordPaymentForBill(bill) },
                         onEditBill = { onEditBill(bill) }
@@ -165,6 +217,7 @@ tonalElevation = 2.dp,
 @Composable
 fun BillItemCard(
     bill: BillEntity,
+    customerStatus: String? = null,
     currencySymbol: String,
     onCollectPayment: () -> Unit,
     onEditBill: () -> Unit = {}
@@ -192,11 +245,17 @@ fun BillItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = bill.customerName,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = bill.customerName,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (customerStatus != null && customerStatus.trim().uppercase(java.util.Locale.ROOT) != "ACTIVE") {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            StatusBadge(status = customerStatus)
+                        }
+                    }
                     Text(
                         text = "$displayBillNo • $billingMonthLabel",
                         style = MaterialTheme.typography.labelSmall,

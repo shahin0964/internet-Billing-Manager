@@ -763,6 +763,7 @@ fun MainAppContent(
                     val billingScreenBills by viewModel.billingScreenBills.collectAsStateWithLifecycle()
                     BillingScreen(
                         bills = billingScreenBills,
+                        customers = customers,
                         currencySymbol = settings.currencySymbol,
                         searchQuery = billQuery,
                         onSearchQueryChange = { viewModel.billSearchQuery.value = it },
@@ -1105,9 +1106,17 @@ fun MainAppContent(
     if (showGenerateBillsDialog) {
         val activeCustomers = remember(customers) {
             customers.filter { customer ->
+                val statusClean = customer.status.trim().uppercase(java.util.Locale.ROOT)
+                val isInactiveOrSuspended = statusClean == "INACTIVE" ||
+                        statusClean == "SUSPENDED" ||
+                        statusClean == "EXPIRED" ||
+                        statusClean.contains("SUSPEND") ||
+                        statusClean.contains("INACT")
+                val isExplicitlyActive = statusClean == "ACTIVE"
                 val isFree = customer.packageName.contains("free", ignoreCase = true) ||
                         customer.packageName.contains("ফ্রি", ignoreCase = true)
-                customer.status == "ACTIVE" && !isFree
+
+                isExplicitlyActive && !isInactiveOrSuspended && !isFree
             }
         }
         BillGenerateDialog(

@@ -25,6 +25,7 @@ enum class CustomerField(val key: String, val displayNameEn: String, val display
     PACKAGE_NAME("package", "Package Name", "প্যাকেজের নাম", false),
     MONTHLY_FEE("fee", "Monthly Fee", "মাসিক ফি", false),
     JOINING_DATE("date", "Joining Date", "যোগদানের তারিখ", false),
+    STATUS("status", "Status (Active/Suspended/Inactive)", "স্ট্যাটাস (সক্রিয়/সাসপেন্ড/নিষ্ক্রিয়)", false),
     NOTES("notes", "Notes", "নোট", false)
 }
 
@@ -347,6 +348,7 @@ object CustomerImportParser {
                     CustomerField.PACKAGE_NAME -> normalized.contains("package") || normalized.contains("plan") || normalized.contains("প্যাকেজ")
                     CustomerField.MONTHLY_FEE -> normalized.contains("fee") || normalized.contains("price") || normalized.contains("amount") || normalized.contains("bill") || normalized.contains("ফি") || normalized.contains("টাকা")
                     CustomerField.JOINING_DATE -> normalized.contains("date") || normalized.contains("joining") || normalized.contains("তারিখ")
+                    CustomerField.STATUS -> normalized.contains("status") || normalized.contains("স্ট্যাটাস") || normalized.contains("অবস্থা") || normalized.contains("state") || normalized.contains("condition")
                     CustomerField.NOTES -> normalized.contains("note") || normalized.contains("remark") || normalized.contains("নোট")
                 }
             }
@@ -401,7 +403,15 @@ object CustomerImportParser {
             val packageNameRaw = getVal(CustomerField.PACKAGE_NAME)
             val monthlyFeeRaw = getVal(CustomerField.MONTHLY_FEE)
             val joiningDateRaw = getVal(CustomerField.JOINING_DATE)
+            val statusRaw = getVal(CustomerField.STATUS)
             val notes = getVal(CustomerField.NOTES)
+
+            val parsedStatus = when {
+                statusRaw.contains("suspend", ignoreCase = true) || statusRaw.contains("সাসপেন্ড", ignoreCase = true) -> "SUSPENDED"
+                statusRaw.contains("inact", ignoreCase = true) || statusRaw.contains("নিষ্ক্রিয়", ignoreCase = true) || statusRaw.contains("বন্ধ", ignoreCase = true) -> "INACTIVE"
+                statusRaw.contains("act", ignoreCase = true) || statusRaw.contains("সক্রিয়", ignoreCase = true) -> "ACTIVE"
+                else -> "ACTIVE"
+            }
 
             val rawSummary = listOfNotNull(
                 name.takeIf { it.isNotBlank() },
@@ -460,7 +470,7 @@ object CustomerImportParser {
                 packageId = matchedPackage.id,
                 packageName = if (packageNameRaw.isNotBlank()) packageNameRaw else matchedPackage.name,
                 monthlyFee = monthlyFee,
-                status = "ACTIVE",
+                status = parsedStatus,
                 joiningDate = joiningDate,
                 notes = notes
             )

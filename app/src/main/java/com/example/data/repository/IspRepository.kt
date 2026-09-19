@@ -398,7 +398,8 @@ class IspRepository(
     }
 
     suspend fun updateCustomerStatus(id: Long, status: String) {
-        customerDao.updateCustomerStatus(id, status)
+        val now = System.currentTimeMillis()
+        customerDao.updateCustomerStatus(id, status, now)
         customerDao.updateCustomerSyncStatus(id, 1)
         val actionName = when (status.uppercase()) {
             "EXPIRED", "INACTIVE", "SUSPENDED" -> "SUSPEND_CUSTOMER"
@@ -539,7 +540,15 @@ class IspRepository(
             val activeCustomers = currentCustomers.filter { customer ->
                 val isFree = customer.packageName.contains("free", ignoreCase = true) ||
                         customer.packageName.contains("ফ্রি", ignoreCase = true)
-                customer.status == "ACTIVE" && !isFree && (selectedCustomerIds == null || selectedCustomerIds.contains(customer.id))
+                val statusClean = customer.status.trim().uppercase(Locale.ROOT)
+                val isInactiveOrSuspended = statusClean == "INACTIVE" ||
+                        statusClean == "SUSPENDED" ||
+                        statusClean == "EXPIRED" ||
+                        statusClean.contains("SUSPEND") ||
+                        statusClean.contains("INACT")
+                val isExplicitlyActive = statusClean == "ACTIVE"
+
+                isExplicitlyActive && !isInactiveOrSuspended && !isFree && (selectedCustomerIds == null || selectedCustomerIds.contains(customer.id))
             }
             
             var count = 0
@@ -551,6 +560,12 @@ class IspRepository(
             val todayStr = sdf.format(Date())
 
             for (customer in activeCustomers) {
+                // Strict safeguard: Under no circumstances generate a bill for an inactive or suspended line
+                val custStatus = customer.status.trim().uppercase(Locale.ROOT)
+                if (custStatus != "ACTIVE" || custStatus == "SUSPENDED" || custStatus == "INACTIVE" || custStatus.contains("SUSPEND") || custStatus.contains("INACT")) {
+                    continue
+                }
+
                 // In-batch duplicate guard
                 if (processedCustomerIds.contains(customer.id)) continue
                 if (customer.customerCode.isNotBlank() && processedCustomerCodes.contains(customer.customerCode.trim().lowercase(Locale.ROOT))) continue

@@ -52,6 +52,32 @@ enum class CustomerFilterStatus(val titleBn: String, val titleEn: String) {
     INACTIVE("শুধু নিষ্ক্রিয় (Inactive/Suspended)", "Inactive Only")
 }
 
+enum class ExportCustomerField(
+    val titleBn: String,
+    val titleEn: String,
+    val isDefaultSelected: Boolean = true
+) {
+    SERIAL("ক্রমিক নং", "SL", true),
+    NAME("গ্রাহকের নাম", "Customer Name", true),
+    CUSTOMER_CODE("গ্রাহক আইডি", "Customer ID", true),
+    PHONE("মোবাইল নম্বর", "Phone", true),
+    PACKAGE("প্যাকেজের নাম", "Package", true),
+    MONTHLY_BILL("মাসিক বিল", "Monthly Bill", true),
+    DUE_AMOUNT("বর্তমান বকেয়া", "Current Due", true),
+    PPPOE_USERNAME("PPPoE ইউজারনেম", "PPPoE Username", true),
+    PASSWORD("পাসওয়ার্ড", "PPPoE Password", true),
+    ADDRESS("ঠিকানা", "Address", false),
+    STATUS("সংযোগ স্ট্যাটাস", "Status", true),
+    IP_ADDRESS("আইপি অ্যাড্রেস", "IP Address", false),
+    JOINING_DATE("যোগদানের তারিখ", "Joining Date", false),
+    NOTES("নোট", "Notes", false)
+}
+
+enum class ExportFormat(val titleBn: String, val titleEn: String) {
+    EXCEL("এক্সেল ফাইল (.CSV)", "Excel (.CSV)"),
+    PDF("পিডিএফ ডকুমেন্ট (.PDF)", "PDF Document (.PDF)")
+}
+
 object CustomerExportHelper {
 
     /**
@@ -151,6 +177,7 @@ object CustomerExportHelper {
     fun generateCsvFile(
         context: Context,
         rows: List<ExportedCustomerRow>,
+        selectedFields: Set<ExportCustomerField> = ExportCustomerField.values().filter { it.isDefaultSelected }.toSet(),
         isBn: Boolean = true
     ): File {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -158,67 +185,40 @@ object CustomerExportHelper {
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
         val file = File(exportDir, fileName)
 
+        val effectiveFields = if (selectedFields.isEmpty()) setOf(ExportCustomerField.NAME) else selectedFields
+        val activeFieldsOrdered = ExportCustomerField.values().filter { it in effectiveFields }
+
         FileOutputStream(file).use { fos ->
             // Write UTF-8 BOM so Excel recognises unicode characters correctly
             fos.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
             OutputStreamWriter(fos, StandardCharsets.UTF_8).use { writer ->
                 // Header row
-                val headers = if (isBn) {
-                    listOf(
-                        "ক্রমিক নং",
-                        "গ্রাহকের নাম",
-                        "গ্রাহক আইডি",
-                        "মোবাইল নম্বর",
-                        "ঠিকানা",
-                        "প্যাকেজের নাম",
-                        "মাসিক বিল (৳)",
-                        "বর্তমান বকেয়া (৳)",
-                        "PPPoE ইউজারনেম",
-                        "PPPoE পাসওয়ার্ড",
-                        "আইপি অ্যাড্রেস",
-                        "সংযোগ স্ট্যাটাস",
-                        "যোগদানের তারিখ",
-                        "নোট"
-                    )
-                } else {
-                    listOf(
-                        "SL",
-                        "Customer Name",
-                        "Customer ID",
-                        "Phone Number",
-                        "Address",
-                        "Package Name",
-                        "Monthly Bill",
-                        "Current Due",
-                        "PPPoE Username",
-                        "PPPoE Password",
-                        "IP Address",
-                        "Status",
-                        "Joining Date",
-                        "Notes"
-                    )
+                val headers = activeFieldsOrdered.map { field ->
+                    if (isBn) field.titleBn else field.titleEn
                 }
                 writer.write(headers.joinToString(",") { escapeCsvCell(it) })
                 writer.write("\r\n")
 
                 // Rows
                 rows.forEach { row ->
-                    val cells = listOf(
-                        row.serialNo.toString(),
-                        row.name,
-                        row.customerCode,
-                        row.phone,
-                        row.address,
-                        row.packageName,
-                        String.format(Locale.US, "%.2f", row.monthlyBill),
-                        String.format(Locale.US, "%.2f", row.dueAmount),
-                        row.pppoeUsername,
-                        row.password,
-                        row.ipAddress,
-                        row.status,
-                        row.joiningDate,
-                        row.notes
-                    )
+                    val cells = activeFieldsOrdered.map { field ->
+                        when (field) {
+                            ExportCustomerField.SERIAL -> row.serialNo.toString()
+                            ExportCustomerField.NAME -> row.name
+                            ExportCustomerField.CUSTOMER_CODE -> row.customerCode
+                            ExportCustomerField.PHONE -> row.phone
+                            ExportCustomerField.PACKAGE -> row.packageName
+                            ExportCustomerField.MONTHLY_BILL -> String.format(Locale.US, "%.2f", row.monthlyBill)
+                            ExportCustomerField.DUE_AMOUNT -> String.format(Locale.US, "%.2f", row.dueAmount)
+                            ExportCustomerField.PPPOE_USERNAME -> row.pppoeUsername
+                            ExportCustomerField.PASSWORD -> row.password
+                            ExportCustomerField.ADDRESS -> row.address
+                            ExportCustomerField.STATUS -> row.status
+                            ExportCustomerField.IP_ADDRESS -> row.ipAddress
+                            ExportCustomerField.JOINING_DATE -> row.joiningDate
+                            ExportCustomerField.NOTES -> row.notes
+                        }
+                    }
                     writer.write(cells.joinToString(",") { escapeCsvCell(it) })
                     writer.write("\r\n")
                 }
@@ -280,6 +280,7 @@ object CustomerExportHelper {
     fun generatePrintableHtml(
         rows: List<ExportedCustomerRow>,
         ispName: String,
+        selectedFields: Set<ExportCustomerField> = ExportCustomerField.values().filter { it.isDefaultSelected }.toSet(),
         currencySymbol: String = "৳",
         isBn: Boolean = true
     ): String {
@@ -290,6 +291,9 @@ object CustomerExportHelper {
 
         val title = if (isBn) "গ্রাহক তালিকা রিপোর্ট (A - Z ক্রমানুসারে)" else "Customer List Report (A to Z)"
         val company = ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
+
+        val effectiveFields = if (selectedFields.isEmpty()) setOf(ExportCustomerField.NAME) else selectedFields
+        val activeFieldsOrdered = ExportCustomerField.values().filter { it in effectiveFields }
 
         val sb = StringBuilder()
         sb.append("""
@@ -336,32 +340,10 @@ object CustomerExportHelper {
                         color: #64748b;
                         margin-top: 6px;
                     }
-                    .summary-cards {
-                        display: flex;
-                        gap: 12px;
-                        margin-bottom: 12px;
-                    }
-                    .card {
-                        flex: 1;
-                        background: #f8fafc;
-                        border: 1px solid #cbd5e1;
-                        border-radius: 6px;
-                        padding: 8px 12px;
-                        text-align: center;
-                    }
-                    .card-label {
-                        font-size: 10px;
-                        color: #64748b;
-                    }
-                    .card-val {
-                        font-size: 14px;
-                        font-weight: bold;
-                        color: #0f172a;
-                    }
                     table {
                         width: 100%;
                         border-collapse: collapse;
-                        margin-top: 4px;
+                        margin-top: 8px;
                     }
                     th {
                         background-color: #2563eb;
@@ -419,64 +401,65 @@ object CustomerExportHelper {
                     <div class="report-title">$title</div>
                     <div class="meta-row">
                         <span>তারিখ: $printDate</span>
-                        <span>মোট গ্রাহক সংখ্যা: $totalCount জন</span>
-                    </div>
-                </div>
-
-                <div class="summary-cards">
-                    <div class="card">
-                        <div class="card-label">মোট গ্রাহক</div>
-                        <div class="card-val">$totalCount</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-label">মোট মাসিক বিল</div>
-                        <div class="card-val">$currencySymbol ${String.format(Locale.US, "%,.2f", totalMonthlyBill)}</div>
-                    </div>
-                    <div class="card">
-                        <div class="card-label">মোট বকেয়া</div>
-                        <div class="card-val" style="color: #dc2626;">$currencySymbol ${String.format(Locale.US, "%,.2f", totalDue)}</div>
+                        <span>মোট গ্রাহক: $totalCount জন</span>
+                        <span>মোট মাসিক বিল: $currencySymbol ${String.format(Locale.US, "%,.2f", totalMonthlyBill)}</span>
+                        <span>মোট বকেয়া: $currencySymbol ${String.format(Locale.US, "%,.2f", totalDue)}</span>
                     </div>
                 </div>
 
                 <table>
                     <thead>
                         <tr>
-                            <th class="text-center" style="width: 30px;">#</th>
-                            <th>গ্রাহকের নাম (A-Z)</th>
-                            <th>আইডি / কোড</th>
-                            <th>মোবাইল নম্বর</th>
-                            <th>প্যাকেজ</th>
-                            <th class="text-right">মাসিক বিল</th>
-                            <th class="text-right">বকেয়া</th>
-                            <th>PPPoE ইউজারনেম</th>
-                            <th>পাসওয়ার্ড</th>
-                            <th class="text-center">স্ট্যাটাস</th>
+        """.trimIndent())
+
+        activeFieldsOrdered.forEach { field ->
+            val alignClass = when (field) {
+                ExportCustomerField.SERIAL -> "text-center"
+                ExportCustomerField.MONTHLY_BILL, ExportCustomerField.DUE_AMOUNT -> "text-right"
+                ExportCustomerField.STATUS -> "text-center"
+                else -> ""
+            }
+            val titleText = if (isBn) field.titleBn else field.titleEn
+            sb.append("""<th class="$alignClass">$titleText</th>""")
+        }
+
+        sb.append("""
                         </tr>
                     </thead>
                     <tbody>
         """.trimIndent())
 
         rows.forEach { row ->
-            val statusBadge = if (row.status.equals("ACTIVE", ignoreCase = true)) {
-                """<span class="badge-active">Active</span>"""
-            } else {
-                """<span class="badge-inactive">${row.status}</span>"""
+            sb.append("<tr>")
+            activeFieldsOrdered.forEach { field ->
+                when (field) {
+                    ExportCustomerField.SERIAL -> sb.append("""<td class="text-center">${row.serialNo}</td>""")
+                    ExportCustomerField.NAME -> sb.append("""<td><strong>${row.name}</strong></td>""")
+                    ExportCustomerField.CUSTOMER_CODE -> sb.append("""<td>${row.customerCode}</td>""")
+                    ExportCustomerField.PHONE -> sb.append("""<td>${row.phone.ifBlank { "-" }}</td>""")
+                    ExportCustomerField.PACKAGE -> sb.append("""<td>${row.packageName}</td>""")
+                    ExportCustomerField.MONTHLY_BILL -> sb.append("""<td class="text-right">$currencySymbol ${String.format(Locale.US, "%.2f", row.monthlyBill)}</td>""")
+                    ExportCustomerField.DUE_AMOUNT -> {
+                        val color = if (row.dueAmount > 0) "#dc2626" else "#16a34a"
+                        sb.append("""<td class="text-right" style="color: $color; font-weight: bold;">$currencySymbol ${String.format(Locale.US, "%.2f", row.dueAmount)}</td>""")
+                    }
+                    ExportCustomerField.PPPOE_USERNAME -> sb.append("""<td><code>${row.pppoeUsername}</code></td>""")
+                    ExportCustomerField.PASSWORD -> sb.append("""<td><code>${row.password.ifBlank { "-" }}</code></td>""")
+                    ExportCustomerField.ADDRESS -> sb.append("""<td>${row.address.ifBlank { "-" }}</td>""")
+                    ExportCustomerField.STATUS -> {
+                        val statusBadge = if (row.status.equals("ACTIVE", ignoreCase = true)) {
+                            """<span class="badge-active">Active</span>"""
+                        } else {
+                            """<span class="badge-inactive">${row.status}</span>"""
+                        }
+                        sb.append("""<td class="text-center">$statusBadge</td>""")
+                    }
+                    ExportCustomerField.IP_ADDRESS -> sb.append("""<td>${row.ipAddress.ifBlank { "-" }}</td>""")
+                    ExportCustomerField.JOINING_DATE -> sb.append("""<td>${row.joiningDate.ifBlank { "-" }}</td>""")
+                    ExportCustomerField.NOTES -> sb.append("""<td>${row.notes.ifBlank { "-" }}</td>""")
+                }
             }
-
-            sb.append("""
-                <tr>
-                    <td class="text-center">${row.serialNo}</td>
-                    <td><strong>${row.name}</strong></td>
-                    <td>${row.customerCode}</td>
-                    <td>${row.phone.ifBlank { "-" }}</td>
-                    <td>${row.packageName}</td>
-                    <td class="text-right">$currencySymbol ${String.format(Locale.US, "%.2f", row.monthlyBill)}</td>
-                    <td class="text-right" style="color: ${if (row.dueAmount > 0) "#dc2626" else "#16a34a"}; font-weight: bold;">$currencySymbol ${String.format(Locale.US, "%.2f", row.dueAmount)}</td>
-                    <td><code>${row.pppoeUsername}</code></td>
-                    <td><code>${row.password.ifBlank { "-" }}</code></td>
-                    <td class="text-center">$statusBadge</td>
-                </tr>
-            """.trimIndent())
+            sb.append("</tr>")
         }
 
         sb.append("""
@@ -499,10 +482,11 @@ object CustomerExportHelper {
         context: Context,
         rows: List<ExportedCustomerRow>,
         ispName: String,
+        selectedFields: Set<ExportCustomerField> = ExportCustomerField.values().filter { it.isDefaultSelected }.toSet(),
         currencySymbol: String = "৳",
         isBn: Boolean = true
     ) {
-        val htmlContent = generatePrintableHtml(rows, ispName, currencySymbol, isBn)
+        val htmlContent = generatePrintableHtml(rows, ispName, selectedFields, currencySymbol, isBn)
         val webView = WebView(context)
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {

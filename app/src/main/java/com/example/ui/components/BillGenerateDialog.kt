@@ -59,12 +59,19 @@ fun BillGenerateDialog(
     val sdfMonth = remember { SimpleDateFormat("MMMM yyyy", Locale.US) }
     val sdfDate = remember { SimpleDateFormat("yyyy-MM-10", Locale.US) }
 
-    // Filter out free package customers
+    // Filter out free package and non-active/suspended customers
     val eligibleCustomers = remember(activeCustomers) {
         activeCustomers.filter { customer ->
+            val statusClean = customer.status.trim().uppercase(Locale.ROOT)
+            val isInactiveOrSuspended = statusClean == "INACTIVE" ||
+                    statusClean == "SUSPENDED" ||
+                    statusClean == "EXPIRED" ||
+                    statusClean.contains("SUSPEND") ||
+                    statusClean.contains("INACT")
+            val isExplicitlyActive = statusClean == "ACTIVE"
             val isFree = customer.packageName.contains("free", ignoreCase = true) ||
                     customer.packageName.contains("ফ্রি", ignoreCase = true)
-            !isFree
+            isExplicitlyActive && !isInactiveOrSuspended && !isFree
         }
     }
 

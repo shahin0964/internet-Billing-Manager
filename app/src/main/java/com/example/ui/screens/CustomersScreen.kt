@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -226,6 +227,7 @@ fun CustomersScreen(
             onBackClick = { previewCustomerState = null },
             onEditClick = { onEditCustomerClick(currentPreviewCustomer) },
             onDeleteClick = { customerToDelete = currentPreviewCustomer },
+            onToggleStatusClick = { onToggleStatusClick(currentPreviewCustomer) },
             onCollectPaymentClick = { onCollectPaymentForCustomer(currentPreviewCustomer) },
             onViewReceiptClick = onViewReceiptClick
         )
@@ -362,7 +364,8 @@ tonalElevation = 3.dp,
                                         currencySymbol = currencySymbol,
                                         onClick = { previewCustomerState = customer },
                                         onEditClick = { onEditCustomerClick(customer) },
-                                        onDeleteClick = { customerToDelete = customer }
+                                        onDeleteClick = { customerToDelete = customer },
+                                        onToggleStatusClick = { onToggleStatusClick(customer) }
                                     )
                                 }
                                 item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -483,7 +486,8 @@ fun CustomerItemCard(
     currencySymbol: String,
     onClick: () -> Unit,
     onEditClick: () -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onToggleStatusClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val totalDue = bills.sumOf { it.dueAmount }
@@ -559,7 +563,13 @@ tonalElevation = 3.dp,
                     }
                 }
 
-                StatusBadge(status = customer.status)
+                Surface(
+                    onClick = onToggleStatusClick,
+                    shape = RoundedCornerShape(8.dp),
+                    color = androidx.compose.ui.graphics.Color.Transparent
+                ) {
+                    StatusBadge(status = customer.status)
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -729,6 +739,7 @@ fun CustomerPreviewScreen(
     onBackClick: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    onToggleStatusClick: () -> Unit = {},
     onCollectPaymentClick: () -> Unit,
     onViewReceiptClick: ((PaymentEntity) -> Unit)? = null
 ) {
@@ -828,7 +839,25 @@ fun CustomerPreviewScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        StatusBadge(status = customer.status)
+                        Surface(
+                            onClick = onToggleStatusClick,
+                            shape = RoundedCornerShape(8.dp),
+                            color = androidx.compose.ui.graphics.Color.Transparent
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                StatusBadge(status = customer.status)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Toggle Status",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))

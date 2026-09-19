@@ -33,6 +33,8 @@ import com.example.data.model.CustomerEntity
 import com.example.util.CustomerExportHelper
 import com.example.util.CustomerFilterStatus
 import com.example.util.CustomerSortOption
+import com.example.util.ExportCustomerField
+import com.example.util.ExportFormat
 import com.example.util.ExportedCustomerRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -52,21 +54,21 @@ fun CustomerExportContent(
 
     var sortOption by remember { mutableStateOf(CustomerSortOption.A_TO_Z) }
     var filterStatus by remember { mutableStateOf(CustomerFilterStatus.ALL) }
-    var searchQuery by remember { mutableStateOf("") }
+    var selectedFields by remember {
+        mutableStateOf(ExportCustomerField.values().filter { it.isDefaultSelected }.toSet())
+    }
+    var selectedFormat by remember { mutableStateOf(ExportFormat.EXCEL) }
     var isProcessing by remember { mutableStateOf(false) }
 
-    val exportedRows = remember(customers, bills, sortOption, filterStatus, searchQuery) {
+    val exportedRows = remember(customers, bills, sortOption, filterStatus) {
         CustomerExportHelper.prepareExportData(
             customers = customers,
             bills = bills,
             sortOption = sortOption,
             filterStatus = filterStatus,
-            searchQuery = searchQuery
+            searchQuery = ""
         )
     }
-
-    val totalMonthlyBill = remember(exportedRows) { exportedRows.sumOf { it.monthlyBill } }
-    val totalDue = remember(exportedRows) { exportedRows.sumOf { it.dueAmount } }
 
     LazyColumn(
         modifier = Modifier
@@ -117,34 +119,7 @@ fun CustomerExportContent(
             }
         }
 
-        // Summary Stats Row
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                StatMetricCard(
-                    title = "মোট গ্রাহক",
-                    value = "${exportedRows.size} জন",
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f)
-                )
-                StatMetricCard(
-                    title = "মাসিক বিল",
-                    value = "${settings.currencySymbol} ${String.format(Locale.US, "%,.0f", totalMonthlyBill)}",
-                    color = Color(0xFF16A34A),
-                    modifier = Modifier.weight(1f)
-                )
-                StatMetricCard(
-                    title = "মোট বকেয়া",
-                    value = "${settings.currencySymbol} ${String.format(Locale.US, "%,.0f", totalDue)}",
-                    color = if (totalDue > 0) Color(0xFFDC2626) else Color(0xFF64748B),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        // Search & Filter Controls
+        // Sort & Status Filter Controls (without search box)
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -156,26 +131,6 @@ fun CustomerExportContent(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Search Input
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("গ্রাহকের নাম, আইডি, ফোন বা ইউজারনেম দিয়ে খুঁজুন...") },
-                        leadingIcon = {
-                            Icon(imageVector = Icons.Default.Search, contentDescription = null)
-                        },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
                     // Sort By Row
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
@@ -231,67 +186,277 @@ fun CustomerExportContent(
             }
         }
 
-        // Export Action Buttons
+        // Field Selection Card (সিলেক্ট করুন কি কি চান)
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "এক্সপোর্টে যা অন্তর্ভুক্ত করতে চান:",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "${selectedFields.size} টি ফিল্ড নির্বাচিত",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        TextButton(
+                            onClick = {
+                                selectedFields = if (selectedFields.size == ExportCustomerField.values().size) {
+                                    setOf(ExportCustomerField.NAME)
+                                } else {
+                                    ExportCustomerField.values().toSet()
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = if (selectedFields.size == ExportCustomerField.values().size) "ক্লিয়ার করুন" else "সব নির্বাচন",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Field list in 2-column grid
+                    val allFields = ExportCustomerField.values().toList()
+                    allFields.chunked(2).forEach { rowFields ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowFields.forEach { field ->
+                                val isSelected = field in selectedFields
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            selectedFields = if (isSelected) {
+                                                if (selectedFields.size > 1) selectedFields - field else selectedFields
+                                            } else {
+                                                selectedFields + field
+                                            }
+                                        },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = isSelected,
+                                            onCheckedChange = { checked ->
+                                                selectedFields = if (checked) {
+                                                    selectedFields + field
+                                                } else {
+                                                    if (selectedFields.size > 1) selectedFields - field else selectedFields
+                                                }
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isBn) field.titleBn else field.titleEn,
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                fontSize = 11.5.sp
+                                            ),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                            if (rowFields.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Export Format Selection (এক্সেল / পিডিএফ) & Download Buttons
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text(
-                        text = "এক্সপোর্ট ও ডাউনলোড অপশন",
+                        text = "এক্সপোর্ট ফরম্যাট নির্বাচন করুন:",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    // Primary Export Button (CSV for Excel)
+                    // Format Radio Cards: Excel vs PDF
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Excel Option
+                        val isExcel = selectedFormat == ExportFormat.EXCEL
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedFormat = ExportFormat.EXCEL },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isExcel) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isExcel) 2.dp else 1.dp,
+                                if (isExcel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                RadioButton(
+                                    selected = isExcel,
+                                    onClick = { selectedFormat = ExportFormat.EXCEL },
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "এক্সেল (Excel)",
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = ".CSV ফাইল",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // PDF Option
+                        val isPdf = selectedFormat == ExportFormat.PDF
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedFormat = ExportFormat.PDF },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isPdf) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isPdf) 2.dp else 1.dp,
+                                if (isPdf) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                RadioButton(
+                                    selected = isPdf,
+                                    onClick = { selectedFormat = ExportFormat.PDF },
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "পিডিএফ (PDF)",
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "প্রিন্ট / PDF",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Main Action Button for the selected format
                     Button(
                         onClick = {
                             if (exportedRows.isEmpty()) {
                                 Toast.makeText(context, "এক্সপোর্ট করার জন্য কোনো গ্রাহক নেই", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            isProcessing = true
-                            scope.launch(Dispatchers.IO) {
-                                val file = CustomerExportHelper.generateCsvFile(context, exportedRows, isBn)
-                                val savedFile = CustomerExportHelper.saveToDownloads(context, file)
-                                withContext(Dispatchers.Main) {
-                                    isProcessing = false
-                                    if (savedFile != null) {
-                                        Toast.makeText(
-                                            context,
-                                            "সফলভাবে Downloads এ সেভ হয়েছে: ${savedFile.name}",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    } else {
-                                        CustomerExportHelper.shareCsvFile(context, file)
+                            if (selectedFormat == ExportFormat.EXCEL) {
+                                isProcessing = true
+                                scope.launch(Dispatchers.IO) {
+                                    val file = CustomerExportHelper.generateCsvFile(context, exportedRows, selectedFields, isBn)
+                                    val savedFile = CustomerExportHelper.saveToDownloads(context, file)
+                                    withContext(Dispatchers.Main) {
+                                        isProcessing = false
+                                        if (savedFile != null) {
+                                            Toast.makeText(
+                                                context,
+                                                "সফলভাবে Downloads এ সেভ হয়েছে: ${savedFile.name}",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            CustomerExportHelper.shareCsvFile(context, file)
+                                        }
                                     }
                                 }
+                            } else {
+                                CustomerExportHelper.printCustomerReport(
+                                    context = context,
+                                    rows = exportedRows,
+                                    ispName = settings.ispName,
+                                    selectedFields = selectedFields,
+                                    currencySymbol = settings.currencySymbol,
+                                    isBn = isBn
+                                )
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
                         enabled = !isProcessing && exportedRows.isNotEmpty()
                     ) {
-                        Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(
+                            imageVector = if (selectedFormat == ExportFormat.EXCEL) Icons.Default.Download else Icons.Default.Print,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "এক্সেল / CSV ফাইলে ডাউনলোড করুন (${exportedRows.size} জন)",
+                            text = if (selectedFormat == ExportFormat.EXCEL) {
+                                "এক্সেল ফাইলে এক্সপোর্ট করুন (${exportedRows.size} জন)"
+                            } else {
+                                "পিডিএফ ফাইলে এক্সপোর্ট করুন (${exportedRows.size} জন)"
+                            },
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Share CSV Button
+                    // Direct Share Button if Excel is chosen
+                    if (selectedFormat == ExportFormat.EXCEL) {
                         OutlinedButton(
                             onClick = {
                                 if (exportedRows.isEmpty()) {
@@ -300,44 +465,20 @@ fun CustomerExportContent(
                                 }
                                 isProcessing = true
                                 scope.launch(Dispatchers.IO) {
-                                    val file = CustomerExportHelper.generateCsvFile(context, exportedRows, isBn)
+                                    val file = CustomerExportHelper.generateCsvFile(context, exportedRows, selectedFields, isBn)
                                     withContext(Dispatchers.Main) {
                                         isProcessing = false
                                         CustomerExportHelper.shareCsvFile(context, file)
                                     }
                                 }
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp),
                             enabled = !isProcessing && exportedRows.isNotEmpty()
                         ) {
                             Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "শেয়ার করুন", fontSize = 13.sp)
-                        }
-
-                        // Print / PDF Button
-                        OutlinedButton(
-                            onClick = {
-                                if (exportedRows.isEmpty()) {
-                                    Toast.makeText(context, "এক্সপোর্ট করার জন্য কোনো গ্রাহক নেই", Toast.LENGTH_SHORT).show()
-                                    return@OutlinedButton
-                                }
-                                CustomerExportHelper.printCustomerReport(
-                                    context = context,
-                                    rows = exportedRows,
-                                    ispName = settings.ispName,
-                                    currencySymbol = settings.currencySymbol,
-                                    isBn = isBn
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            enabled = !isProcessing && exportedRows.isNotEmpty()
-                        ) {
-                            Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "প্রিন্ট / PDF", fontSize = 13.sp)
+                            Text(text = "এক্সেল ফাইল সরাসরি শেয়ার করুন", fontSize = 13.sp)
                         }
                     }
                 }
@@ -539,41 +680,5 @@ private fun DetailText(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-    }
-}
-
-@Composable
-private fun StatMetricCard(
-    title: String,
-    value: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-    ) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 10.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = color,
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
     }
 }

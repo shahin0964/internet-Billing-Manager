@@ -385,7 +385,13 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
                     if (matchedExisting != null) {
                         if (overwriteDuplicates) {
-                            val updatedEntity = candidate.copy(id = matchedExisting.id)
+                            // If candidate status is default ACTIVE and existing is SUSPENDED or INACTIVE, preserve existing
+                            val finalStatus = if (candidate.status == "SUSPENDED" || candidate.status == "INACTIVE") {
+                                candidate.status
+                            } else {
+                                matchedExisting.status
+                            }
+                            val updatedEntity = candidate.copy(id = matchedExisting.id, status = finalStatus)
                             repository.updateCustomer(updatedEntity)
                             updatedCount++
                         } else {
@@ -435,6 +441,18 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             "SUSPENDED" -> "INACTIVE"
             else -> "ACTIVE"
         }
+        viewModelScope.launch {
+            repository.updateCustomerStatus(customer.id, newStatus)
+            _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_customer_status, newStatus)
+            selectedCustomerForDetail.value?.let {
+                if (it.id == customer.id) {
+                    selectedCustomerForDetail.value = it.copy(status = newStatus)
+                }
+            }
+        }
+    }
+
+    fun setCustomerStatus(customer: CustomerEntity, newStatus: String) {
         viewModelScope.launch {
             repository.updateCustomerStatus(customer.id, newStatus)
             _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_customer_status, newStatus)

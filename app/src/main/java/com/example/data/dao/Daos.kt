@@ -49,8 +49,8 @@ interface CustomerDao {
     @Delete
     suspend fun deleteCustomer(customer: CustomerEntity)
 
-    @Query("UPDATE customers SET status = :status WHERE id = :id")
-    suspend fun updateCustomerStatus(id: Long, status: String)
+    @Query("UPDATE customers SET status = :status, syncStatus = 1, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateCustomerStatus(id: Long, status: String, updatedAt: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM customers")
     suspend fun deleteAllCustomers()
