@@ -92,13 +92,12 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     val restoreDoneKey = "cloud_initial_restore_done_$uid"
                     val isRestoreDone = prefs.getBoolean(restoreDoneKey, false)
 
-                    if (!isRestoreDone) {
-                        val existingCustomers = db.customerDao().getAllCustomers().first()
-                        if (existingCustomers.isEmpty()) {
-                            com.example.util.FirestoreSyncManager.restoreCloudToLocal(application)
-                        } else {
-                            com.example.util.FirestoreSyncManager.syncLocalToCloud(application)
-                        }
+                    val existingCustomers = db.customerDao().getAllCustomers().first()
+                    val existingSettings = db.settingsDao().getSettings().first()
+                    val isSettingsEmpty = existingSettings == null || existingSettings.ispName.isBlank()
+
+                    if (!isRestoreDone || (existingCustomers.isEmpty() && isSettingsEmpty)) {
+                        com.example.util.FirestoreSyncManager.restoreCloudToLocal(application)
                         prefs.edit().putBoolean(restoreDoneKey, true).apply()
                     } else {
                         com.example.util.FirestoreSyncManager.syncLocalToCloud(application)
@@ -263,12 +262,28 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
             val currentSettings = repository.settings.first()
             if (currentSettings == null) {
+                // If cloud settings exist for this user in SharedPreferences, restore them first
+                val app = getApplication<Application>()
+                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(app)
+                val userIspName = if (uid != null) {
+                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                    prefs.getString("cached_isp_name_$uid", "") ?: ""
+                } else ""
+                val userHotline = if (uid != null) {
+                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                    prefs.getString("cached_hotline_$uid", "") ?: ""
+                } else ""
+                val userAddress = if (uid != null) {
+                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                    prefs.getString("cached_address_$uid", "") ?: ""
+                } else ""
+
                 repository.saveSettings(
                     BusinessSettingsEntity(
                         id = 1,
-                        ispName = "",
-                        hotline = "",
-                        address = "",
+                        ispName = userIspName,
+                        hotline = userHotline,
+                        address = userAddress,
                         currencySymbol = "৳",
                         networkStatus = "Operational",
                         themeMode = "SYSTEM"
@@ -314,14 +329,13 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     val restoreDoneKey = "cloud_initial_restore_done_$uid"
                     val isRestoreDone = prefs.getBoolean(restoreDoneKey, false)
 
-                    if (!isRestoreDone) {
-                        val db = com.example.data.database.IspDatabase.getDatabase(app)
-                        val existingCustomers = db.customerDao().getAllCustomers().first()
-                        if (existingCustomers.isEmpty()) {
-                            com.example.util.FirestoreSyncManager.restoreCloudToLocal(app)
-                        } else {
-                            com.example.util.FirestoreSyncManager.syncLocalToCloud(app)
-                        }
+                    val db = com.example.data.database.IspDatabase.getDatabase(app)
+                    val existingCustomers = db.customerDao().getAllCustomers().first()
+                    val existingSettings = db.settingsDao().getSettings().first()
+                    val isSettingsEmpty = existingSettings == null || existingSettings.ispName.isBlank()
+
+                    if (!isRestoreDone || (existingCustomers.isEmpty() && isSettingsEmpty)) {
+                        com.example.util.FirestoreSyncManager.restoreCloudToLocal(app)
                         prefs.edit().putBoolean(restoreDoneKey, true).apply()
                     } else {
                         com.example.util.FirestoreSyncManager.syncLocalToCloud(app)

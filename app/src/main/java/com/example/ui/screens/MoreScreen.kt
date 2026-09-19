@@ -233,10 +233,21 @@ fun MoreScreen(
         // ISP Business Settings Card
         item {
             var showBusinessInfoDialog by remember { mutableStateOf(false) }
+            val currentIspDisplay = settings.ispName.ifBlank { "" }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showBusinessInfoDialog = true },
+                    .clickable {
+                        ispName = settings.ispName
+                        hotline = settings.hotline
+                        email = settings.email ?: ""
+                        address = settings.address
+                        currencySymbol = settings.currencySymbol
+                        networkStatus = settings.networkStatus
+                        themeMode = settings.themeMode
+                        logoUri = settings.logoUri
+                        showBusinessInfoDialog = true
+                    },
                 shape = RoundedCornerShape(18.dp),
 shadowElevation = 6.dp,
 tonalElevation = 3.dp,
@@ -266,7 +277,7 @@ tonalElevation = 3.dp,
                         Spacer(modifier = Modifier.width(16.dp))
                         SectionHeader(
                         title = androidx.compose.ui.res.stringResource(com.example.R.string.isp_business_info),
-                        subtitle = androidx.compose.ui.res.stringResource(com.example.R.string.configure_noc_desc)
+                        subtitle = if (currentIspDisplay.isNotBlank()) currentIspDisplay else androidx.compose.ui.res.stringResource(com.example.R.string.configure_noc_desc)
                     )
                     }
                     Icon(

@@ -3,6 +3,7 @@ package com.example.util
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
@@ -84,7 +85,8 @@ enum class ExportCustomerField(
 
 enum class ExportFormat(val titleBn: String, val titleEn: String) {
     EXCEL("এক্সেল ফাইল (.CSV)", "Excel (.CSV)"),
-    PDF("পিডিএফ ডকুমেন্ট (.PDF)", "PDF Document (.PDF)")
+    PDF("পিডিএফ ডকুমেন্ট (.PDF)", "PDF Document (.PDF)"),
+    JPG("জেপিজি ছবি (.JPG)", "JPG Image (.JPG)")
 }
 
 object CustomerExportHelper {
@@ -290,6 +292,245 @@ object CustomerExportHelper {
             e.printStackTrace()
             Toast.makeText(context, "শেয়ার ব্যর্থ হয়েছে: ${e.message}", Toast.LENGTH_LONG).show()
         }
+    }
+
+    /**
+     * Share exported JPG file via Android Share sheet.
+     */
+    fun shareJpgFile(context: Context, file: File) {
+        try {
+            val authority = "${context.packageName}.provider"
+            val uri: Uri = FileProvider.getUriForFile(context, authority, file)
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/jpeg"
+                putExtra(Intent.EXTRA_SUBJECT, "Customer List Image Export")
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "গ্রাহক তালিকা JPG ছবি শেয়ার করুন"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "শেয়ার ব্যর্থ হয়েছে: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * Generates a high-resolution JPG image file of exported customer rows.
+     */
+    fun generateJpgFile(
+        context: Context,
+        rows: List<ExportedCustomerRow>,
+        ispName: String,
+        selectedFields: Set<ExportCustomerField> = ExportCustomerField.values().filter { it.isDefaultSelected }.toSet(),
+        currencySymbol: String = "৳",
+        isBn: Boolean = true
+    ): File {
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "customer_list_${timeStamp}.jpg"
+        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val outputFile = File(exportDir, fileName)
+
+        val effectiveFields = if (selectedFields.isEmpty()) {
+            ExportCustomerField.values().filter { it.isDefaultSelected }.toSet()
+        } else {
+            selectedFields
+        }
+        val activeFieldsOrdered = ExportCustomerField.values().filter { it in effectiveFields }
+
+        // Width: 1200px (crisp, readable on mobile & desktop)
+        val imageWidth = 1200
+        val leftMargin = 40f
+        val rightMargin = 1160f
+        val contentWidth = rightMargin - leftMargin
+        val headerHeight = 110f
+        val tableHeaderHeight = 44f
+        val rowHeight = 36f
+        val footerHeight = 45f
+
+        val totalHeight = (headerHeight + tableHeaderHeight + (rows.size * rowHeight) + footerHeight).toInt()
+        val bitmapHeight = totalHeight.coerceAtLeast(400)
+
+        val bitmap = Bitmap.createBitmap(imageWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(AndroidColor.WHITE)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        fun getFieldWeight(field: ExportCustomerField): Float = when (field) {
+            ExportCustomerField.SERIAL -> 0.8f
+            ExportCustomerField.PPPOE_USERNAME -> 2.4f
+            ExportCustomerField.PASSWORD -> 1.8f
+            ExportCustomerField.PHONE -> 2.2f
+            ExportCustomerField.MONTHLY_BILL -> 1.5f
+            ExportCustomerField.NAME -> 2.5f
+            ExportCustomerField.CUSTOMER_CODE -> 1.8f
+            ExportCustomerField.PACKAGE -> 1.8f
+            ExportCustomerField.DUE_AMOUNT -> 1.5f
+            ExportCustomerField.STATUS -> 1.3f
+            ExportCustomerField.ADDRESS -> 2.8f
+            ExportCustomerField.IP_ADDRESS -> 2.0f
+            ExportCustomerField.JOINING_DATE -> 1.8f
+            ExportCustomerField.NOTES -> 2.2f
+        }
+
+        val totalWeight = activeFieldsOrdered.sumOf { getFieldWeight(it).toDouble() }.toFloat()
+        val columnWidths = activeFieldsOrdered.map { field ->
+            (getFieldWeight(field) / totalWeight) * contentWidth
+        }
+
+        var y = 28f
+
+        // Top accent bar
+        paint.color = AndroidColor.parseColor("#0891B2")
+        canvas.drawRect(leftMargin, y, rightMargin, y + 6f, paint)
+        y += 32f
+
+        // ISP Name
+        val company = ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
+        paint.color = AndroidColor.parseColor("#0F172A")
+        paint.textSize = 28f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textAlign = Paint.Align.LEFT
+        canvas.drawText(company, leftMargin, y, paint)
+
+        // Date
+        val printDate = SimpleDateFormat("dd-MM-yyyy, hh:mm a", Locale.getDefault()).format(Date())
+        paint.color = AndroidColor.parseColor("#64748B")
+        paint.textSize = 17f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText(printDate, rightMargin, y, paint)
+        y += 28f
+
+        // Subtitle
+        val title = if (isBn) "গ্রাহক তালিকা রিপোর্ট" else "Customer List Report"
+        paint.color = AndroidColor.parseColor("#334155")
+        paint.textSize = 19f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textAlign = Paint.Align.LEFT
+        canvas.drawText("$title • মোট: ${rows.size} জন", leftMargin, y, paint)
+        y += 22f
+
+        // Table Header Bar
+        paint.color = AndroidColor.parseColor("#0E7490")
+        canvas.drawRect(leftMargin, y, rightMargin, y + tableHeaderHeight, paint)
+
+        paint.color = AndroidColor.WHITE
+        paint.textSize = 16.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+
+        var colX = leftMargin
+        activeFieldsOrdered.forEachIndexed { i, field ->
+            val colW = columnWidths[i]
+            val headerTitle = if (isBn) field.titleBn else field.titleEn
+            val textX = when (field) {
+                ExportCustomerField.SERIAL -> {
+                    paint.textAlign = Paint.Align.CENTER
+                    colX + colW / 2f
+                }
+                ExportCustomerField.MONTHLY_BILL, ExportCustomerField.DUE_AMOUNT -> {
+                    paint.textAlign = Paint.Align.RIGHT
+                    colX + colW - 8f
+                }
+                else -> {
+                    paint.textAlign = Paint.Align.LEFT
+                    colX + 8f
+                }
+            }
+            canvas.drawText(headerTitle, textX, y + 28f, paint)
+            colX += colW
+        }
+
+        y += tableHeaderHeight
+
+        // Data Rows
+        rows.forEachIndexed { rowIndex, row ->
+            // Alternating zebra row
+            if (rowIndex % 2 == 1) {
+                paint.color = AndroidColor.parseColor("#F8FAFC")
+                canvas.drawRect(leftMargin, y, rightMargin, y + rowHeight, paint)
+            }
+
+            // Bottom border line
+            paint.color = AndroidColor.parseColor("#E2E8F0")
+            paint.strokeWidth = 1f
+            canvas.drawLine(leftMargin, y + rowHeight, rightMargin, y + rowHeight, paint)
+
+            // Cell contents
+            paint.color = AndroidColor.parseColor("#1E293B")
+            paint.textSize = 15.5f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+
+            colX = leftMargin
+            activeFieldsOrdered.forEachIndexed { i, field ->
+                val colW = columnWidths[i]
+                val textValue = when (field) {
+                    ExportCustomerField.SERIAL -> row.serialNo.toString()
+                    ExportCustomerField.PPPOE_USERNAME -> row.pppoeUsername
+                    ExportCustomerField.PASSWORD -> row.password
+                    ExportCustomerField.PHONE -> row.phone
+                    ExportCustomerField.MONTHLY_BILL -> String.format(Locale.US, "%.0f", row.monthlyBill)
+                    ExportCustomerField.NAME -> row.name
+                    ExportCustomerField.CUSTOMER_CODE -> row.customerCode
+                    ExportCustomerField.PACKAGE -> row.packageName
+                    ExportCustomerField.DUE_AMOUNT -> String.format(Locale.US, "%.0f", row.dueAmount)
+                    ExportCustomerField.STATUS -> row.status
+                    ExportCustomerField.ADDRESS -> row.address
+                    ExportCustomerField.IP_ADDRESS -> row.ipAddress
+                    ExportCustomerField.JOINING_DATE -> row.joiningDate
+                    ExportCustomerField.NOTES -> row.notes
+                }
+
+                // Ellipsize text to fit column width
+                val maxTextWidth = colW - 16f
+                var fitText = textValue
+                if (paint.measureText(fitText) > maxTextWidth && maxTextWidth > 16f) {
+                    while (fitText.isNotEmpty() && paint.measureText("$fitText...") > maxTextWidth) {
+                        fitText = fitText.dropLast(1)
+                    }
+                    fitText = "$fitText..."
+                }
+
+                when (field) {
+                    ExportCustomerField.SERIAL -> {
+                        paint.textAlign = Paint.Align.CENTER
+                        canvas.drawText(fitText, colX + colW / 2f, y + 24f, paint)
+                    }
+                    ExportCustomerField.MONTHLY_BILL, ExportCustomerField.DUE_AMOUNT -> {
+                        paint.textAlign = Paint.Align.RIGHT
+                        canvas.drawText(fitText, colX + colW - 8f, y + 24f, paint)
+                    }
+                    else -> {
+                        paint.textAlign = Paint.Align.LEFT
+                        canvas.drawText(fitText, colX + 8f, y + 24f, paint)
+                    }
+                }
+                colX += colW
+            }
+
+            y += rowHeight
+        }
+
+        // Footer note
+        paint.color = AndroidColor.parseColor("#94A3B8")
+        paint.textSize = 14f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText("Generated by ${ispName.ifBlank { "ISP Digital" }}", imageWidth / 2f, y + 26f, paint)
+
+        var out: FileOutputStream? = null
+        try {
+            out = FileOutputStream(outputFile)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try { out?.close() } catch (_: Exception) {}
+            bitmap.recycle()
+        }
+
+        return outputFile
     }
 
     /**
@@ -537,12 +778,16 @@ object CustomerExportHelper {
     }
 
     /**
-     * Saves a copy of CSV or PDF to Public Downloads folder.
+     * Saves a copy of CSV, PDF, or JPG to Public Downloads folder.
      */
     fun saveToDownloads(context: Context, sourceFile: File): File? {
         return try {
-            val isPdf = sourceFile.name.endsWith(".pdf", ignoreCase = true)
-            val mimeType = if (isPdf) "application/pdf" else "text/csv"
+            val fileNameLower = sourceFile.name.lowercase(Locale.ROOT)
+            val mimeType = when {
+                fileNameLower.endsWith(".pdf") -> "application/pdf"
+                fileNameLower.endsWith(".jpg") || fileNameLower.endsWith(".jpeg") -> "image/jpeg"
+                else -> "text/csv"
+            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = ContentValues().apply {
