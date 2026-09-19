@@ -1,11 +1,19 @@
 package com.example.util
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Color as AndroidColor
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.print.PrintAttributes
 import android.print.PrintManager
+import android.provider.MediaStore
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -13,6 +21,7 @@ import androidx.core.content.FileProvider
 import com.example.data.model.BillEntity
 import com.example.data.model.CustomerEntity
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
@@ -57,20 +66,20 @@ enum class ExportCustomerField(
     val titleEn: String,
     val isDefaultSelected: Boolean = true
 ) {
-    SERIAL("ক্রমিক নং", "SL", true),
-    NAME("গ্রাহকের নাম", "Customer Name", true),
-    CUSTOMER_CODE("গ্রাহক আইডি", "Customer ID", true),
-    PHONE("মোবাইল নম্বর", "Phone", true),
-    PACKAGE("প্যাকেজের নাম", "Package", true),
-    MONTHLY_BILL("মাসিক বিল", "Monthly Bill", true),
-    DUE_AMOUNT("বর্তমান বকেয়া", "Current Due", true),
-    PPPOE_USERNAME("PPPoE ইউজারনেম", "PPPoE Username", true),
-    PASSWORD("পাসওয়ার্ড", "PPPoE Password", true),
-    ADDRESS("ঠিকানা", "Address", false),
-    STATUS("সংযোগ স্ট্যাটাস", "Status", true),
-    IP_ADDRESS("আইপি অ্যাড্রেস", "IP Address", false),
+    SERIAL("SL", "SL", true),
+    PPPOE_USERNAME("PPPoE Username", "PPPoE Username", true),
+    PASSWORD("PPPoE password", "PPPoE password", true),
+    PHONE("Number", "Number", true),
+    MONTHLY_BILL("Bill", "Bill", true),
+    NAME("গ্রাহকের নাম (Name)", "Name", false),
+    CUSTOMER_CODE("গ্রাহক আইডি (ID)", "Customer ID", false),
+    PACKAGE("প্যাকেজ (Package)", "Package", false),
+    DUE_AMOUNT("বকেয়া (Due)", "Due Amount", false),
+    STATUS("স্ট্যাটাস (Status)", "Status", false),
+    ADDRESS("ঠিকানা (Address)", "Address", false),
+    IP_ADDRESS("আইপি (IP Address)", "IP Address", false),
     JOINING_DATE("যোগদানের তারিখ", "Joining Date", false),
-    NOTES("নোট", "Notes", false)
+    NOTES("নোট (Notes)", "Notes", false)
 }
 
 enum class ExportFormat(val titleBn: String, val titleEn: String) {
@@ -97,6 +106,10 @@ object CustomerExportHelper {
             if (match != null && match.groupValues.size > 1) {
                 return match.groupValues[1].trim()
             }
+        }
+
+        if (!notes.contains(" ") && !notes.contains("\n") && notes.length in 3..20) {
+            return notes
         }
         return ""
     }
@@ -247,7 +260,7 @@ object CustomerExportHelper {
 
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/csv"
-                putExtra(Intent.EXTRA_SUBJECT, "Customer List Export (A-Z)")
+                putExtra(Intent.EXTRA_SUBJECT, "Customer List Export")
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -259,10 +272,294 @@ object CustomerExportHelper {
     }
 
     /**
-     * Saves a copy of CSV to Public Downloads folder.
+     * Share exported PDF file via Android Share sheet.
+     */
+    fun sharePdfFile(context: Context, file: File) {
+        try {
+            val authority = "${context.packageName}.provider"
+            val uri: Uri = FileProvider.getUriForFile(context, authority, file)
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_SUBJECT, "Customer List PDF Export")
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "গ্রাহক তালিকা PDF শেয়ার করুন"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "শেয়ার ব্যর্থ হয়েছে: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * Generates a multi-page PDF document of exported customer rows.
+     */
+    fun generatePdfFile(
+        context: Context,
+        rows: List<ExportedCustomerRow>,
+        ispName: String,
+        selectedFields: Set<ExportCustomerField> = ExportCustomerField.values().filter { it.isDefaultSelected }.toSet(),
+        currencySymbol: String = "৳",
+        isBn: Boolean = true
+    ): File {
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "customer_list_${timeStamp}.pdf"
+        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val outputFile = File(exportDir, fileName)
+
+        val effectiveFields = if (selectedFields.isEmpty()) {
+            ExportCustomerField.values().filter { it.isDefaultSelected }.toSet()
+        } else {
+            selectedFields
+        }
+        val activeFieldsOrdered = ExportCustomerField.values().filter { it in effectiveFields }
+
+        // A4 dimensions in points: 595 x 842
+        val pageWidth = 595
+        val pageHeight = 842
+        val leftMargin = 30f
+        val rightMargin = 565f
+        val contentWidth = rightMargin - leftMargin
+        val topMargin = 32f
+        val bottomMargin = 36f
+
+        val pdfDocument = PdfDocument()
+
+        fun getFieldWeight(field: ExportCustomerField): Float = when (field) {
+            ExportCustomerField.SERIAL -> 0.8f
+            ExportCustomerField.PPPOE_USERNAME -> 2.4f
+            ExportCustomerField.PASSWORD -> 1.8f
+            ExportCustomerField.PHONE -> 2.2f
+            ExportCustomerField.MONTHLY_BILL -> 1.5f
+            ExportCustomerField.NAME -> 2.5f
+            ExportCustomerField.CUSTOMER_CODE -> 1.8f
+            ExportCustomerField.PACKAGE -> 1.8f
+            ExportCustomerField.DUE_AMOUNT -> 1.5f
+            ExportCustomerField.STATUS -> 1.3f
+            ExportCustomerField.ADDRESS -> 2.8f
+            ExportCustomerField.IP_ADDRESS -> 2.0f
+            ExportCustomerField.JOINING_DATE -> 1.8f
+            ExportCustomerField.NOTES -> 2.2f
+        }
+
+        val totalWeight = activeFieldsOrdered.sumOf { getFieldWeight(it).toDouble() }.toFloat()
+        val columnWidths = activeFieldsOrdered.map { field ->
+            (getFieldWeight(field) / totalWeight) * contentWidth
+        }
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        var pageNumber = 1
+        var pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+        var page = pdfDocument.startPage(pageInfo)
+        var canvas = page.canvas
+
+        fun drawHeader(isFirstPage: Boolean): Float {
+            canvas.drawColor(AndroidColor.WHITE)
+            var y = topMargin
+
+            if (isFirstPage) {
+                // Top accent bar
+                paint.color = AndroidColor.parseColor("#0891B2")
+                canvas.drawRect(leftMargin, y, rightMargin, y + 3f, paint)
+                y += 18f
+
+                // ISP Name
+                val company = ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
+                paint.color = AndroidColor.parseColor("#0F172A")
+                paint.textSize = 15f
+                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                paint.textAlign = Paint.Align.LEFT
+                canvas.drawText(company, leftMargin, y, paint)
+
+                // Date
+                val printDate = SimpleDateFormat("dd-MM-yyyy, hh:mm a", Locale.getDefault()).format(Date())
+                paint.color = AndroidColor.parseColor("#64748B")
+                paint.textSize = 8.5f
+                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                paint.textAlign = Paint.Align.RIGHT
+                canvas.drawText(printDate, rightMargin, y, paint)
+                y += 14f
+
+                // Subtitle
+                val title = if (isBn) "গ্রাহক তালিকা রিপোর্ট" else "Customer List Report"
+                paint.color = AndroidColor.parseColor("#334155")
+                paint.textSize = 10f
+                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                paint.textAlign = Paint.Align.LEFT
+                canvas.drawText("$title • মোট: ${rows.size} জন", leftMargin, y, paint)
+                y += 12f
+            } else {
+                y += 6f
+            }
+
+            // Table Header Bar
+            val tableHeaderHeight = 22f
+            paint.color = AndroidColor.parseColor("#0E7490")
+            canvas.drawRect(leftMargin, y, rightMargin, y + tableHeaderHeight, paint)
+
+            paint.color = AndroidColor.WHITE
+            paint.textSize = 8.5f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+
+            var colX = leftMargin
+            activeFieldsOrdered.forEachIndexed { i, field ->
+                val colW = columnWidths[i]
+                val headerTitle = if (isBn) field.titleBn else field.titleEn
+                val textX = when (field) {
+                    ExportCustomerField.SERIAL -> {
+                        paint.textAlign = Paint.Align.CENTER
+                        colX + colW / 2f
+                    }
+                    ExportCustomerField.MONTHLY_BILL, ExportCustomerField.DUE_AMOUNT -> {
+                        paint.textAlign = Paint.Align.RIGHT
+                        colX + colW - 4f
+                    }
+                    else -> {
+                        paint.textAlign = Paint.Align.LEFT
+                        colX + 4f
+                    }
+                }
+                canvas.drawText(headerTitle, textX, y + 14.5f, paint)
+                colX += colW
+            }
+
+            return y + tableHeaderHeight
+        }
+
+        var currentY = drawHeader(isFirstPage = true)
+        val rowHeight = 18f
+
+        rows.forEachIndexed { rowIndex, row ->
+            // Check page overflow
+            if (currentY + rowHeight > pageHeight - bottomMargin) {
+                paint.color = AndroidColor.parseColor("#94A3B8")
+                paint.textSize = 7.5f
+                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                paint.textAlign = Paint.Align.CENTER
+                canvas.drawText("Page $pageNumber", pageWidth / 2f, pageHeight - 14f, paint)
+
+                pdfDocument.finishPage(page)
+                pageNumber++
+                pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+                page = pdfDocument.startPage(pageInfo)
+                canvas = page.canvas
+                currentY = drawHeader(isFirstPage = false)
+            }
+
+            // Alternating zebra row
+            if (rowIndex % 2 == 1) {
+                paint.color = AndroidColor.parseColor("#F8FAFC")
+                canvas.drawRect(leftMargin, currentY, rightMargin, currentY + rowHeight, paint)
+            }
+
+            // Bottom border line
+            paint.color = AndroidColor.parseColor("#E2E8F0")
+            paint.strokeWidth = 0.5f
+            canvas.drawLine(leftMargin, currentY + rowHeight, rightMargin, currentY + rowHeight, paint)
+
+            // Cell contents
+            paint.color = AndroidColor.parseColor("#1E293B")
+            paint.textSize = 8f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+
+            var colX = leftMargin
+            activeFieldsOrdered.forEachIndexed { i, field ->
+                val colW = columnWidths[i]
+                val textValue = when (field) {
+                    ExportCustomerField.SERIAL -> row.serialNo.toString()
+                    ExportCustomerField.PPPOE_USERNAME -> row.pppoeUsername
+                    ExportCustomerField.PASSWORD -> row.password
+                    ExportCustomerField.PHONE -> row.phone
+                    ExportCustomerField.MONTHLY_BILL -> String.format(Locale.US, "%.0f", row.monthlyBill)
+                    ExportCustomerField.NAME -> row.name
+                    ExportCustomerField.CUSTOMER_CODE -> row.customerCode
+                    ExportCustomerField.PACKAGE -> row.packageName
+                    ExportCustomerField.DUE_AMOUNT -> String.format(Locale.US, "%.0f", row.dueAmount)
+                    ExportCustomerField.STATUS -> row.status
+                    ExportCustomerField.ADDRESS -> row.address
+                    ExportCustomerField.IP_ADDRESS -> row.ipAddress
+                    ExportCustomerField.JOINING_DATE -> row.joiningDate
+                    ExportCustomerField.NOTES -> row.notes
+                }
+
+                // Ellipsize text to fit column width
+                val maxTextWidth = colW - 8f
+                var fitText = textValue
+                if (paint.measureText(fitText) > maxTextWidth && maxTextWidth > 8f) {
+                    while (fitText.isNotEmpty() && paint.measureText("$fitText...") > maxTextWidth) {
+                        fitText = fitText.dropLast(1)
+                    }
+                    fitText = "$fitText..."
+                }
+
+                when (field) {
+                    ExportCustomerField.SERIAL -> {
+                        paint.textAlign = Paint.Align.CENTER
+                        canvas.drawText(fitText, colX + colW / 2f, currentY + 12.5f, paint)
+                    }
+                    ExportCustomerField.MONTHLY_BILL, ExportCustomerField.DUE_AMOUNT -> {
+                        paint.textAlign = Paint.Align.RIGHT
+                        canvas.drawText(fitText, colX + colW - 4f, currentY + 12.5f, paint)
+                    }
+                    else -> {
+                        paint.textAlign = Paint.Align.LEFT
+                        canvas.drawText(fitText, colX + 4f, currentY + 12.5f, paint)
+                    }
+                }
+                colX += colW
+            }
+
+            currentY += rowHeight
+        }
+
+        // Footer on last page
+        paint.color = AndroidColor.parseColor("#94A3B8")
+        paint.textSize = 7.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText("Page $pageNumber", pageWidth / 2f, pageHeight - 14f, paint)
+
+        pdfDocument.finishPage(page)
+
+        var out: FileOutputStream? = null
+        try {
+            out = FileOutputStream(outputFile)
+            pdfDocument.writeTo(out)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            try { out?.close() } catch (_: Exception) {}
+            pdfDocument.close()
+        }
+
+        return outputFile
+    }
+
+    /**
+     * Saves a copy of CSV or PDF to Public Downloads folder.
      */
     fun saveToDownloads(context: Context, sourceFile: File): File? {
         return try {
+            val isPdf = sourceFile.name.endsWith(".pdf", ignoreCase = true)
+            val mimeType = if (isPdf) "application/pdf" else "text/csv"
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, sourceFile.name)
+                    put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        FileInputStream(sourceFile).use { input ->
+                            input.copyTo(out)
+                        }
+                    }
+                }
+            }
+
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             if (!downloadsDir.exists()) downloadsDir.mkdirs()
             val destFile = File(downloadsDir, sourceFile.name)
@@ -270,7 +567,8 @@ object CustomerExportHelper {
             destFile
         } catch (e: Exception) {
             e.printStackTrace()
-            null
+            // If direct external copy failed, sourceFile itself is valid
+            sourceFile
         }
     }
 
