@@ -59,22 +59,41 @@ fun ProfileScreen(
     } catch (e: Throwable) { null }
 
     val userEmail = authUser?.email ?: "Unknown"
+    val currentUid = authUser?.uid
+    val syncTimeKey = currentUid?.let { "last_cloud_sync_time_$it" }
+    val pendingCountKey = currentUid?.let { "pending_sync_count_$it" }
 
     var showPasswordChangeDialog by remember { mutableStateOf(false) }
     var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
-    var syncTimeState by remember { mutableStateOf(prefs.getLong("last_cloud_sync_time", 0L)) }
-    var pendingBackups by remember { mutableStateOf(prefs.getInt("pending_sync_count", 0)) }
+    var syncTimeState by remember(currentUid) { 
+        mutableStateOf(if (syncTimeKey != null) prefs.getLong(syncTimeKey, 0L) else 0L) 
+    }
+    var pendingBackups by remember(currentUid) { 
+        mutableStateOf(if (pendingCountKey != null) prefs.getInt(pendingCountKey, 0) else 0) 
+    }
     var isSyncing by remember { mutableStateOf(prefs.getBoolean("is_syncing", false)) }
     
-    androidx.compose.runtime.DisposableEffect(prefs) {
+    androidx.compose.runtime.LaunchedEffect(currentUid) {
+        if (currentUid != null) {
+            val actual = com.example.util.FirestoreSyncManager.getActualPendingDirtyCount(context)
+            prefs.edit().putInt("pending_sync_count_$currentUid", actual).apply()
+            pendingBackups = actual
+            syncTimeState = prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
+        } else {
+            pendingBackups = 0
+            syncTimeState = 0L
+        }
+    }
+
+    androidx.compose.runtime.DisposableEffect(prefs, currentUid) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
             when (key) {
                 "privacy_mode" -> privacyModeEnabled = sharedPreferences.getBoolean("privacy_mode", false)
-                "last_cloud_sync_time" -> syncTimeState = sharedPreferences.getLong("last_cloud_sync_time", 0L)
-                "pending_sync_count" -> pendingBackups = sharedPreferences.getInt("pending_sync_count", 0)
+                syncTimeKey -> syncTimeState = if (syncTimeKey != null) sharedPreferences.getLong(syncTimeKey, 0L) else 0L
+                pendingCountKey -> pendingBackups = if (pendingCountKey != null) sharedPreferences.getInt(pendingCountKey, 0) else 0
                 "is_syncing" -> isSyncing = sharedPreferences.getBoolean("is_syncing", false)
             }
         }

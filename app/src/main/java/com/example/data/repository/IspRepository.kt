@@ -27,8 +27,11 @@ import com.example.data.model.PreviousDueItem
 import com.example.data.model.SpecificAdvanceEntity
 import com.example.data.model.BandwidthBillEntity
 import androidx.room.withTransaction
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -177,11 +180,22 @@ class IspRepository(
     }
 
     private fun notifyCloudSync() {
-        context?.let { 
-            val prefs = it.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-            val currentCount = prefs.getInt("pending_sync_count", 0)
-            prefs.edit().putInt("pending_sync_count", currentCount + 1).apply()
-            com.example.util.FirestoreSyncManager.triggerSync(it) 
+        context?.let { ctx ->
+            val uid = com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (uid != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val actualCount = com.example.util.FirestoreSyncManager.getActualPendingDirtyCount(ctx)
+                        val prefs = ctx.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                        prefs.edit().putInt("pending_sync_count_$uid", actualCount).apply()
+                    } catch (e: Exception) {
+                        val prefs = ctx.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                        val currentCount = prefs.getInt("pending_sync_count_$uid", 0)
+                        prefs.edit().putInt("pending_sync_count_$uid", currentCount + 1).apply()
+                    }
+                }
+            }
+            com.example.util.FirestoreSyncManager.triggerSync(ctx) 
         }
     }
 

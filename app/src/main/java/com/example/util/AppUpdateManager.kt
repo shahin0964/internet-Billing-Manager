@@ -2,6 +2,7 @@ package com.example.util
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -69,6 +70,13 @@ object AppUpdateManager {
 
     private const val AUTO_CHECK_CACHE_DURATION_MS = 60 * 60 * 1000L // 1 hour TTL for auto check
     private val checkMutex = Mutex()
+
+    /**
+     * Trusted Production Application Signing Certificate SHA-256 Digest.
+     * Only APKs signed with this cryptographic certificate will be accepted for update installation.
+     */
+    private const val TRUSTED_PRODUCTION_CERT_SHA256 =
+        "0F:CD:0C:EB:A0:8A:DA:68:1B:B7:66:38:54:38:9E:9A:66:A8:08:4C:A7:80:21:C2:0A:66:0B:46:E4:1A:B9:B8"
 
     fun isVersionAlreadyNotified(context: Context, version: String): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -569,8 +577,60 @@ object AppUpdateManager {
                 return Result.failure(Exception("Downloaded APK file is missing or empty"))
             }
 
-            val pInfo = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
-                ?: return Result.failure(Exception("Downloaded file is not a valid Android package"))
+            val pInfo = context.packageManager.getPackageArchiveInfo(
+                apkFile.absolutePath,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                } else {
+                    @Suppress("DEPRECATION")
+                    PackageManager.GET_SIGNATURES
+                }
+            ) ?: return Result.failure(Exception("Downloaded file is not a valid Android package"))
+
+            // Cryptographic signing certificate verification against trusted production certificate
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val signingInfo = pInfo.signingInfo
+                if (signingInfo == null) {
+                    null
+                } else if (signingInfo.hasMultipleSigners()) {
+                    signingInfo.apkContentsSigners
+                } else {
+                    signingInfo.signingCertificateHistory
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                pInfo.signatures
+            }
+
+            if (signatures.isNullOrEmpty()) {
+                return Result.failure(
+                    Exception("Downloaded APK does not contain any valid signing certificates. Installation rejected.")
+                )
+            }
+
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val targetSha = TRUSTED_PRODUCTION_CERT_SHA256.replace(":", "").uppercase()
+            var matchesTrustedCert = false
+
+            for (sig in signatures) {
+                val certBytes = sig.toByteArray()
+                val digest = md.digest(certBytes)
+                val hexString = digest.joinToString("") { "%02X".format(it) }
+                if (hexString.equals(targetSha, ignoreCase = true)) {
+                    matchesTrustedCert = true
+                    break
+                }
+            }
+
+            if (!matchesTrustedCert) {
+                Log.e(
+                    TAG,
+                    "Security Alert: Downloaded APK signing certificate does NOT match the trusted production certificate. Rejecting installation."
+                )
+                return Result.failure(
+                    Exception("Downloaded APK signing certificate does not match the trusted production certificate. Installation rejected.")
+                )
+            }
 
             val currentPkg = context.packageName
             val apkPkg = pInfo.packageName ?: pInfo.applicationInfo?.packageName

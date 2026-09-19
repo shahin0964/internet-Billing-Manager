@@ -361,7 +361,7 @@ fun BackupAndRestoreScreen(
                                             isCloudSyncing = true
                                             coroutineScope.launch {
                                                 try {
-                                                    val result = kotlinx.coroutines.withTimeoutOrNull(45000L) {
+                                                    val result = kotlinx.coroutines.withTimeoutOrNull(90000L) {
                                                         com.example.util.FirestoreSyncManager.uploadAllLocalDataToCloud(context)
                                                     }
                                                     if (result == true) {
@@ -369,7 +369,12 @@ fun BackupAndRestoreScreen(
                                                     } else if (result == null) {
                                                         viewModel.showToast("Cloud backup timed out. Please check network connection.")
                                                     } else {
-                                                        viewModel.showToast("Cloud backup failed")
+                                                        val err = com.example.util.FirestoreSyncManager.lastCloudBackupError
+                                                        if (!err.isNullOrBlank()) {
+                                                            viewModel.showToast("Cloud backup failed: $err")
+                                                        } else {
+                                                            viewModel.showToast("Cloud backup failed")
+                                                        }
                                                     }
                                                 } catch (e: Exception) {
                                                     viewModel.showToast("Cloud backup failed: ${e.localizedMessage ?: "Error"}")
