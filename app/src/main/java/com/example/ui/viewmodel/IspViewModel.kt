@@ -104,7 +104,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (e: Throwable) {
-                android.util.Log.e("IspViewModel", "Cloud sync check failed: ${e.message}")
+                android.util.Log.w("IspViewModel", "Cloud sync check note: ${e.message}")
             }
         }
 
@@ -342,7 +342,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (e: Throwable) {
-                android.util.Log.e("IspViewModel", "Cloud sync on login failed: ${e.message}")
+                android.util.Log.w("IspViewModel", "Cloud sync on login note: ${e.message}")
             }
         }
     }
@@ -658,9 +658,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     com.example.util.BackupEncryptionManager.decryptPayload(bytes, password)
                 } catch (e: javax.crypto.AEADBadTagException) {
                     throw IllegalArgumentException("INCORRECT_PASSWORD")
+                } catch (e: javax.crypto.BadPaddingException) {
+                    throw IllegalArgumentException("INCORRECT_PASSWORD")
                 } catch (e: Exception) {
                     val msg = e.message ?: ""
-                    if (msg.contains("Tag mismatch", ignoreCase = true) || msg.contains("cipher", ignoreCase = true)) {
+                    if (msg.contains("Tag mismatch", ignoreCase = true) || msg.contains("cipher", ignoreCase = true) || msg.contains("BadPadding", ignoreCase = true)) {
                         throw IllegalArgumentException("INCORRECT_PASSWORD")
                     } else if (msg.contains("header", ignoreCase = true) || msg.contains("too small", ignoreCase = true) || msg.contains("ciphertext", ignoreCase = true)) {
                         throw IllegalArgumentException("CORRUPTED_FILE")
@@ -717,9 +719,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     com.example.util.BackupEncryptionManager.decryptPayload(bytes, password)
                 } catch (e: javax.crypto.AEADBadTagException) {
                     throw IllegalArgumentException("INCORRECT_PASSWORD")
+                } catch (e: javax.crypto.BadPaddingException) {
+                    throw IllegalArgumentException("INCORRECT_PASSWORD")
                 } catch (e: Exception) {
                     val msg = e.message ?: ""
-                    if (msg.contains("Tag mismatch", ignoreCase = true) || msg.contains("cipher", ignoreCase = true)) {
+                    if (msg.contains("Tag mismatch", ignoreCase = true) || msg.contains("cipher", ignoreCase = true) || msg.contains("BadPadding", ignoreCase = true)) {
                         throw IllegalArgumentException("INCORRECT_PASSWORD")
                     } else if (msg.contains("header", ignoreCase = true) || msg.contains("too small", ignoreCase = true) || msg.contains("ciphertext", ignoreCase = true)) {
                         throw IllegalArgumentException("CORRUPTED_FILE")

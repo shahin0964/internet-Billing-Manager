@@ -48,6 +48,7 @@ fun BackupAndRestoreScreen(
 
     var localBackups by remember { mutableStateOf(viewModel.getLocalBackupFiles()) }
     var latestCreatedFile by remember { mutableStateOf<File?>(null) }
+    var fileToExport by remember { mutableStateOf<File?>(null) }
 
     // Dialog States
     var showCreatePasswordDialog by remember { mutableStateOf(false) }
@@ -62,18 +63,19 @@ fun BackupAndRestoreScreen(
     // Cloud Sync States
     var isCloudSyncing by remember { mutableStateOf(false) }
     var showCloudRestoreConfirmDialog by remember { mutableStateOf(false) }
-    val currentUid = remember { com.example.util.FirestoreSyncManager.getCurrentUid() }
+    val currentUid = remember(context) { com.example.util.FirestoreSyncManager.getCurrentUid(context) }
     val coroutineScope = rememberCoroutineScope()
 
     // File Pickers
     val createDocLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        if (uri != null && latestCreatedFile != null && latestCreatedFile!!.exists() && latestCreatedFile!!.length() > 0) {
+        val file = fileToExport ?: latestCreatedFile
+        if (uri != null && file != null && file.exists() && file.length() > 0) {
             try {
                 val os = context.contentResolver.openOutputStream(uri)
                 if (os != null) {
-                    val bytes = latestCreatedFile!!.readBytes()
+                    val bytes = file.readBytes()
                     os.use { stream ->
                         stream.write(bytes)
                         stream.flush()
@@ -353,13 +355,19 @@ fun BackupAndRestoreScreen(
                                         val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
                                         if (uid.isNullOrBlank()) {
                                             viewModel.showToast("Authentication required")
+                                        } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
+                                            viewModel.showToast("No internet connection")
                                         } else if (!isCloudSyncing) {
                                             isCloudSyncing = true
                                             coroutineScope.launch {
                                                 try {
-                                                    val success = com.example.util.FirestoreSyncManager.uploadAllLocalDataToCloud(context)
-                                                    if (success) {
+                                                    val result = kotlinx.coroutines.withTimeoutOrNull(45000L) {
+                                                        com.example.util.FirestoreSyncManager.uploadAllLocalDataToCloud(context)
+                                                    }
+                                                    if (result == true) {
                                                         viewModel.showToast("Cloud backup successful")
+                                                    } else if (result == null) {
+                                                        viewModel.showToast("Cloud backup timed out. Please check network connection.")
                                                     } else {
                                                         viewModel.showToast("Cloud backup failed")
                                                     }
@@ -390,6 +398,8 @@ fun BackupAndRestoreScreen(
                                         val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
                                         if (uid.isNullOrBlank()) {
                                             viewModel.showToast("Authentication required")
+                                        } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
+                                            viewModel.showToast("No internet connection")
                                         } else {
                                             showCloudRestoreConfirmDialog = true
                                         }
@@ -458,7 +468,10 @@ fun BackupAndRestoreScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Button(
-                                        onClick = { createDocLauncher.launch(file.name) },
+                                        onClick = {
+                                            fileToExport = file
+                                            createDocLauncher.launch(file.name)
+                                        },
                                         modifier = Modifier.weight(1f),
                                         shape = RoundedCornerShape(10.dp)
                                     ) {
@@ -528,6 +541,10 @@ fun BackupAndRestoreScreen(
                                 pendingRestoreUri = null
                                 showRestoreWarningDialog = true
                             },
+                            onSaveClick = {
+                                fileToExport = file
+                                createDocLauncher.launch(file.name)
+                            },
                             onShareClick = { shareBackupFile(file) },
                             onDeleteClick = { fileToDelete = file }
                         )
@@ -593,6 +610,8 @@ fun BackupAndRestoreScreen(
                         val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
                         if (uid.isNullOrBlank()) {
                             viewModel.showToast("Authentication required")
+                        } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
+                            viewModel.showToast("No internet connection")
                         } else {
                             isProcessing = true
                             coroutineScope.launch {
@@ -731,6 +750,7 @@ fun BackupAndRestoreScreen(
 fun BackupHistoryItemCard(
     file: File,
     onRestoreClick: () -> Unit,
+    onSaveClick: () -> Unit,
     onShareClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
@@ -775,6 +795,13 @@ fun BackupHistoryItemCard(
                     Icon(
                         imageVector = Icons.Default.Restore,
                         contentDescription = "Restore",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(onClick = onSaveClick) {
+                    Icon(
+                        imageVector = Icons.Default.SaveAlt,
+                        contentDescription = "Save to device",
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }

@@ -1267,6 +1267,10 @@ class IspRepository(
         val cats = kotlinx.coroutines.withTimeoutOrNull(5000L) { expenseCategories.first() } ?: emptyList()
         val bwBills = kotlinx.coroutines.withTimeoutOrNull(5000L) { bandwidthBills.first() } ?: emptyList()
         val specAdvs = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.specificAdvanceDao().getAllSpecificAdvancesList() } ?: emptyList()
+        val networkDiagrams = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.networkDiagramDao().getAllDiagramsList() } ?: emptyList()
+        val networkNodes = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.networkDiagramDao().getAllNodesList() } ?: emptyList()
+        val networkConns = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.networkDiagramDao().getAllConnectionsList() } ?: emptyList()
+        val auditLogsList = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.auditLogDao().getAllAuditLogsList() } ?: emptyList()
 
         val sharedPrefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val appLang = sharedPrefs.getString("app_lang", "en") ?: "en"
@@ -1293,6 +1297,15 @@ class IspRepository(
             obj.put("status", c.status)
             obj.put("joiningDate", c.joiningDate)
             obj.put("notes", c.notes)
+            obj.put("area", c.area)
+            obj.put("zone", c.zone)
+            obj.put("latitude", c.latitude)
+            obj.put("longitude", c.longitude)
+            obj.put("oltName", c.oltName)
+            obj.put("ponPort", c.ponPort)
+            obj.put("onuSerial", c.onuSerial)
+            obj.put("routerName", c.routerName)
+            obj.put("advanceBalance", c.advanceBalance)
             custArray.put(obj)
         }
         root.put("customers", custArray)
@@ -1410,8 +1423,79 @@ class IspRepository(
             settObj.put("networkStatus", sttngs.networkStatus)
             settObj.put("themeMode", sttngs.themeMode)
             settObj.put("logoUri", sttngs.logoUri ?: "")
+            settObj.put("email", sttngs.email)
             root.put("settings", settObj)
         }
+
+        // Network Diagrams
+        val diagArray = JSONArray()
+        networkDiagrams.forEach { d ->
+            val obj = JSONObject()
+            obj.put("id", d.id)
+            obj.put("name", d.name)
+            obj.put("isDefault", d.isDefault)
+            obj.put("createdAt", d.createdAt)
+            obj.put("updatedAt", d.updatedAt)
+            diagArray.put(obj)
+        }
+        root.put("networkDiagrams", diagArray)
+
+        // Network Nodes
+        val nodeArray = JSONArray()
+        networkNodes.forEach { n ->
+            val obj = JSONObject()
+            obj.put("id", n.id)
+            obj.put("diagramId", n.diagramId)
+            obj.put("name", n.name)
+            obj.put("type", n.type)
+            obj.put("ipAddress", n.ipAddress)
+            obj.put("location", n.location)
+            obj.put("areaZone", n.areaZone)
+            obj.put("portInfo", n.portInfo)
+            obj.put("customerRef", n.customerRef)
+            obj.put("customerId", n.customerId)
+            obj.put("notes", n.notes)
+            obj.put("positionX", n.positionX.toDouble())
+            obj.put("positionY", n.positionY.toDouble())
+            obj.put("updatedAt", n.updatedAt)
+            nodeArray.put(obj)
+        }
+        root.put("networkNodes", nodeArray)
+
+        // Network Connections
+        val connArray = JSONArray()
+        networkConns.forEach { c ->
+            val obj = JSONObject()
+            obj.put("id", c.id)
+            obj.put("diagramId", c.diagramId)
+            obj.put("fromNodeId", c.fromNodeId)
+            obj.put("toNodeId", c.toNodeId)
+            obj.put("label", c.label)
+            obj.put("notes", c.notes)
+            obj.put("updatedAt", c.updatedAt)
+            connArray.put(obj)
+        }
+        root.put("networkConnections", connArray)
+
+        // Audit Logs
+        val logArray = JSONArray()
+        auditLogsList.forEach { l ->
+            val obj = JSONObject()
+            obj.put("id", l.id)
+            obj.put("action", l.action)
+            obj.put("actionType", l.actionType)
+            obj.put("details", l.details)
+            obj.put("userEmail", l.userEmail)
+            obj.put("userRole", l.userRole)
+            obj.put("targetEntity", l.targetEntity)
+            obj.put("targetId", l.targetId)
+            obj.put("previousState", l.previousState)
+            obj.put("newState", l.newState)
+            obj.put("status", l.status)
+            obj.put("timestamp", l.timestamp)
+            logArray.put(obj)
+        }
+        root.put("auditLogs", logArray)
 
         return root.toString(2)
     }
@@ -1463,6 +1547,14 @@ class IspRepository(
                             status = obj.optString("status", "ACTIVE"),
                             joiningDate = obj.optString("joiningDate", ""),
                             notes = obj.optString("notes", ""),
+                            area = obj.optString("area", ""),
+                            zone = obj.optString("zone", ""),
+                            latitude = obj.optDouble("latitude", 0.0),
+                            longitude = obj.optDouble("longitude", 0.0),
+                            oltName = obj.optString("oltName", ""),
+                            ponPort = obj.optString("ponPort", ""),
+                            onuSerial = obj.optString("onuSerial", ""),
+                            routerName = obj.optString("routerName", ""),
                             advanceBalance = obj.optDouble("advanceBalance", 0.0)
                         )
                     )
@@ -1638,8 +1730,101 @@ class IspRepository(
                     currencySymbol = obj.optString("currencySymbol", "৳"),
                     networkStatus = obj.optString("networkStatus", "Operational"),
                     themeMode = obj.optString("themeMode", "SYSTEM"),
-                    logoUri = obj.optString("logoUri", "").ifEmpty { null }
+                    logoUri = obj.optString("logoUri", "").ifEmpty { null },
+                    email = obj.optString("email", "")
                 )
+            }
+
+            val diagramList = mutableListOf<NetworkDiagramEntity>()
+            if (root.has("networkDiagrams")) {
+                val arr = root.getJSONArray("networkDiagrams")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    diagramList.add(
+                        NetworkDiagramEntity(
+                            id = optJsonLong(obj, "id", i),
+                            name = obj.optString("name", ""),
+                            isDefault = obj.optBoolean("isDefault", false),
+                            createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                            syncStatus = 0
+                        )
+                    )
+                }
+            }
+
+            val nodeList = mutableListOf<NetworkNodeEntity>()
+            if (root.has("networkNodes")) {
+                val arr = root.getJSONArray("networkNodes")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val idStr = obj.optString("id", java.util.UUID.randomUUID().toString())
+                    nodeList.add(
+                        NetworkNodeEntity(
+                            id = idStr,
+                            diagramId = optJsonLong(obj, "diagramId", 0),
+                            name = obj.optString("name", ""),
+                            type = obj.optString("type", "MIKROTIK"),
+                            ipAddress = obj.optString("ipAddress", ""),
+                            location = obj.optString("location", ""),
+                            areaZone = obj.optString("areaZone", ""),
+                            portInfo = obj.optString("portInfo", ""),
+                            customerRef = obj.optString("customerRef", ""),
+                            customerId = obj.optString("customerId", ""),
+                            notes = obj.optString("notes", ""),
+                            positionX = obj.optDouble("positionX", 0.0).toFloat(),
+                            positionY = obj.optDouble("positionY", 0.0).toFloat(),
+                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                            syncStatus = 0
+                        )
+                    )
+                }
+            }
+
+            val connList = mutableListOf<NetworkConnectionEntity>()
+            if (root.has("networkConnections")) {
+                val arr = root.getJSONArray("networkConnections")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val idStr = obj.optString("id", java.util.UUID.randomUUID().toString())
+                    connList.add(
+                        NetworkConnectionEntity(
+                            id = idStr,
+                            diagramId = optJsonLong(obj, "diagramId", 0),
+                            fromNodeId = obj.optString("fromNodeId", ""),
+                            toNodeId = obj.optString("toNodeId", ""),
+                            label = obj.optString("label", ""),
+                            notes = obj.optString("notes", ""),
+                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                            syncStatus = 0
+                        )
+                    )
+                }
+            }
+
+            val logList = mutableListOf<AuditLogEntity>()
+            if (root.has("auditLogs")) {
+                val arr = root.getJSONArray("auditLogs")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    logList.add(
+                        AuditLogEntity(
+                            id = optJsonLong(obj, "id", i),
+                            action = obj.optString("action", ""),
+                            actionType = obj.optString("actionType", ""),
+                            details = obj.optString("details", ""),
+                            userEmail = obj.optString("userEmail", ""),
+                            userRole = obj.optString("userRole", "Admin"),
+                            targetEntity = obj.optString("targetEntity", ""),
+                            targetId = obj.optString("targetId", ""),
+                            previousState = obj.optString("previousState", ""),
+                            newState = obj.optString("newState", ""),
+                            status = obj.optString("status", "SUCCESS"),
+                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                            syncStatus = 0
+                        )
+                    )
+                }
             }
 
             db.withTransaction {
@@ -1653,6 +1838,16 @@ class IspRepository(
                 db.specificAdvanceDao().deleteAllSpecificAdvances()
                 settingsDao.deleteSettings()
 
+                if (diagramList.isNotEmpty() || root.has("networkDiagrams")) {
+                    db.networkDiagramDao().deleteAllDiagrams()
+                    db.networkDiagramDao().deleteAllNodes()
+                    db.networkDiagramDao().deleteAllConnections()
+                }
+
+                if (logList.isNotEmpty() || root.has("auditLogs")) {
+                    db.auditLogDao().deleteAllLogs()
+                }
+
                 if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
                 if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
                 if (billList.isNotEmpty()) billDao.insertBills(billList)
@@ -1662,6 +1857,10 @@ class IspRepository(
                 if (bandwidthBillList.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bandwidthBillList)
                 if (specificAdvanceList.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(specificAdvanceList)
                 if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
+                if (diagramList.isNotEmpty()) diagramList.forEach { db.networkDiagramDao().insertDiagram(it) }
+                if (nodeList.isNotEmpty()) db.networkDiagramDao().insertNodes(nodeList)
+                if (connList.isNotEmpty()) db.networkDiagramDao().insertConnections(connList)
+                if (logList.isNotEmpty()) db.auditLogDao().insertLogs(logList)
             }
 
             if (root.has("appLanguage")) {
@@ -1673,7 +1872,9 @@ class IspRepository(
             }
 
             try {
-                com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
+                if (com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
+                    com.example.util.FirestoreSyncManager.triggerSync(context)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -1715,6 +1916,14 @@ class IspRepository(
                         status = obj.optString("status", "ACTIVE"),
                         joiningDate = obj.optString("joiningDate", ""),
                         notes = obj.optString("notes", ""),
+                        area = obj.optString("area", ""),
+                        zone = obj.optString("zone", ""),
+                        latitude = obj.optDouble("latitude", 0.0),
+                        longitude = obj.optDouble("longitude", 0.0),
+                        oltName = obj.optString("oltName", ""),
+                        ponPort = obj.optString("ponPort", ""),
+                        onuSerial = obj.optString("onuSerial", ""),
+                        routerName = obj.optString("routerName", ""),
                         advanceBalance = obj.optDouble("advanceBalance", 0.0)
                     )
                 )
@@ -1858,9 +2067,101 @@ class IspRepository(
                 currencySymbol = obj.optString("currencySymbol", "৳"),
                 networkStatus = obj.optString("networkStatus", "Operational"),
                 themeMode = obj.optString("themeMode", "SYSTEM"),
-                logoUri = obj.optString("logoUri", "").ifEmpty { null }
+                logoUri = obj.optString("logoUri", "").ifEmpty { null },
+                email = obj.optString("email", "")
             )
         }
+
+        val diagramList = mutableListOf<NetworkDiagramEntity>()
+        if (root.has("networkDiagrams")) {
+            val arr = root.getJSONArray("networkDiagrams")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                diagramList.add(
+                    NetworkDiagramEntity(
+                        id = if (obj.has("id")) obj.getLong("id") else 0L,
+                        name = obj.optString("name", ""),
+                        isDefault = obj.optBoolean("isDefault", false),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                        syncStatus = 0
+                    )
+                )
+            }
+        }
+
+        val nodeList = mutableListOf<NetworkNodeEntity>()
+        if (root.has("networkNodes")) {
+            val arr = root.getJSONArray("networkNodes")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                nodeList.add(
+                    NetworkNodeEntity(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        diagramId = obj.optLong("diagramId", 0L),
+                        name = obj.optString("name", ""),
+                        type = obj.optString("type", "MIKROTIK"),
+                        ipAddress = obj.optString("ipAddress", ""),
+                        location = obj.optString("location", ""),
+                        areaZone = obj.optString("areaZone", ""),
+                        portInfo = obj.optString("portInfo", ""),
+                        customerRef = obj.optString("customerRef", ""),
+                        customerId = obj.optString("customerId", ""),
+                        notes = obj.optString("notes", ""),
+                        positionX = obj.optDouble("positionX", 0.0).toFloat(),
+                        positionY = obj.optDouble("positionY", 0.0).toFloat(),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                        syncStatus = 0
+                    )
+                )
+            }
+        }
+
+        val connList = mutableListOf<NetworkConnectionEntity>()
+        if (root.has("networkConnections")) {
+            val arr = root.getJSONArray("networkConnections")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                connList.add(
+                    NetworkConnectionEntity(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        diagramId = obj.optLong("diagramId", 0L),
+                        fromNodeId = obj.optString("fromNodeId", ""),
+                        toNodeId = obj.optString("toNodeId", ""),
+                        label = obj.optString("label", ""),
+                        notes = obj.optString("notes", ""),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                        syncStatus = 0
+                    )
+                )
+            }
+        }
+
+        val logList = mutableListOf<AuditLogEntity>()
+        if (root.has("auditLogs")) {
+            val arr = root.getJSONArray("auditLogs")
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                logList.add(
+                    AuditLogEntity(
+                        id = if (obj.has("id")) obj.getLong("id") else 0L,
+                        action = obj.optString("action", ""),
+                        actionType = obj.optString("actionType", ""),
+                        details = obj.optString("details", ""),
+                        userEmail = obj.optString("userEmail", ""),
+                        userRole = obj.optString("userRole", "Admin"),
+                        targetEntity = obj.optString("targetEntity", ""),
+                        targetId = obj.optString("targetId", ""),
+                        previousState = obj.optString("previousState", ""),
+                        newState = obj.optString("newState", ""),
+                        status = obj.optString("status", "SUCCESS"),
+                        timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                        syncStatus = 0
+                    )
+                )
+            }
+        }
+
         db.withTransaction {
             customerDao.deleteAllCustomers()
             packageDao.deleteAllPackages()
@@ -1872,6 +2173,15 @@ class IspRepository(
             db.specificAdvanceDao().deleteAllSpecificAdvances()
             settingsDao.deleteSettings()
 
+            if (diagramList.isNotEmpty() || root.has("networkDiagrams")) {
+                db.networkDiagramDao().deleteAllDiagrams()
+                db.networkDiagramDao().deleteAllNodes()
+                db.networkDiagramDao().deleteAllConnections()
+            }
+            if (logList.isNotEmpty() || root.has("auditLogs")) {
+                db.auditLogDao().deleteAllLogs()
+            }
+
             if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
             if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
             if (billList.isNotEmpty()) billDao.insertBills(billList)
@@ -1881,6 +2191,10 @@ class IspRepository(
             if (bandwidthBillList.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bandwidthBillList)
             if (specificAdvanceList.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(specificAdvanceList)
             if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
+            if (diagramList.isNotEmpty()) diagramList.forEach { db.networkDiagramDao().insertDiagram(it) }
+            if (nodeList.isNotEmpty()) db.networkDiagramDao().insertNodes(nodeList)
+            if (connList.isNotEmpty()) db.networkDiagramDao().insertConnections(connList)
+            if (logList.isNotEmpty()) db.auditLogDao().insertLogs(logList)
         }
     }
 
@@ -1895,6 +2209,10 @@ class IspRepository(
             db.bandwidthBillDao().deleteAllBandwidthBills()
             db.specificAdvanceDao().deleteAllSpecificAdvances()
             settingsDao.deleteSettings()
+            db.networkDiagramDao().deleteAllDiagrams()
+            db.networkDiagramDao().deleteAllNodes()
+            db.networkDiagramDao().deleteAllConnections()
+            db.auditLogDao().deleteAllLogs()
         }
     }
 

@@ -55,6 +55,9 @@ object AutomaticSmsManager {
     private const val KEY_RULE_OVERDUE = "rule_overdue"
     private const val KEY_RULE_PAYMENT_CONFIRMATION = "rule_payment_confirmation"
     private const val KEY_RULE_GENERAL_NOTICE = "rule_general_notice"
+    private const val KEY_RULE_CONNECTION_SUSPEND = "rule_connection_suspend"
+    private const val KEY_RULE_CONNECTION_RESUME = "rule_connection_resume"
+    private const val KEY_RULE_EXPIRY_WARNING = "rule_expiry_warning"
 
     private const val KEY_RULE_WARNING_1 = "rule_warning_1"
     private const val KEY_RULE_WARNING_2 = "rule_warning_2"
@@ -165,6 +168,15 @@ object AutomaticSmsManager {
 
     fun isRuleGeneralNoticeEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_GENERAL_NOTICE, true)
     fun setRuleGeneralNoticeEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_GENERAL_NOTICE, enabled).apply()
+
+    fun isRuleConnectionSuspendEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_CONNECTION_SUSPEND, true)
+    fun setRuleConnectionSuspendEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_CONNECTION_SUSPEND, enabled).apply()
+
+    fun isRuleConnectionResumeEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_CONNECTION_RESUME, true)
+    fun setRuleConnectionResumeEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_CONNECTION_RESUME, enabled).apply()
+
+    fun isRuleExpiryWarningEnabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_EXPIRY_WARNING, true)
+    fun setRuleExpiryWarningEnabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_EXPIRY_WARNING, enabled).apply()
 
     fun isRuleWarning1Enabled(context: Context): Boolean = getPrefs(context).getBoolean(KEY_RULE_WARNING_1, false)
     fun setRuleWarning1Enabled(context: Context, enabled: Boolean) = getPrefs(context).edit().putBoolean(KEY_RULE_WARNING_1, enabled).apply()

@@ -1,6 +1,9 @@
 package com.example.util
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
 import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -75,6 +78,28 @@ object FirestoreSyncManager {
         }
     }
 
+    /**
+     * Check if active internet connection is available.
+     */
+    fun isNetworkAvailable(context: Context): Boolean {
+        return try {
+            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val network = connectivityManager.activeNetwork ?: return false
+                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            } else {
+                @Suppress("DEPRECATION")
+                val activeNetworkInfo = connectivityManager.activeNetworkInfo
+                activeNetworkInfo != null && activeNetworkInfo.isConnected
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error checking network availability: ${e.message}")
+            true
+        }
+    }
+
     private data class SyncOperation(
         val writeOp: (WriteBatch) -> Unit,
         val onSuccess: suspend (IspDatabase) -> Unit
@@ -84,33 +109,109 @@ object FirestoreSyncManager {
      * Helper to execute WriteBatch in chunks (up to 450 operations per batch, well below Firestore 500 limit).
      * Immediately marks only the successfully committed chunk's records as synced in Room local DB.
      */
+    /**
+     * Probes if Firestore backend is reachable and ready to process read/write operations.
+     * Prevents hanging operations and avoids flooding logs when Firestore is uninitialized or unreachable.
+     */
+    private suspend fun isFirestoreAvailable(
+        userRef: com.google.firebase.firestore.DocumentReference,
+        testWrite: Boolean = true
+    ): Boolean {
+        return try {
+            val success = withTimeoutOrNull(3500L) {
+                if (testWrite) {
+                    userRef.collection("sync_meta").document("probe").set(
+                        mapOf("lastProbe" to System.currentTimeMillis()),
+                        SetOptions.merge()
+                    ).await()
+                } else {
+                    userRef.collection("sync_meta").document("status").get().await()
+                }
+                true
+            } ?: false
+            success
+        } catch (e: Exception) {
+            Log.w(TAG, "Firestore availability probe note: ${e.message}")
+            false
+        }
+    }
+
+    private suspend fun commitSingleChunk(
+        firestore: FirebaseFirestore,
+        db: IspDatabase,
+        chunk: List<SyncOperation>,
+        timeoutMs: Long
+    ): Boolean {
+        return try {
+            val batch = firestore.batch()
+            for (op in chunk) {
+                op.writeOp(batch)
+            }
+            val committed = withTimeoutOrNull(timeoutMs) {
+                batch.commit().await()
+                true
+            } ?: false
+
+            if (!committed) {
+                Log.w(TAG, "Chunk commit of ${chunk.size} operations not acknowledged within ${timeoutMs / 1000}s")
+                return false
+            }
+
+            // Mark only the successfully committed chunk's records as synced locally in Room
+            db.withTransaction {
+                for (op in chunk) {
+                    op.onSuccess(db)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Chunk commit note for ${chunk.size} operations: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Helper to execute WriteBatch in manageable chunks (default 60 operations per batch,
+     * well below Firestore 500 limit and fast to serialize/commit over mobile networks).
+     * Includes automatic retry and fallback to micro-batches (20 items) if a chunk times out.
+     * Immediately marks each successfully committed chunk's records as synced in Room local DB.
+     */
     private suspend fun commitSyncOperationsInChunks(
         firestore: FirebaseFirestore,
         db: IspDatabase,
         operations: List<SyncOperation>
     ): Boolean {
         if (operations.isEmpty()) return true
-        val chunkSize = 450
+        val chunkSize = 60
         var allChunksSuccessful = true
 
         for (chunk in operations.chunked(chunkSize)) {
-            try {
-                val batch = firestore.batch()
-                for (op in chunk) {
-                    op.writeOp(batch)
-                }
-                batch.commit().await()
+            // First attempt (7s)
+            var success = commitSingleChunk(firestore, db, chunk, timeoutMs = 7000L)
 
-                // Mark only the successfully committed chunk's records as synced locally in Room
-                db.withTransaction {
-                    for (op in chunk) {
-                        op.onSuccess(db)
+            if (!success) {
+                // Quick retry once (8s)
+                kotlinx.coroutines.delay(400L)
+                Log.i(TAG, "Retrying chunk commit (${chunk.size} operations)...")
+                success = commitSingleChunk(firestore, db, chunk, timeoutMs = 8000L)
+            }
+
+            if (!success) {
+                // Fallback to micro-chunks of 20 items (5s each)
+                Log.w(TAG, "Chunk of size ${chunk.size} not acknowledged. Retrying in micro-batches of 20 items...")
+                var allSubChunksOk = true
+                for (subChunk in chunk.chunked(20)) {
+                    val subSuccess = commitSingleChunk(firestore, db, subChunk, timeoutMs = 5000L)
+                    if (!subSuccess) {
+                        allSubChunksOk = false
+                        break
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Chunk commit failed: ${e.message}", e)
-                allChunksSuccessful = false
-                break
+                if (!allSubChunksOk) {
+                    Log.w(TAG, "Sub-chunk commit deferred for this chunk; remaining records stay queued locally.")
+                    allChunksSuccessful = false
+                    break
+                }
             }
         }
         return allChunksSuccessful
@@ -231,7 +332,7 @@ object FirestoreSyncManager {
      */
     fun scheduleBackgroundSync(context: Context) {
         try {
-            val uid = getCurrentUid() ?: return
+            val uid = getCurrentUid(context) ?: return
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
@@ -255,7 +356,7 @@ object FirestoreSyncManager {
      */
     fun triggerSync(context: Context) {
         try {
-            val uid = getCurrentUid() ?: return
+            val uid = getCurrentUid(context) ?: return
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
@@ -310,6 +411,10 @@ object FirestoreSyncManager {
             Log.d(TAG, "Sync failed: User is guest or unauthenticated.")
             return@withContext false
         }
+        if (!isNetworkAvailable(context)) {
+            Log.d(TAG, "Sync skipped: No active network connection.")
+            return@withContext false
+        }
 
         try {
             val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
@@ -352,6 +457,13 @@ object FirestoreSyncManager {
                 return@withContext true
             }
 
+            // Quick connectivity probe before preparing heavy batches
+            if (!isFirestoreAvailable(userRef, testWrite = true)) {
+                Log.w(TAG, "Cloud sync deferred: Firestore backend is currently unreachable. Local Room data is completely intact and safe offline.")
+                prefs.edit().putBoolean("is_syncing", false).apply()
+                return@withContext false
+            }
+
             Log.i(TAG, "Delta Sync: Processing $totalDirtyCount modified records with conflict protection for UID: $uid")
 
             // Multi-Device Conflict Protection:
@@ -375,8 +487,8 @@ object FirestoreSyncManager {
             // Fetch targeted remote snapshots in parallel/chunks without scanning full collections
             for (item in remoteDocsToFetch) {
                 try {
-                    val snap = item.second.get().await()
-                    if (snap.exists()) {
+                    val snap = withTimeoutOrNull(4000L) { item.second.get().await() }
+                    if (snap != null && snap.exists()) {
                         val rUpdatedAt = snap.getLong("updatedAt") ?: snap.getLong("timestamp") ?: 0L
                         remoteTimestamps[item.first] = rUpdatedAt
                     }
@@ -781,13 +893,19 @@ object FirestoreSyncManager {
             val syncSuccess = commitSyncOperationsInChunks(firestore, db, syncOperations)
 
             if (syncSuccess) {
-                userRef.collection("sync_meta").document("status").set(
-                    mapOf(
-                        "lastSyncTimestamp" to System.currentTimeMillis(),
-                        "lastBatchSize" to totalDirtyCount
-                    ),
-                    SetOptions.merge()
-                ).await()
+                try {
+                    withTimeoutOrNull(8000L) {
+                        userRef.collection("sync_meta").document("status").set(
+                            mapOf(
+                                "lastSyncTimestamp" to System.currentTimeMillis(),
+                                "lastBatchSize" to totalDirtyCount
+                            ),
+                            SetOptions.merge()
+                        ).await()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Non-critical: sync_meta update failed: ${e.message}")
+                }
 
                 prefs.edit()
                     .putLong("last_cloud_sync_time", System.currentTimeMillis())
@@ -832,6 +950,10 @@ object FirestoreSyncManager {
             Log.d(TAG, "Backup to Cloud failed: User is guest or unauthenticated.")
             return@withContext false
         }
+        if (!isNetworkAvailable(context)) {
+            Log.w(TAG, "Backup to Cloud failed: No active internet connection.")
+            return@withContext false
+        }
 
         try {
             val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
@@ -840,6 +962,12 @@ object FirestoreSyncManager {
             val db = IspDatabase.getDatabase(context)
             val firestore = FirebaseFirestore.getInstance()
             val userRef = firestore.collection("users").document(uid)
+
+            if (!isFirestoreAvailable(userRef, testWrite = true)) {
+                Log.w(TAG, "Cloud backup deferred: Firestore backend is currently unreachable. Local Room data is completely intact and safe offline.")
+                prefs.edit().putBoolean("is_syncing", false).apply()
+                return@withContext false
+            }
 
             // Step 1: Collect ALL local entities regardless of syncStatus (0 or 1)
             val allCustomers = db.customerDao().getAllCustomersList()
@@ -1210,13 +1338,19 @@ object FirestoreSyncManager {
             val syncSuccess = commitSyncOperationsInChunks(firestore, db, syncOperations)
 
             if (syncSuccess) {
-                userRef.collection("sync_meta").document("status").set(
-                    mapOf(
-                        "lastSyncTimestamp" to System.currentTimeMillis(),
-                        "lastBatchSize" to syncOperations.size
-                    ),
-                    SetOptions.merge()
-                ).await()
+                try {
+                    withTimeoutOrNull(8000L) {
+                        userRef.collection("sync_meta").document("status").set(
+                            mapOf(
+                                "lastSyncTimestamp" to System.currentTimeMillis(),
+                                "lastBatchSize" to syncOperations.size
+                            ),
+                            SetOptions.merge()
+                        ).await()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Non-critical: sync_meta status update failed: ${e.message}")
+                }
 
                 prefs.edit()
                     .putLong("last_cloud_sync_time", System.currentTimeMillis())
@@ -1233,11 +1367,11 @@ object FirestoreSyncManager {
             }
         } catch (e: FirebaseFirestoreException) {
             context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
-            Log.e(TAG, "Backup to Cloud failed with FirestoreException: ${e.message}", e)
+            Log.w(TAG, "Backup to Cloud note (FirestoreException): ${e.message}")
             false
         } catch (e: Exception) {
             context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
-            Log.e(TAG, "Backup to Cloud failed with exception: ${e.message}", e)
+            Log.w(TAG, "Backup to Cloud note (Exception): ${e.message}")
             false
         }
     }
@@ -1254,6 +1388,10 @@ object FirestoreSyncManager {
             Log.d(TAG, "Delta Pull skipped: User is guest or unauthenticated.")
             return@withContext false
         }
+        if (!isNetworkAvailable(context)) {
+            Log.d(TAG, "Delta Pull skipped: No active network connection.")
+            return@withContext false
+        }
 
         val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
         val lastPullKey = "last_delta_pull_time_$uid"
@@ -1263,6 +1401,12 @@ object FirestoreSyncManager {
         try {
             val firestore = FirebaseFirestore.getInstance()
             val userRef = firestore.collection("users").document(uid)
+
+            if (!isFirestoreAvailable(userRef, testWrite = false)) {
+                Log.w(TAG, "Delta Pull deferred: Firestore backend is currently unreachable.")
+                return@withContext false
+            }
+
             val db = IspDatabase.getDatabase(context)
 
             // Retrieve all deleted records (from local tombstones, pending deletions, and remote tombstones)
@@ -1744,12 +1888,22 @@ object FirestoreSyncManager {
             Log.d(TAG, "Restore skipped: User is guest or unauthenticated.")
             return@withContext Pair(false, "Authentication required")
         }
+        if (!isNetworkAvailable(context)) {
+            Log.d(TAG, "Restore skipped: No active network connection.")
+            return@withContext Pair(false, "No internet connection")
+        }
 
         try {
-            // Stage 1: Safely fetch all cloud collections in memory under a strict timeout
-            val (restoredData, hasAnyData) = withTimeout(25000L) {
-                val firestore = FirebaseFirestore.getInstance()
-                val userRef = firestore.collection("users").document(uid)
+            val firestore = FirebaseFirestore.getInstance()
+            val userRef = firestore.collection("users").document(uid)
+
+            if (!isFirestoreAvailable(userRef, testWrite = false)) {
+                Log.w(TAG, "Restore skipped: Firestore backend is currently unreachable.")
+                return@withContext Pair(false, "Firestore service is unreachable")
+            }
+
+            // Stage 1: Safely fetch all cloud collections in memory under a generous timeout
+            val (restoredData, hasAnyData) = withTimeout(60000L) {
                 val deletedRecords = syncAndGetDeletedRecords(context, userRef)
 
                 // 1. Restore Customers
@@ -2150,8 +2304,18 @@ class CloudSyncWorker(
 
     override suspend fun doWork(): Result {
         Log.d("CloudSyncWorker", "Executing scheduled background cloud sync...")
-        val uploadSuccess = FirestoreSyncManager.syncLocalToCloud(context)
-        val pullSuccess = FirestoreSyncManager.pullDeltaFromCloud(context)
+        if (!FirestoreSyncManager.isNetworkAvailable(context)) {
+            Log.d("CloudSyncWorker", "Skipping background sync: No network connection.")
+            return Result.retry()
+        }
+        val uploadSuccess = withTimeoutOrNull(90000L) {
+            FirestoreSyncManager.syncLocalToCloud(context)
+        } ?: false
+
+        val pullSuccess = withTimeoutOrNull(60000L) {
+            FirestoreSyncManager.pullDeltaFromCloud(context)
+        } ?: false
+
         return if (uploadSuccess || pullSuccess) {
             Result.success()
         } else {
