@@ -2411,7 +2411,8 @@ class CloudSyncWorker(
         return if (uploadSuccess || pullSuccess) {
             Result.success()
         } else {
-            Result.failure()
+            Log.w("CloudSyncWorker", "Background cloud sync did not complete. Retrying...")
+            Result.retry()
         }
     }
 }

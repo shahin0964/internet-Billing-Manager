@@ -362,7 +362,7 @@ fun BackupAndRestoreScreen(
                                             coroutineScope.launch {
                                                 try {
                                                     val result = kotlinx.coroutines.withTimeoutOrNull(90000L) {
-                                                        com.example.util.FirestoreSyncManager.uploadAllLocalDataToCloud(context)
+                                                        com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
                                                     }
                                                     if (result == true) {
                                                         viewModel.showToast("Cloud backup successful")
