@@ -2395,23 +2395,42 @@ class CloudSyncWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        Log.d("CloudSyncWorker", "Executing scheduled background cloud sync...")
+        Log.d("CloudSyncWorker", "Executing scheduled background cloud sync to Hosting + MySQL...")
         if (!FirestoreSyncManager.isNetworkAvailable(context)) {
             Log.d("CloudSyncWorker", "Skipping background sync: No network connection.")
             return Result.retry()
         }
-        val uploadSuccess = withTimeoutOrNull(90000L) {
-            FirestoreSyncManager.syncLocalToCloud(context)
+
+        // 1. Primary Hosting + MySQL Background Sync
+        val hostingUploadSuccess = withTimeoutOrNull(60000L) {
+            HostingSyncManager.syncLocalToHosting(context)
         } ?: false
 
-        val pullSuccess = withTimeoutOrNull(60000L) {
-            FirestoreSyncManager.pullDeltaFromCloud(context)
+        val hostingPullSuccess = withTimeoutOrNull(45000L) {
+            HostingSyncManager.pullDeltaFromHosting(context)
         } ?: false
 
-        return if (uploadSuccess || pullSuccess) {
+        // 2. Firebase / Firestore Sync (for non-migrated network diagrams and legacy fallback)
+        val firestoreUploadSuccess = withTimeoutOrNull(45000L) {
+            try {
+                FirestoreSyncManager.syncLocalToCloud(context)
+            } catch (_: Exception) {
+                false
+            }
+        } ?: false
+
+        val firestorePullSuccess = withTimeoutOrNull(30000L) {
+            try {
+                FirestoreSyncManager.pullDeltaFromCloud(context)
+            } catch (_: Exception) {
+                false
+            }
+        } ?: false
+
+        return if (hostingUploadSuccess || hostingPullSuccess || firestoreUploadSuccess || firestorePullSuccess) {
             Result.success()
         } else {
-            Log.w("CloudSyncWorker", "Background cloud sync did not complete. Retrying...")
+            Log.w("CloudSyncWorker", "Background sync did not complete. Retrying...")
             Result.retry()
         }
     }

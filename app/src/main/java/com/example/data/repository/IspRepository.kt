@@ -47,6 +47,21 @@ import com.example.data.model.Customer
 import com.example.data.model.PackageModel
 import com.example.data.model.AddCustomerRequest
 import com.example.data.model.BillModel
+import com.example.data.model.BillRequest
+import com.example.data.model.PaymentModel
+import com.example.data.model.PaymentRequest
+import com.example.data.model.ExpenseModel
+import com.example.data.model.ExpenseRequest
+import com.example.data.model.ExpenseCategoryModel
+import com.example.data.model.ExpenseCategoryRequest
+import com.example.data.model.SettingsModel
+import com.example.data.model.SettingsRequest
+import com.example.data.model.AuditLogModel
+import com.example.data.model.AuditLogRequest
+import com.example.data.model.BandwidthBillModel
+import com.example.data.model.BandwidthBillRequest
+import com.example.data.model.SpecificAdvanceModel
+import com.example.data.model.SpecificAdvanceRequest
 import com.example.util.Resource
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -93,6 +108,29 @@ class IspRepository(
             )
         )
         context?.let { com.example.util.FirestoreSyncManager.triggerSync(it) }
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = BandwidthBillRequest(
+                        userId = userId,
+                        billingMonth = billingMonth,
+                        amount = amount,
+                        updatedAt = now
+                    )
+                    val response = ApiClient.apiService.saveBandwidthBill(request)
+                    if (response.status) {
+                        db.bandwidthBillDao().markBandwidthBillsSynced(listOf(billingMonth))
+                    } else {
+                        Log.w("IspRepository", "Server rejected bandwidth bill save: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to save bandwidth bill via Hosting API: ${e.message}")
+                }
+            }
+        }
     }
 
     companion object {
@@ -180,6 +218,39 @@ class IspRepository(
             )
             val id = auditLogDao.insertLog(log)
             notifyCloudSync()
+
+            context?.let { ctx ->
+                val userId = com.example.IspApplication.getUserId(ctx)
+                    ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+                if (userId != null) {
+                    try {
+                        val request = AuditLogRequest(
+                            id = log.id.toString(),
+                            userId = userId,
+                            action = log.action,
+                            actionType = log.actionType,
+                            details = log.details,
+                            userEmail = log.userEmail,
+                            userRole = log.userRole,
+                            targetEntity = log.targetEntity,
+                            targetId = log.targetId,
+                            previousState = log.previousState,
+                            newState = log.newState,
+                            status = log.status,
+                            timestamp = log.timestamp
+                        )
+                        val response = ApiClient.apiService.saveAuditLog(request)
+                        if (response.status) {
+                            auditLogDao.markAuditLogsSynced(listOf(log.id))
+                        } else {
+                            Log.w("IspRepository", "Server rejected audit log save: ${response.message}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("IspRepository", "Failed to save audit log via Hosting API: ${e.message}")
+                    }
+                }
+            }
+
             id
         } catch (e: Exception) {
             Log.e("IspRepository", "Failed to write activity log: ${e.message}", e)
@@ -228,6 +299,37 @@ class IspRepository(
             newState = "Amount: ৳${expense.amount}, Category: ${expense.category}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = ExpenseRequest(
+                        id = expenseToSave.id.toString(),
+                        userId = userId,
+                        title = expenseToSave.title,
+                        amount = expenseToSave.amount,
+                        category = expenseToSave.category,
+                        date = expenseToSave.date,
+                        paymentMethod = expenseToSave.paymentMethod,
+                        note = expenseToSave.note,
+                        receiptPath = expenseToSave.receiptPath,
+                        createdAt = expenseToSave.createdAt,
+                        updatedAt = expenseToSave.updatedAt
+                    )
+                    val response = ApiClient.apiService.saveExpense(request)
+                    if (response.status) {
+                        expenseDao.markExpensesSynced(listOf(expenseToSave.id))
+                    } else {
+                        Log.w("IspRepository", "Server rejected expense save: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to save expense via Hosting API: ${e.message}")
+                }
+            }
+        }
+
         return result
     }
 
@@ -243,6 +345,36 @@ class IspRepository(
             newState = "Amount: ৳${expense.amount}, Category: ${expense.category}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = ExpenseRequest(
+                        id = updated.id.toString(),
+                        userId = userId,
+                        title = updated.title,
+                        amount = updated.amount,
+                        category = updated.category,
+                        date = updated.date,
+                        paymentMethod = updated.paymentMethod,
+                        note = updated.note,
+                        receiptPath = updated.receiptPath,
+                        createdAt = updated.createdAt,
+                        updatedAt = updated.updatedAt
+                    )
+                    val response = ApiClient.apiService.saveExpense(request)
+                    if (response.status) {
+                        expenseDao.markExpensesSynced(listOf(updated.id))
+                    } else {
+                        Log.w("IspRepository", "Server rejected expense update: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to update expense via Hosting API: ${e.message}")
+                }
+            }
+        }
     }
 
     suspend fun deleteExpense(expense: ExpenseEntity) {
@@ -250,6 +382,22 @@ class IspRepository(
         context?.let {
             com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "expenses", expense.id.toString())
             com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "expenses", expense.id.toString())
+
+            val userId = com.example.IspApplication.getUserId(it)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(it)
+            if (userId != null) {
+                try {
+                    val response = ApiClient.apiService.deleteExpense(
+                        id = expense.id.toString(),
+                        userId = userId
+                    )
+                    if (!response.status) {
+                        Log.w("IspRepository", "Server rejected expense deletion: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to delete expense via Hosting API: ${e.message}")
+                }
+            }
         }
         logActivity(
             action = "EXPENSE_DELETED",
@@ -264,7 +412,8 @@ class IspRepository(
 
     suspend fun saveExpenseCategory(categoryName: String): Long {
         val now = System.currentTimeMillis()
-        val result = expenseDao.insertCategory(ExpenseCategoryEntity(id = generateUniqueId(), name = categoryName.trim(), updatedAt = now, syncStatus = 1))
+        val categoryToSave = ExpenseCategoryEntity(id = generateUniqueId(), name = categoryName.trim(), updatedAt = now, syncStatus = 1)
+        val result = expenseDao.insertCategory(categoryToSave)
         logActivity(
             action = "EXPENSE_CATEGORY_ADDED",
             actionType = "EXPENSE",
@@ -273,6 +422,30 @@ class IspRepository(
             targetId = result.toString()
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = ExpenseCategoryRequest(
+                        id = categoryToSave.id.toString(),
+                        userId = userId,
+                        name = categoryToSave.name,
+                        updatedAt = categoryToSave.updatedAt
+                    )
+                    val response = ApiClient.apiService.saveExpenseCategory(request)
+                    if (response.status) {
+                        expenseDao.markCategoriesSynced(listOf(categoryToSave.id))
+                    } else {
+                        Log.w("IspRepository", "Server rejected expense category save: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to save expense category via Hosting API: ${e.message}")
+                }
+            }
+        }
+
         return result
     }
 
@@ -648,9 +821,25 @@ class IspRepository(
     suspend fun deleteBill(bill: BillEntity) {
         billDao.deleteBill(bill)
         markBillAsDeletedForMonth(bill.customerId, bill.customerCode, bill.billingMonth)
-        context?.let {
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "bills", bill.id.toString())
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "bills", bill.id.toString())
+        context?.let { ctx ->
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "bills", bill.id.toString())
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "bills", bill.id.toString())
+
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val response = ApiClient.apiService.deleteBill(
+                        id = bill.id.toString(),
+                        userId = userId
+                    )
+                    if (!response.status) {
+                        Log.w("IspRepository", "Server rejected bill deletion: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to delete bill via Hosting API: ${e.message}")
+                }
+            }
         }
         logActivity(
             action = "BILL_DELETE",
@@ -661,6 +850,58 @@ class IspRepository(
             previousState = "Month: ${bill.billingMonth}, Amount: ৳${bill.amount}"
         )
         notifyCloudSync()
+    }
+
+    suspend fun saveBill(bill: BillEntity): Long {
+        val now = System.currentTimeMillis()
+        val billToSave = if (bill.id == 0L) {
+            bill.copy(id = generateUniqueId(), updatedAt = now, syncStatus = 1)
+        } else {
+            bill.copy(updatedAt = now, syncStatus = 1)
+        }
+        val savedId = billDao.insertBill(billToSave)
+        logActivity(
+            action = "BILL_EDIT",
+            actionType = "BILL",
+            details = "Saved bill #${billToSave.billNumber} for ${billToSave.customerName}",
+            targetEntity = "Bill",
+            targetId = billToSave.id.toString()
+        )
+        notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = BillRequest(
+                        id = billToSave.id.toString(),
+                        userId = userId,
+                        customerId = billToSave.customerId.toString(),
+                        amount = billToSave.amount,
+                        billMonth = billToSave.billingMonth,
+                        dueDate = billToSave.dueDate,
+                        status = billToSave.status,
+                        billNumber = billToSave.billNumber,
+                        customerName = billToSave.customerName,
+                        customerCode = billToSave.customerCode,
+                        paidAmount = billToSave.paidAmount,
+                        dueAmount = billToSave.dueAmount,
+                        generatedDate = billToSave.generatedDate,
+                        updatedAt = billToSave.updatedAt
+                    )
+                    val response = ApiClient.apiService.saveBill(request)
+                    if (response.status) {
+                        billDao.updateBill(billToSave.copy(syncStatus = 0))
+                    } else {
+                        Log.w("IspRepository", "Server rejected bill save: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to save bill via Hosting API: ${e.message}")
+                }
+            }
+        }
+        return savedId
     }
 
     suspend fun updateBill(bill: BillEntity) {
@@ -704,6 +945,39 @@ class IspRepository(
             newState = "Amount: ৳${individualAmount}, Paid: ৳${bill.paidAmount}, Due: ৳${newDue}, Status: ${newStatus}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = BillRequest(
+                        id = finalBill.id.toString(),
+                        userId = userId,
+                        customerId = finalBill.customerId.toString(),
+                        amount = finalBill.amount,
+                        billMonth = finalBill.billingMonth,
+                        dueDate = finalBill.dueDate,
+                        status = finalBill.status,
+                        billNumber = finalBill.billNumber,
+                        customerName = finalBill.customerName,
+                        customerCode = finalBill.customerCode,
+                        paidAmount = finalBill.paidAmount,
+                        dueAmount = finalBill.dueAmount,
+                        generatedDate = finalBill.generatedDate,
+                        updatedAt = finalBill.updatedAt
+                    )
+                    val response = ApiClient.apiService.saveBill(request)
+                    if (response.status) {
+                        billDao.updateBill(finalBill.copy(syncStatus = 0))
+                    } else {
+                        Log.w("IspRepository", "Server rejected bill update: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to update bill via Hosting API: ${e.message}")
+                }
+            }
+        }
     }
 
     suspend fun generateMonthlyBills(
@@ -1062,6 +1336,36 @@ class IspRepository(
                 }
                 notifyCloudSync()
 
+                context?.let { ctx ->
+                    val userId = com.example.IspApplication.getUserId(ctx)
+                        ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+                    if (userId != null) {
+                        try {
+                            val request = PaymentRequest(
+                                id = createdPayment.id.toString(),
+                                userId = userId,
+                                paymentReceiptNo = createdPayment.paymentReceiptNo,
+                                billId = createdPayment.billId.toString(),
+                                customerId = createdPayment.customerId.toString(),
+                                customerName = createdPayment.customerName,
+                                amount = createdPayment.amount,
+                                paymentDate = createdPayment.paymentDate,
+                                paymentMethod = createdPayment.paymentMethod,
+                                notes = createdPayment.notes,
+                                updatedAt = createdPayment.updatedAt
+                            )
+                            val response = ApiClient.apiService.savePayment(request)
+                            if (response.status) {
+                                paymentDao.markPaymentsSynced(listOf(createdPayment.id))
+                            } else {
+                                Log.w("IspRepository", "Server rejected payment save: ${response.message}")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("IspRepository", "Failed to save payment via Hosting API: ${e.message}")
+                        }
+                    }
+                }
+
                 createdPayment
             }
         } catch (e: Exception) {
@@ -1172,6 +1476,22 @@ class IspRepository(
                     "payments",
                     payment.id.toString()
                 )
+
+                val userId = com.example.IspApplication.getUserId(ctx)
+                    ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+                if (userId != null) {
+                    try {
+                        val response = ApiClient.apiService.deletePayment(
+                            id = payment.id.toString(),
+                            userId = userId
+                        )
+                        if (!response.status) {
+                            Log.w("IspRepository", "Server rejected payment deletion: ${response.message}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("IspRepository", "Failed to delete payment via Hosting API: ${e.message}")
+                    }
+                }
             }
 
             logActivity(
@@ -1203,6 +1523,36 @@ class IspRepository(
             newState = "ISP: ${settings.ispName}, Hotline: ${settings.hotline}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = SettingsRequest(
+                        id = updated.id,
+                        userId = userId,
+                        ispName = updated.ispName,
+                        hotline = updated.hotline,
+                        address = updated.address,
+                        currencySymbol = updated.currencySymbol,
+                        networkStatus = updated.networkStatus,
+                        themeMode = updated.themeMode,
+                        logoUri = updated.logoUri,
+                        email = updated.email,
+                        updatedAt = updated.updatedAt
+                    )
+                    val response = ApiClient.apiService.saveSettings(request)
+                    if (response.status) {
+                        settingsDao.markSettingsSynced()
+                    } else {
+                        Log.w("IspRepository", "Server rejected settings save: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to save settings via Hosting API: ${e.message}")
+                }
+            }
+        }
     }
 
     suspend fun exportDataJson(): String {
@@ -2052,8 +2402,18 @@ class IspRepository(
             }
 
             try {
-                if (com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
-                    com.example.util.FirestoreSyncManager.triggerSync(context)
+                if (com.example.util.HostingSyncManager.isNetworkAvailable(context)) {
+                    val uid = com.example.IspApplication.getUserId(context) ?: com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                    if (!uid.isNullOrBlank()) {
+                        val exportedAt = root.optLong("exportedAt", 0L)
+                        if (exportedAt > 0L) {
+                            context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                                .edit()
+                                .putLong("last_sync_time_$uid", exportedAt)
+                                .apply()
+                        }
+                    }
+                    com.example.util.HostingSyncManager.syncLocalToHosting(context)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -2071,6 +2431,60 @@ class IspRepository(
                 }
             }
             false
+        }
+    }
+
+    suspend fun backupToHosting(context: Context, userId: String): Pair<Boolean, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            if (userId.isBlank()) {
+                return@withContext Pair(false, "Authentication required")
+            }
+            val jsonPayload = generateFullBackupJson(context)
+            if (jsonPayload.isBlank()) {
+                return@withContext Pair(false, "No local data to back up")
+            }
+            val timeStamp = java.text.SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", java.util.Locale.US).format(java.util.Date())
+            val backupName = "ISP-Cloud-Backup-$timeStamp"
+            val request = com.example.data.model.CloudBackupRequest(
+                userId = userId,
+                backupName = backupName,
+                backupData = jsonPayload,
+                version = 1
+            )
+            val response = ApiClient.apiService.saveCloudBackup(request)
+            if (response.status) {
+                Pair(true, response.message ?: "Cloud backup successful")
+            } else {
+                Pair(false, response.message ?: "Cloud backup failed")
+            }
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Backup to Hosting failed: ${e.message}", e)
+            Pair(false, e.localizedMessage ?: e.message ?: "Cloud backup failed")
+        }
+    }
+
+    suspend fun restoreFromHosting(context: Context, userId: String): Pair<Boolean, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            if (userId.isBlank()) {
+                return@withContext Pair(false, "Authentication required")
+            }
+            val response = ApiClient.apiService.getLatestCloudBackup(userId = userId, action = "latest")
+            if (!response.status || response.data == null) {
+                return@withContext Pair(false, response.message ?: "No cloud backup found on Hosting")
+            }
+            val backupData = response.data.backupData
+            if (backupData.isNullOrBlank()) {
+                return@withContext Pair(false, "Retrieved cloud backup payload is empty")
+            }
+            val restored = restoreFromFullBackupJson(context, backupData)
+            if (restored) {
+                Pair(true, "Cloud backup restored successfully")
+            } else {
+                Pair(false, "Failed to restore cloud backup data")
+            }
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Restore from Hosting failed: ${e.message}", e)
+            Pair(false, e.localizedMessage ?: e.message ?: "Cloud restore failed")
         }
     }
 
@@ -2562,6 +2976,768 @@ class IspRepository(
 
     fun getBills(userId: String): Flow<Resource<List<BillModel>>> {
         return safeApiCall { ApiClient.apiService.getBills(userId) }
+    }
+
+    fun getPayments(userId: String): Flow<Resource<List<PaymentModel>>> {
+        return safeApiCall { ApiClient.apiService.getPayments(userId) }
+    }
+
+    fun getExpenses(userId: String, category: String? = null): Flow<Resource<List<ExpenseModel>>> {
+        return safeApiCall { ApiClient.apiService.getExpenses(userId, category) }
+    }
+
+    fun getExpenseCategories(userId: String): Flow<Resource<List<ExpenseCategoryModel>>> {
+        return safeApiCall { ApiClient.apiService.getExpenseCategories(userId) }
+    }
+
+    fun getSettings(userId: String): Flow<Resource<SettingsModel>> {
+        return safeApiCall { ApiClient.apiService.getSettings(userId) }
+    }
+
+    fun getAuditLogs(userId: String, actionType: String? = null, limit: Int? = null): Flow<Resource<List<AuditLogModel>>> {
+        return safeApiCall { ApiClient.apiService.getAuditLogs(userId, actionType, limit) }
+    }
+
+    fun getBandwidthBills(userId: String, billingMonth: String? = null): Flow<Resource<List<BandwidthBillModel>>> {
+        return safeApiCall { ApiClient.apiService.getBandwidthBills(userId, billingMonth) }
+    }
+
+    fun getSpecificAdvances(userId: String, customerId: String? = null, billingMonth: String? = null): Flow<Resource<List<SpecificAdvanceModel>>> {
+        return safeApiCall { ApiClient.apiService.getSpecificAdvances(userId, customerId, billingMonth) }
+    }
+
+    suspend fun syncSpecificAdvancesFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync specific advances from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getSpecificAdvances(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing specific advances from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing specific advances from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing specific advances from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting specific advance API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = db.specificAdvanceDao().getAllSpecificAdvancesList()
+            val existingMap = existingList.associateBy { it.id }
+            val dirtyIds = db.specificAdvanceDao().getDirtySpecificAdvances().map { it.id }.toSet()
+            val entitiesToPersist = mutableListOf<SpecificAdvanceEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull() ?: continue
+                val custId = remote.customerId.toLongOrNull() ?: 0L
+
+                // Never overwrite local dirty modifications
+                if (dirtyIds.contains(numId)) {
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                val updatedAt = if (remote.updatedAt > 0) remote.updatedAt else (existing?.updatedAt ?: System.currentTimeMillis())
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        customerId = if (custId != 0L) custId else existing.customerId,
+                        billingMonth = remote.billingMonth.ifBlank { existing.billingMonth },
+                        amount = remote.amount,
+                        isConsumed = remote.isConsumed,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                } else {
+                    SpecificAdvanceEntity(
+                        id = numId,
+                        customerId = custId,
+                        billingMonth = remote.billingMonth,
+                        amount = remote.amount,
+                        isConsumed = remote.isConsumed,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                db.specificAdvanceDao().insertSpecificAdvances(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} specific advances from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting specific advances to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncBandwidthBillsFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync bandwidth bills from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getBandwidthBills(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing bandwidth bills from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing bandwidth bills from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing bandwidth bills from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting bandwidth bill API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = db.bandwidthBillDao().getAllBandwidthBillsList()
+            val existingMap = existingList.associateBy { it.billingMonth }
+            val dirtyMonths = db.bandwidthBillDao().getDirtyBandwidthBills().map { it.billingMonth }.toSet()
+            val entitiesToPersist = mutableListOf<BandwidthBillEntity>()
+
+            for (remote in response.data) {
+                val month = remote.billingMonth
+                if (month.isBlank()) continue
+
+                // Never overwrite local dirty modifications
+                if (dirtyMonths.contains(month)) {
+                    continue
+                }
+
+                val existing = existingMap[month]
+                val updatedAt = if (remote.updatedAt > 0) remote.updatedAt else (existing?.updatedAt ?: System.currentTimeMillis())
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        amount = remote.amount,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                } else {
+                    BandwidthBillEntity(
+                        billingMonth = month,
+                        amount = remote.amount,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                db.bandwidthBillDao().insertOrUpdateBandwidthBills(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} bandwidth bills from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting bandwidth bills to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncAuditLogsFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync audit logs from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getAuditLogs(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing audit logs from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing audit logs from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing audit logs from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting audit log API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = auditLogDao.getAllAuditLogsList()
+            val existingMap = existingList.associateBy { it.id }
+            val dirtyLogIds = auditLogDao.getDirtyAuditLogs().map { it.id }.toSet()
+            val entitiesToPersist = mutableListOf<AuditLogEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull()
+                if (numId == null) {
+                    Log.w("IspRepository", "Skipping remote audit log with non-numeric ID: ${remote.id}")
+                    continue
+                }
+
+                // Never overwrite local dirty modifications
+                if (dirtyLogIds.contains(numId)) {
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                val action = remote.action.ifBlank { existing?.action ?: "ACTION" }
+                val actionType = remote.actionType.ifBlank { existing?.actionType ?: "" }
+                val details = remote.details ?: existing?.details ?: ""
+                val userEmail = remote.userEmail.ifBlank { existing?.userEmail ?: "" }
+                val userRole = remote.userRole.ifBlank { existing?.userRole ?: "Admin" }
+                val targetEntity = remote.targetEntity.ifBlank { existing?.targetEntity ?: "" }
+                val targetId = remote.targetId.ifBlank { existing?.targetId ?: "" }
+                val previousState = remote.previousState ?: existing?.previousState ?: ""
+                val newState = remote.newState ?: existing?.newState ?: ""
+                val status = remote.status.ifBlank { existing?.status ?: "SUCCESS" }
+                val timestamp = if (remote.timestamp > 0) remote.timestamp else (existing?.timestamp ?: System.currentTimeMillis())
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        action = action,
+                        actionType = actionType,
+                        details = details,
+                        userEmail = userEmail,
+                        userRole = userRole,
+                        targetEntity = targetEntity,
+                        targetId = targetId,
+                        previousState = previousState,
+                        newState = newState,
+                        status = status,
+                        timestamp = timestamp,
+                        syncStatus = 0
+                    )
+                } else {
+                    AuditLogEntity(
+                        id = numId,
+                        action = action,
+                        actionType = actionType,
+                        details = details,
+                        userEmail = userEmail,
+                        userRole = userRole,
+                        targetEntity = targetEntity,
+                        targetId = targetId,
+                        previousState = previousState,
+                        newState = newState,
+                        status = status,
+                        timestamp = timestamp,
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                auditLogDao.insertLogs(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} audit logs from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting audit logs to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncSettingsFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync settings from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getSettings(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing settings from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing settings from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing settings from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.d("IspRepository", "No settings found on Hosting or server returned false: ${response.message}")
+            return@withContext false
+        }
+
+        val remote = response.data
+        try {
+            val dirtySettings = settingsDao.getDirtySettings()
+            if (dirtySettings != null) {
+                Log.d("IspRepository", "Local settings have unpushed changes; skipping overwrite from Hosting.")
+                return@withContext true
+            }
+
+            val existing = settingsDao.getSettingsSingle()
+            val entity = BusinessSettingsEntity(
+                id = 1,
+                ispName = remote.ispName.ifBlank { existing?.ispName ?: "" },
+                hotline = remote.hotline.ifBlank { existing?.hotline ?: "" },
+                address = remote.address.ifBlank { existing?.address ?: "" },
+                currencySymbol = remote.currencySymbol.ifBlank { existing?.currencySymbol ?: "৳" },
+                networkStatus = remote.networkStatus.ifBlank { existing?.networkStatus ?: "Operational" },
+                themeMode = remote.themeMode.ifBlank { existing?.themeMode ?: "SYSTEM" },
+                logoUri = remote.logoUri ?: existing?.logoUri,
+                email = remote.email.ifBlank { existing?.email ?: "" },
+                updatedAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis(),
+                syncStatus = 0
+            )
+            settingsDao.insertOrUpdateSettings(entity)
+            Log.d("IspRepository", "Successfully synced and updated business settings from Hosting.")
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting settings to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncExpensesFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync expenses from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getExpenses(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing expenses from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing expenses from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing expenses from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting expense API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = expenseDao.getAllExpensesList()
+            val existingMap = existingList.associateBy { it.id }
+            val dirtyExpenseIds = expenseDao.getDirtyExpenses().map { it.id }.toSet()
+            val entitiesToPersist = mutableListOf<ExpenseEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull()
+                if (numId == null) {
+                    Log.w("IspRepository", "Skipping remote expense with non-numeric ID: ${remote.id}")
+                    continue
+                }
+
+                // Never overwrite local dirty modifications
+                if (dirtyExpenseIds.contains(numId)) {
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                val title = remote.title.ifBlank { existing?.title ?: "Expense" }
+                val amount = remote.amount
+                val category = remote.category.ifBlank { existing?.category ?: "General" }
+                val date = remote.date.ifBlank { existing?.date ?: "" }
+                val paymentMethod = remote.paymentMethod.ifBlank { existing?.paymentMethod ?: "Cash" }
+                val note = remote.note ?: existing?.note ?: ""
+                val receiptPath = remote.receiptPath ?: existing?.receiptPath
+                val createdAt = remote.createdAt ?: existing?.createdAt ?: System.currentTimeMillis()
+                val updatedAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis()
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        title = title,
+                        amount = amount,
+                        category = category,
+                        date = date,
+                        paymentMethod = paymentMethod,
+                        note = note,
+                        receiptPath = receiptPath,
+                        createdAt = createdAt,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                } else {
+                    ExpenseEntity(
+                        id = numId,
+                        title = title,
+                        amount = amount,
+                        category = category,
+                        date = date,
+                        paymentMethod = paymentMethod,
+                        note = note,
+                        receiptPath = receiptPath,
+                        createdAt = createdAt,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                expenseDao.insertExpenses(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} expenses from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting expenses to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncExpenseCategoriesFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync expense categories from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getExpenseCategories(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing expense categories from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing expense categories from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing expense categories from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting expense categories API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = expenseDao.getAllCategoriesList()
+            val existingMap = existingList.associateBy { it.id }
+            val dirtyCategoryIds = expenseDao.getDirtyCategories().map { it.id }.toSet()
+            val entitiesToPersist = mutableListOf<ExpenseCategoryEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull()
+                if (numId == null) {
+                    Log.w("IspRepository", "Skipping remote expense category with non-numeric ID: ${remote.id}")
+                    continue
+                }
+
+                // Never overwrite local dirty modifications
+                if (dirtyCategoryIds.contains(numId)) {
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                val name = remote.name.ifBlank { existing?.name ?: "" }
+                val updatedAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis()
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        name = name,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                } else {
+                    ExpenseCategoryEntity(
+                        id = numId,
+                        name = name,
+                        updatedAt = updatedAt,
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                expenseDao.insertCategories(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} expense categories from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting expense categories to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncPaymentsFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync payments from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getPayments(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing payments from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing payments from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing payments from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting payment API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = paymentDao.getAllPaymentsList()
+            val existingMap = existingList.associateBy { it.id }
+            val dirtyPaymentIds = paymentDao.getDirtyPayments().map { it.id }.toSet()
+            val entitiesToPersist = mutableListOf<PaymentEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull()
+                if (numId == null) {
+                    Log.w("IspRepository", "Skipping remote payment with non-numeric ID: ${remote.id}")
+                    continue
+                }
+
+                // Never overwrite local dirty modifications
+                if (dirtyPaymentIds.contains(numId)) {
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                val receiptNo = remote.paymentReceiptNo.ifBlank { existing?.paymentReceiptNo ?: "PAY-${remote.id}" }
+                val bId = remote.billId?.toLongOrNull() ?: existing?.billId ?: 0L
+                val cId = remote.customerId.toLongOrNull() ?: existing?.customerId ?: 0L
+                val cName = remote.customerName ?: existing?.customerName ?: ""
+                val amt = remote.amount
+                val pDate = remote.paymentDate ?: existing?.paymentDate ?: ""
+                val pMethod = remote.paymentMethod.ifBlank { existing?.paymentMethod ?: "Cash" }
+                val pNotes = remote.notes ?: existing?.notes ?: ""
+                val upAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis()
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        paymentReceiptNo = receiptNo,
+                        billId = bId,
+                        customerId = cId,
+                        customerName = cName,
+                        amount = amt,
+                        paymentDate = pDate,
+                        paymentMethod = pMethod,
+                        notes = pNotes,
+                        updatedAt = upAt,
+                        syncStatus = 0
+                    )
+                } else {
+                    PaymentEntity(
+                        id = numId,
+                        paymentReceiptNo = receiptNo,
+                        billId = bId,
+                        customerId = cId,
+                        customerName = cName,
+                        amount = amt,
+                        paymentDate = pDate,
+                        paymentMethod = pMethod,
+                        notes = pNotes,
+                        updatedAt = upAt,
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                paymentDao.insertPayments(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} payments from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting payments to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncBillsFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync bills from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getBills(userId)
+        } catch (e: java.io.IOException) {
+            Log.e("IspRepository", "Network error while syncing bills from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: retrofit2.HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing bills from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing bills from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting bill API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = billDao.getAllBillsList()
+            val existingMap = existingList.associateBy { it.id }
+            val dirtyBillIds = billDao.getDirtyBills().map { it.id }.toSet()
+            val entitiesToPersist = mutableListOf<BillEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull()
+                if (numId == null) {
+                    Log.w("IspRepository", "Skipping remote bill with non-numeric ID: ${remote.id}")
+                    continue
+                }
+
+                // Never overwrite local dirty modifications
+                if (dirtyBillIds.contains(numId)) {
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                val custId = remote.customerId.toLongOrNull() ?: existing?.customerId ?: 0L
+                val billNo = remote.billNumber ?: existing?.billNumber ?: "BILL-${remote.id}"
+                val custName = remote.customerName ?: existing?.customerName ?: ""
+                val custCode = remote.customerCode ?: existing?.customerCode ?: ""
+                val month = remote.billMonth ?: existing?.billingMonth ?: ""
+                val amt = remote.amount
+                val paid = remote.paidAmount ?: existing?.paidAmount ?: (if (remote.status.equals("PAID", ignoreCase = true)) amt else 0.0)
+                val due = remote.dueAmount ?: existing?.dueAmount ?: (if (remote.status.equals("PAID", ignoreCase = true)) 0.0 else amt)
+                val st = remote.status.uppercase(Locale.ROOT)
+                val genDate = remote.generatedDate ?: existing?.generatedDate ?: ""
+                val dDate = remote.dueDate ?: existing?.dueDate ?: ""
+                val upAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis()
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        billNumber = billNo,
+                        customerId = custId,
+                        customerName = custName,
+                        customerCode = custCode,
+                        billingMonth = month,
+                        amount = amt,
+                        paidAmount = paid,
+                        dueAmount = due,
+                        status = st,
+                        generatedDate = genDate,
+                        dueDate = dDate,
+                        updatedAt = upAt,
+                        syncStatus = 0
+                    )
+                } else {
+                    BillEntity(
+                        id = numId,
+                        billNumber = billNo,
+                        customerId = custId,
+                        customerName = custName,
+                        customerCode = custCode,
+                        billingMonth = month,
+                        amount = amt,
+                        paidAmount = paid,
+                        dueAmount = due,
+                        status = st,
+                        generatedDate = genDate,
+                        dueDate = dDate,
+                        updatedAt = upAt,
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                billDao.insertBills(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} bills from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting bills to Room: ${e.message}", e)
+            false
+        }
     }
 
     suspend fun syncPackagesFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {

@@ -86,33 +86,17 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(application)
-                if (uid != null) {
-                    val prefs = application.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-                    val restoreDoneKey = "cloud_initial_restore_done_$uid"
-                    val isRestoreDone = prefs.getBoolean(restoreDoneKey, false)
-
-                    val existingCustomers = db.customerDao().getAllCustomers().first()
-                    val existingSettings = db.settingsDao().getSettings().first()
-                    val isSettingsEmpty = existingSettings == null || existingSettings.ispName.isBlank()
-
-                    if (!isRestoreDone || (existingCustomers.isEmpty() && isSettingsEmpty)) {
-                        com.example.util.FirestoreSyncManager.restoreCloudToLocal(application)
-                        prefs.edit().putBoolean(restoreDoneKey, true).apply()
-                    } else {
-                        com.example.util.FirestoreSyncManager.syncLocalToCloud(application)
-                    }
-                }
-            } catch (e: Throwable) {
-                android.util.Log.w("IspViewModel", "Cloud sync check note: ${e.message}")
-            }
-        }
-
-        viewModelScope.launch {
-            try {
                 repository.syncCustomersFromHosting()
+                repository.syncBillsFromHosting()
+                repository.syncPaymentsFromHosting()
+                repository.syncExpensesFromHosting()
+                repository.syncExpenseCategoriesFromHosting()
+                repository.syncSettingsFromHosting()
+                repository.syncAuditLogsFromHosting()
+                repository.syncBandwidthBillsFromHosting()
+                repository.syncSpecificAdvancesFromHosting()
             } catch (e: Throwable) {
-                android.util.Log.w("IspViewModel", "Hosting customer sync on init note: ${e.message}")
+                android.util.Log.w("IspViewModel", "Hosting customer/bill/payment/expense/settings/audit_logs/bandwidth_bills/specific_advances sync on init note: ${e.message}")
             }
         }
 
@@ -330,24 +314,8 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 val app = getApplication<Application>()
                 val uid = com.example.util.FirestoreSyncManager.getCurrentUid(app)
                 if (uid != null) {
-                    android.util.Log.d("IspViewModel", "Triggering cloud sync/restore on login for UID: $uid")
+                    android.util.Log.d("IspViewModel", "Triggering cloud sync on login for UID: $uid")
                     com.example.util.FirestoreSyncManager.scheduleBackgroundSync(app)
-                    
-                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-                    val restoreDoneKey = "cloud_initial_restore_done_$uid"
-                    val isRestoreDone = prefs.getBoolean(restoreDoneKey, false)
-
-                    val db = com.example.data.database.IspDatabase.getDatabase(app)
-                    val existingCustomers = db.customerDao().getAllCustomers().first()
-                    val existingSettings = db.settingsDao().getSettings().first()
-                    val isSettingsEmpty = existingSettings == null || existingSettings.ispName.isBlank()
-
-                    if (!isRestoreDone || (existingCustomers.isEmpty() && isSettingsEmpty)) {
-                        com.example.util.FirestoreSyncManager.restoreCloudToLocal(app)
-                        prefs.edit().putBoolean(restoreDoneKey, true).apply()
-                    } else {
-                        com.example.util.FirestoreSyncManager.syncLocalToCloud(app)
-                    }
                 }
                 try {
                     repository.syncCustomersFromHosting()
@@ -364,8 +332,89 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 repository.syncCustomersFromHosting()
+                repository.syncBillsFromHosting()
             } catch (e: Throwable) {
-                android.util.Log.w("IspViewModel", "Manual Hosting customer sync note: ${e.message}")
+                android.util.Log.w("IspViewModel", "Manual Hosting sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncBillsFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncBillsFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting bill sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncPaymentsFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncPaymentsFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting payment sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncExpensesFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncExpensesFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting expense sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncExpenseCategoriesFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncExpenseCategoriesFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting expense categories sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncSettingsFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncSettingsFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting settings sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncAuditLogsFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncAuditLogsFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting audit logs sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncBandwidthBillsFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncBandwidthBillsFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting bandwidth bills sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncSpecificAdvancesFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncSpecificAdvancesFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting specific advances sync note: ${e.message}")
             }
         }
     }
@@ -793,6 +842,28 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             if (file.exists()) file.delete() else false
         } catch (e: Exception) {
             false
+        }
+    }
+
+    suspend fun backupToHosting(context: android.content.Context, userId: String): Pair<Boolean, String> {
+        val result = repository.backupToHosting(context, userId)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            _toastMessage.value = result.second
+        }
+        return result
+    }
+
+    suspend fun restoreFromHosting(context: android.content.Context, userId: String): Pair<Boolean, String> {
+        val result = repository.restoreFromHosting(context, userId)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            _toastMessage.value = result.second
+        }
+        return result
+    }
+
+    fun saveBill(bill: com.example.data.model.BillEntity) {
+        viewModelScope.launch {
+            repository.saveBill(bill)
         }
     }
 

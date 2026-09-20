@@ -58,8 +58,8 @@ fun ProfileScreen(
         }
     } catch (e: Throwable) { null }
 
-    val userEmail = authUser?.email ?: "Unknown"
-    val currentUid = authUser?.uid
+    val userEmail = authUser?.email ?: IspApplication.getUserEmail(context) ?: "Unknown"
+    val currentUid = authUser?.uid ?: IspApplication.getUserId(context)
     val syncTimeKey = currentUid?.let { "last_cloud_sync_time_$it" }
     val pendingCountKey = currentUid?.let { "pending_sync_count_$it" }
 

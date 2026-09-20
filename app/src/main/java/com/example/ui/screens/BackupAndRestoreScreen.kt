@@ -352,7 +352,8 @@ fun BackupAndRestoreScreen(
                             ) {
                                 Button(
                                     onClick = {
-                                        val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                                        val uid = com.example.IspApplication.getUserId(context)
+                                            ?: com.example.util.FirestoreSyncManager.getCurrentUid(context)
                                         if (uid.isNullOrBlank()) {
                                             viewModel.showToast("Authentication required")
                                         } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
@@ -361,20 +362,11 @@ fun BackupAndRestoreScreen(
                                             isCloudSyncing = true
                                             coroutineScope.launch {
                                                 try {
-                                                    val result = kotlinx.coroutines.withTimeoutOrNull(90000L) {
-                                                        com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
-                                                    }
-                                                    if (result == true) {
-                                                        viewModel.showToast("Cloud backup successful")
-                                                    } else if (result == null) {
-                                                        viewModel.showToast("Cloud backup timed out. Please check network connection.")
+                                                    val hostingResult = viewModel.backupToHosting(context, uid)
+                                                    if (hostingResult.first) {
+                                                        viewModel.showToast(hostingResult.second)
                                                     } else {
-                                                        val err = com.example.util.FirestoreSyncManager.lastCloudBackupError
-                                                        if (!err.isNullOrBlank()) {
-                                                            viewModel.showToast("Cloud backup failed: $err")
-                                                        } else {
-                                                            viewModel.showToast("Cloud backup failed")
-                                                        }
+                                                        viewModel.showToast("Cloud backup failed: ${hostingResult.second}")
                                                     }
                                                 } catch (e: Exception) {
                                                     viewModel.showToast("Cloud backup failed: ${e.localizedMessage ?: "Error"}")
@@ -612,7 +604,8 @@ fun BackupAndRestoreScreen(
                 Button(
                     onClick = {
                         showCloudRestoreConfirmDialog = false
-                        val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                        val uid = com.example.IspApplication.getUserId(context)
+                            ?: com.example.util.FirestoreSyncManager.getCurrentUid(context)
                         if (uid.isNullOrBlank()) {
                             viewModel.showToast("Authentication required")
                         } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
@@ -621,10 +614,12 @@ fun BackupAndRestoreScreen(
                             isProcessing = true
                             coroutineScope.launch {
                                 try {
-                                    val (success, message) = com.example.util.FirestoreSyncManager.restoreCloudToLocal(context)
-                                    viewModel.showToast(message)
-                                    if (success) {
+                                    val hostingResult = viewModel.restoreFromHosting(context, uid)
+                                    if (hostingResult.first) {
+                                        viewModel.showToast(hostingResult.second)
                                         localBackups = viewModel.getLocalBackupFiles()
+                                    } else {
+                                        viewModel.showToast("Cloud restore failed: ${hostingResult.second}")
                                     }
                                 } catch (e: Exception) {
                                     viewModel.showToast("Cloud restore failed: ${e.localizedMessage ?: "Error"}")
