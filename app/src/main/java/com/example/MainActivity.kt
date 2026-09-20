@@ -373,41 +373,40 @@ fun MainAppContent(
             com.example.ui.screens.SignUpScreen(
                 onSignUpClick = { name, email, phone, pass, onError, onSuccess ->
                     try {
-                        com.example.IspApplication.ensureFirebaseInitialized(context)
-                        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
                         val normalizedEmail = email.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
-                        auth.createUserWithEmailAndPassword(normalizedEmail, pass)
-                            .addOnSuccessListener { result ->
-                                val user = result.user
-                                if (user != null && name.isNotBlank()) {
-                                    val profileUpdates = com.google.firebase.auth.UserProfileChangeRequest.Builder()
-                                        .setDisplayName(name.trim())
-                                        .build()
-                                    user.updateProfile(profileUpdates)
+                        coroutineScope.launch {
+                            try {
+                                val response = com.example.data.remote.ApiClient.apiService.signup(
+                                    com.example.data.remote.SignupRequest(
+                                        name = name.trim(),
+                                        email = normalizedEmail,
+                                        password = pass,
+                                        phone = phone.trim()
+                                    )
+                                )
+                                if (response.status && response.user != null) {
+                                    com.example.IspApplication.setLoggedIn(context, true)
+                                    com.example.IspApplication.setUserId(context, response.user.id)
+                                    com.example.IspApplication.setUserName(context, response.user.name)
+                                    com.example.IspApplication.setUserEmail(context, response.user.email)
+                                    isGuestMode = false
+                                    isAuthChosen = true
+                                    viewModel.showToast(response.message ?: "Account created successfully!")
+                                    viewModel.triggerCloudSyncOnLogin()
+                                    onSuccess()
+                                } else {
+                                    onError(response.message ?: "Sign up failed. Please try again.")
                                 }
-                                com.example.IspApplication.setLoggedIn(context, true)
-                                isGuestMode = false
-                                isAuthChosen = true
-                                viewModel.showToast("Account created for ${name.ifBlank { normalizedEmail }}")
-                                viewModel.triggerCloudSyncOnLogin()
-                                onSuccess()
-                            }
-                            .addOnFailureListener { e ->
+                            } catch (e: Throwable) {
                                 val rawMsg = e.localizedMessage ?: e.message ?: ""
                                 val friendlyMsg = when {
-                                    rawMsg.contains("EMAIL_EXISTS", ignoreCase = true) || rawMsg.contains("ALREADY_IN_USE", ignoreCase = true) ->
-                                        "An account with this email already exists. Please log in."
-                                    rawMsg.contains("WEAK_PASSWORD", ignoreCase = true) ->
-                                        "Password should be at least 6 characters."
-                                    rawMsg.contains("INVALID_EMAIL", ignoreCase = true) ->
-                                        "Please enter a valid email address."
-                                    rawMsg.contains("API keys are not supported", ignoreCase = true) ||
-                                    rawMsg.contains("internal error", ignoreCase = true) ->
-                                        "Unable to connect to authentication server. Please try again or continue as guest."
-                                    else -> rawMsg.ifBlank { "Sign up failed. Please try again." }
+                                    rawMsg.contains("network", ignoreCase = true) || rawMsg.contains("UNAVAILABLE", ignoreCase = true) ->
+                                        "Please check your internet connection and try again."
+                                    else -> "Sign up failed. Please check your connection and try again."
                                 }
                                 onError(friendlyMsg)
                             }
+                        }
                     } catch (e: Throwable) {
                         onError(e.localizedMessage ?: e.message ?: "Sign up error occurred.")
                     }
@@ -420,50 +419,30 @@ fun MainAppContent(
             com.example.ui.screens.LoginScreen(
                 onLoginClick = { identifier, pass, rememberMe, onError, onSuccess ->
                     try {
-                        com.example.IspApplication.ensureFirebaseInitialized(context)
-                        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
                         val normalizedId = identifier.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
                         if (normalizedId.contains("@") && android.util.Patterns.EMAIL_ADDRESS.matcher(normalizedId).matches()) {
-                            auth.signInWithEmailAndPassword(normalizedId, pass)
-                                .addOnSuccessListener { result ->
-                                    com.example.IspApplication.setLoggedIn(context, true)
-                                    isGuestMode = false
-                                    isAuthChosen = true
-                                    viewModel.showToast("Logged in as ${result.user?.email ?: normalizedId}")
-                                    viewModel.triggerCloudSyncOnLogin()
-                                    onSuccess()
-                                }
-                                .addOnFailureListener { e ->
-                                    val rawMsg = e.localizedMessage ?: e.message ?: ""
-                                    val friendlyMsg = when {
-                                        rawMsg.contains("supplied auth credential", ignoreCase = true) ||
-                                        rawMsg.contains("malformed", ignoreCase = true) ||
-                                        rawMsg.contains("expired", ignoreCase = true) ||
-                                        rawMsg.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) ||
-                                        rawMsg.contains("INVALID_CREDENTIALS", ignoreCase = true) ||
-                                        rawMsg.contains("WRONG_PASSWORD", ignoreCase = true) ||
-                                        rawMsg.contains("INVALID_PASSWORD", ignoreCase = true) ->
-                                            "Incorrect email or password. Please check your credentials."
-                                        rawMsg.contains("blocked all requests", ignoreCase = true) ||
-                                        rawMsg.contains("unusual activity", ignoreCase = true) ||
-                                        rawMsg.contains("TOO_MANY_ATTEMPTS", ignoreCase = true) ||
-                                        rawMsg.contains("TOO_MANY_REQUESTS", ignoreCase = true) ->
-                                            "Too many login attempts or unusual activity detected. Please wait a few moments and try again."
-                                        rawMsg.contains("USER_NOT_FOUND", ignoreCase = true) ||
-                                        rawMsg.contains("no user record", ignoreCase = true) ->
-                                            "No account was found with this email."
-                                        rawMsg.contains("USER_DISABLED", ignoreCase = true) ->
-                                            "This user account has been disabled."
-                                        rawMsg.contains("network", ignoreCase = true) ||
-                                        rawMsg.contains("UNAVAILABLE", ignoreCase = true) ->
-                                            "Please check your internet connection and try again."
-                                        rawMsg.contains("API keys are not supported", ignoreCase = true) ||
-                                        rawMsg.contains("internal error", ignoreCase = true) ->
-                                            "Unable to connect to authentication server. Please try again or continue as guest."
-                                        else -> rawMsg.ifBlank { "Login failed. Please check your credentials." }
+                            coroutineScope.launch {
+                                try {
+                                    val response = com.example.data.remote.ApiClient.apiService.login(
+                                        com.example.data.remote.LoginRequest(normalizedId, pass)
+                                    )
+                                    if (response.status && response.user != null) {
+                                        com.example.IspApplication.setLoggedIn(context, true)
+                                        com.example.IspApplication.setUserId(context, response.user.id)
+                                        com.example.IspApplication.setUserName(context, response.user.name)
+                                        com.example.IspApplication.setUserEmail(context, response.user.email)
+                                        isGuestMode = false
+                                        isAuthChosen = true
+                                        viewModel.showToast(response.message ?: "Login successful!")
+                                        viewModel.triggerCloudSyncOnLogin()
+                                        onSuccess()
+                                    } else {
+                                        onError(response.message ?: "Incorrect email or password. Please check your credentials.")
                                     }
-                                    onError(friendlyMsg)
+                                } catch (e: Throwable) {
+                                    onError(e.localizedMessage ?: e.message ?: "Please check your internet connection and try again.")
                                 }
+                            }
                         } else {
                             onError("Please enter a valid Gmail / Email address (e.g. user@example.com).")
                         }

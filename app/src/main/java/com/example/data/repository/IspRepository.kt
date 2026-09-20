@@ -295,6 +295,44 @@ class IspRepository(
             newState = "Package: ${customer.packageName}, Fee: ৳${customer.monthlyFee}, Status: ${customer.status}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx) ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val savedCustomerId = if (customerToSave.id != 0L) customerToSave.id else result
+                    val cycleDate = try {
+                        val parts = customerToSave.joiningDate.trim().split("-", "/", ".")
+                        if (parts.size >= 3) {
+                            val day = if (parts[0].length == 4) parts[2].toIntOrNull() else parts[0].toIntOrNull()
+                            day?.coerceIn(1, 31) ?: 1
+                        } else {
+                            1
+                        }
+                    } catch (e: Exception) {
+                        1
+                    }
+                    val request = AddCustomerRequest(
+                        id = savedCustomerId.toString(),
+                        userId = userId,
+                        name = customerToSave.name,
+                        phone = customerToSave.phone.ifBlank { null },
+                        address = customerToSave.address.ifBlank { null },
+                        ipAddress = customerToSave.ipAddress.ifBlank { null },
+                        packageId = if (customerToSave.packageId > 0L) customerToSave.packageId.toString() else null,
+                        billingCycleDate = cycleDate,
+                        status = customerToSave.status
+                    )
+                    val response = ApiClient.apiService.saveCustomer(request)
+                    if (!response.status) {
+                        Log.w("IspRepository", "Server rejected customer save: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to save customer via Hosting API: ${e.message}")
+                }
+            }
+        }
+
         return result
     }
 
@@ -383,6 +421,42 @@ class IspRepository(
             newState = "Package: ${customer.packageName}, Fee: ৳${customer.monthlyFee}, Status: ${customer.status}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx) ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val cycleDate = try {
+                        val parts = updated.joiningDate.trim().split("-", "/", ".")
+                        if (parts.size >= 3) {
+                            val day = if (parts[0].length == 4) parts[2].toIntOrNull() else parts[0].toIntOrNull()
+                            day?.coerceIn(1, 31) ?: 1
+                        } else {
+                            1
+                        }
+                    } catch (e: Exception) {
+                        1
+                    }
+                    val request = AddCustomerRequest(
+                        id = updated.id.toString(),
+                        userId = userId,
+                        name = updated.name,
+                        phone = updated.phone.ifBlank { null },
+                        address = updated.address.ifBlank { null },
+                        ipAddress = updated.ipAddress.ifBlank { null },
+                        packageId = if (updated.packageId > 0L) updated.packageId.toString() else null,
+                        billingCycleDate = cycleDate,
+                        status = updated.status
+                    )
+                    val response = ApiClient.apiService.saveCustomer(request)
+                    if (!response.status) {
+                        Log.w("IspRepository", "Server rejected customer update: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to update customer via Hosting API: ${e.message}")
+                }
+            }
+        }
     }
 
     suspend fun deleteCustomer(customer: CustomerEntity) {
@@ -411,6 +485,21 @@ class IspRepository(
                 com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "payments", payment.id.toString())
             }
             com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "customers", customer.id.toString())
+
+            val userId = com.example.IspApplication.getUserId(ctx) ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val response = ApiClient.apiService.deleteCustomer(
+                        id = customer.id.toString(),
+                        userId = userId
+                    )
+                    if (!response.status) {
+                        Log.w("IspRepository", "Server rejected customer deletion: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to delete customer via Hosting API: ${e.message}")
+                }
+            }
         }
         logActivity(
             action = "CUSTOMER_DELETE",
@@ -457,6 +546,31 @@ class IspRepository(
             newState = "Speed: ${pkg.speedMbps} Mbps, Price: ৳${pkg.monthlyPrice}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = com.example.data.remote.PackageRequest(
+                        id = pkgToSave.id.toString(),
+                        userId = userId,
+                        name = pkgToSave.name,
+                        price = pkgToSave.monthlyPrice,
+                        speed = if (pkgToSave.speedMbps > 0) pkgToSave.speedMbps.toString() else null
+                    )
+                    val response = ApiClient.apiService.savePackage(request)
+                    if (response.status) {
+                        packageDao.updatePackage(pkgToSave.copy(syncStatus = 0))
+                    } else {
+                        Log.w("IspRepository", "Server rejected package save: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to save package via Hosting API: ${e.message}")
+                }
+            }
+        }
+
         return result
     }
 
@@ -472,13 +586,53 @@ class IspRepository(
             newState = "Speed: ${pkg.speedMbps} Mbps, Price: ৳${pkg.monthlyPrice}"
         )
         notifyCloudSync()
+
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val request = com.example.data.remote.PackageRequest(
+                        id = updated.id.toString(),
+                        userId = userId,
+                        name = updated.name,
+                        price = updated.monthlyPrice,
+                        speed = if (updated.speedMbps > 0) updated.speedMbps.toString() else null
+                    )
+                    val response = ApiClient.apiService.savePackage(request)
+                    if (response.status) {
+                        packageDao.updatePackage(updated.copy(syncStatus = 0))
+                    } else {
+                        Log.w("IspRepository", "Server rejected package update: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to update package via Hosting API: ${e.message}")
+                }
+            }
+        }
     }
 
     suspend fun deletePackage(pkg: IspPackageEntity) {
         packageDao.deletePackage(pkg)
-        context?.let {
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "packages", pkg.id.toString())
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "packages", pkg.id.toString())
+        context?.let { ctx ->
+            com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "packages", pkg.id.toString())
+            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "packages", pkg.id.toString())
+
+            val userId = com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            if (userId != null) {
+                try {
+                    val response = ApiClient.apiService.deletePackage(
+                        id = pkg.id.toString(),
+                        userId = userId
+                    )
+                    if (!response.status) {
+                        Log.w("IspRepository", "Server rejected package deletion: ${response.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("IspRepository", "Failed to delete package via Hosting API: ${e.message}")
+                }
+            }
         }
         logActivity(
             action = "PACKAGE_DELETE",
@@ -2408,5 +2562,213 @@ class IspRepository(
 
     fun getBills(userId: String): Flow<Resource<List<BillModel>>> {
         return safeApiCall { ApiClient.apiService.getBills(userId) }
+    }
+
+    suspend fun syncPackagesFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync packages from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        val response = try {
+            ApiClient.apiService.getPackages(userId)
+        } catch (e: IOException) {
+            Log.e("IspRepository", "Network error while syncing packages from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing packages from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing packages from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting package API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = packageDao.getAllPackagesList()
+            val existingMap = existingList.associateBy { it.id }
+            val entitiesToPersist = mutableListOf<IspPackageEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull()
+                if (numId == null) {
+                    Log.w("IspRepository", "Skipping remote package with non-numeric ID: ${remote.id}")
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                val speedInt = remote.speed?.toIntOrNull() ?: existing?.speedMbps ?: 0
+
+                val entity = if (existing != null) {
+                    existing.copy(
+                        name = remote.name,
+                        speedMbps = speedInt,
+                        monthlyPrice = remote.price,
+                        updatedAt = System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                } else {
+                    IspPackageEntity(
+                        id = numId,
+                        name = remote.name,
+                        speedMbps = speedInt,
+                        monthlyPrice = remote.price,
+                        description = "",
+                        updatedAt = System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                }
+                entitiesToPersist.add(entity)
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                packageDao.insertPackages(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} packages from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting packages to Room: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun syncCustomersFromHosting(userIdOverride: String? = null): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val ctx = context
+        val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
+            com.example.IspApplication.getUserId(ctx)
+                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+        } else {
+            com.example.util.FirestoreSyncManager.getCurrentUid()
+        }
+
+        if (userId.isNullOrBlank()) {
+            Log.w("IspRepository", "Cannot sync customers from Hosting: unauthenticated (user ID is null)")
+            return@withContext false
+        }
+
+        // Package sync must run before customer sync so packageDao is populated
+        try {
+            syncPackagesFromHosting(userIdOverride)
+        } catch (e: Throwable) {
+            Log.w("IspRepository", "Pre-customer package sync failed (continuing with existing local packages): ${e.message}")
+        }
+
+        val response = try {
+            ApiClient.apiService.getCustomers(userId)
+        } catch (e: IOException) {
+            Log.e("IspRepository", "Network error while syncing customers from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: HttpException) {
+            Log.e("IspRepository", "HTTP error ${e.code()} while syncing customers from Hosting: ${e.message}")
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Unexpected error while syncing customers from Hosting: ${e.message}")
+            return@withContext false
+        }
+
+        if (!response.status || response.data == null) {
+            Log.w("IspRepository", "Hosting API returned status=false or null data: ${response.message}")
+            return@withContext false
+        }
+
+        try {
+            val existingList = customerDao.getAllCustomersList()
+            val existingMap = existingList.associateBy { it.id }
+            val packageList = packageDao.getAllPackagesList()
+            val packageMap = packageList.associateBy { it.id }
+            val entitiesToPersist = mutableListOf<CustomerEntity>()
+
+            for (remote in response.data) {
+                val numId = remote.id.toLongOrNull()
+                if (numId == null) {
+                    Log.w("IspRepository", "Skipping remote customer with non-numeric ID: ${remote.id}")
+                    continue
+                }
+
+                val existing = existingMap[numId]
+                if (existing != null) {
+                    val targetPackageId = remote.packageId?.toLongOrNull() ?: existing.packageId
+                    val matchedPkg = packageMap[targetPackageId]
+                    val updated = existing.copy(
+                        name = remote.name,
+                        phone = remote.phone ?: existing.phone,
+                        address = remote.address ?: existing.address,
+                        ipAddress = remote.ipAddress ?: existing.ipAddress,
+                        pppoeUsername = remote.pppoeUsername ?: existing.pppoeUsername,
+                        customerCode = remote.customerCode ?: existing.customerCode,
+                        joiningDate = remote.joiningDate ?: existing.joiningDate,
+                        packageId = targetPackageId,
+                        packageName = matchedPkg?.name ?: existing.packageName,
+                        monthlyFee = matchedPkg?.monthlyPrice ?: existing.monthlyFee,
+                        status = remote.status,
+                        updatedAt = System.currentTimeMillis(),
+                        syncStatus = 0
+                    )
+                    entitiesToPersist.add(updated)
+                } else {
+                    // New remote customer
+                    val custCode = remote.customerCode?.trim()
+                    val pppoeUser = remote.pppoeUsername?.trim()
+                    val joinDate = remote.joiningDate?.trim()
+                    val targetPackageId = remote.packageId?.toLongOrNull()
+                    val matchedPkg = if (targetPackageId != null) packageMap[targetPackageId] else null
+
+                    if (custCode.isNullOrBlank()) {
+                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): missing required customer_code")
+                        continue
+                    }
+                    if (pppoeUser.isNullOrBlank()) {
+                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): missing required pppoe_username")
+                        continue
+                    }
+                    if (joinDate.isNullOrBlank()) {
+                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): missing required joining_date")
+                        continue
+                    }
+                    if (targetPackageId == null || matchedPkg == null) {
+                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): package_id ($targetPackageId) could not be resolved in package database")
+                        continue
+                    }
+
+                    val newCustomer = CustomerEntity(
+                        id = numId,
+                        customerCode = custCode,
+                        name = remote.name,
+                        phone = remote.phone ?: "",
+                        address = remote.address ?: "",
+                        pppoeUsername = pppoeUser,
+                        ipAddress = remote.ipAddress ?: "",
+                        packageId = targetPackageId,
+                        packageName = matchedPkg.name,
+                        monthlyFee = matchedPkg.monthlyPrice,
+                        status = remote.status,
+                        joiningDate = joinDate,
+                        syncStatus = 0
+                    )
+                    entitiesToPersist.add(newCustomer)
+                }
+            }
+
+            if (entitiesToPersist.isNotEmpty()) {
+                customerDao.insertCustomers(entitiesToPersist)
+                Log.d("IspRepository", "Successfully synced and persisted ${entitiesToPersist.size} customers from Hosting.")
+            }
+            true
+        } catch (e: Exception) {
+            Log.e("IspRepository", "Database error while persisting Hosting customers to Room: ${e.message}", e)
+            false
+        }
     }
 }

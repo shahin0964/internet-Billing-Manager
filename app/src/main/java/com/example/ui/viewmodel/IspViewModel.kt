@@ -108,6 +108,14 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        viewModelScope.launch {
+            try {
+                repository.syncCustomersFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Hosting customer sync on init note: ${e.message}")
+            }
+        }
+
         customers = repository.customers.stateIn(
             viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
         )
@@ -341,8 +349,23 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                         com.example.util.FirestoreSyncManager.syncLocalToCloud(app)
                     }
                 }
+                try {
+                    repository.syncCustomersFromHosting()
+                } catch (e: Throwable) {
+                    android.util.Log.w("IspViewModel", "Hosting customer sync on login note: ${e.message}")
+                }
             } catch (e: Throwable) {
                 android.util.Log.w("IspViewModel", "Cloud sync on login note: ${e.message}")
+            }
+        }
+    }
+
+    fun syncCustomersFromHosting() {
+        viewModelScope.launch {
+            try {
+                repository.syncCustomersFromHosting()
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "Manual Hosting customer sync note: ${e.message}")
             }
         }
     }

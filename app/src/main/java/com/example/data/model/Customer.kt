@@ -20,5 +20,13 @@ data class Customer(
     @SerializedName("billing_cycle_date")
     val billingCycleDate: Int,
     @SerializedName("status")
-    val status: String
+    val status: String,
+    @SerializedName("pppoe_username")
+    val pppoeUsername: String? = null,
+    @SerializedName("customer_code")
+    val customerCode: String? = null,
+    @SerializedName("joining_date")
+    val joiningDate: String? = null,
+    @SerializedName("created_at")
+    val createdAt: String? = null
 )

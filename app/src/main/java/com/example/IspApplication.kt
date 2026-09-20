@@ -54,6 +54,42 @@ class IspApplication : Application() {
         }
 
         @JvmStatic
+        fun getUserId(context: Context): String? {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            return prefs.getString("user_id", null)
+        }
+
+        @JvmStatic
+        fun setUserId(context: Context, id: String?) {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("user_id", id).apply()
+        }
+
+        @JvmStatic
+        fun getUserName(context: Context): String? {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            return prefs.getString("user_name", null)
+        }
+
+        @JvmStatic
+        fun setUserName(context: Context, name: String?) {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("user_name", name).apply()
+        }
+
+        @JvmStatic
+        fun getUserEmail(context: Context): String? {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            return prefs.getString("user_email", null)
+        }
+
+        @JvmStatic
+        fun setUserEmail(context: Context, email: String?) {
+            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("user_email", email).apply()
+        }
+
+        @JvmStatic
         fun ensureFirebaseInitialized(context: Context) {
             val appContext = context.applicationContext ?: context
             try {
