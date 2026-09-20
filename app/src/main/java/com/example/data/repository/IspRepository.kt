@@ -40,6 +40,18 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.example.data.remote.ApiClient
+import com.example.data.remote.ApiService
+import com.example.data.model.ApiResponse
+import com.example.data.model.Customer
+import com.example.data.model.PackageModel
+import com.example.data.model.AddCustomerRequest
+import com.example.data.model.BillModel
+import com.example.util.Resource
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import java.io.IOException
+import retrofit2.HttpException
 
 class IspRepository(
     private val customerDao: CustomerDao,
@@ -2341,5 +2353,60 @@ class IspRepository(
             targetId = diagramId.toString()
         )
         notifyCloudSync()
+    }
+
+    // Reusable safe API helper for GET operations returning Flow<Resource<T>>
+    private fun <T> safeApiCall(apiCall: suspend () -> ApiResponse<T>): Flow<Resource<T>> = flow {
+        emit(Resource.Loading)
+        try {
+            val response = apiCall()
+            if (response.status && response.data != null) {
+                emit(Resource.Success(response.data))
+            } else {
+                emit(Resource.Error(response.message ?: "Failed to read data from server"))
+            }
+        } catch (e: IOException) {
+            emit(Resource.Error("No internet connection or network failure"))
+        } catch (e: HttpException) {
+            emit(Resource.Error("Server returned error (HTTP ${e.code()})"))
+        } catch (e: Exception) {
+            emit(Resource.Error(e.localizedMessage ?: "Unknown network communication error"))
+        }
+    }.flowOn(Dispatchers.IO)
+
+    // Reusable safe API helper for POST/save operations returning Flow<Resource<Unit>>
+    private fun safeSaveCall(apiCall: suspend () -> ApiResponse<Unit>): Flow<Resource<Unit>> = flow {
+        emit(Resource.Loading)
+        try {
+            val response = apiCall()
+            if (response.status) {
+                emit(Resource.Success(Unit))
+            } else {
+                emit(Resource.Error(response.message ?: "Server rejected creation request"))
+            }
+        } catch (e: IOException) {
+            emit(Resource.Error("No internet connection or network failure"))
+        } catch (e: HttpException) {
+            emit(Resource.Error("Server returned error (HTTP ${e.code()})"))
+        } catch (e: Exception) {
+            emit(Resource.Error(e.localizedMessage ?: "Post request failed with network error"))
+        }
+    }.flowOn(Dispatchers.IO)
+
+    // REST API endpoints wrappers
+    fun getCustomers(userId: String): Flow<Resource<List<Customer>>> {
+        return safeApiCall { ApiClient.apiService.getCustomers(userId) }
+    }
+
+    fun addCustomer(request: AddCustomerRequest): Flow<Resource<Unit>> {
+        return safeSaveCall { ApiClient.apiService.saveCustomer(request) }
+    }
+
+    fun getPackages(userId: String): Flow<Resource<List<PackageModel>>> {
+        return safeApiCall { ApiClient.apiService.getPackages(userId) }
+    }
+
+    fun getBills(userId: String): Flow<Resource<List<BillModel>>> {
+        return safeApiCall { ApiClient.apiService.getBills(userId) }
     }
 }
