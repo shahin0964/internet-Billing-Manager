@@ -1,5 +1,6 @@
 package com.example.data.remote
 
+import com.google.gson.GsonBuilder
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -25,10 +26,13 @@ object ApiClient {
     }
 
     private val retrofit: Retrofit by lazy {
+        val gson = GsonBuilder()
+            .setLenient()
+            .create()
         Retrofit.Builder()
             .baseUrl(BASE_URL)
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
     }
 
