@@ -1,5 +1,6 @@
 package com.example.data.remote
 
+import android.util.Log
 import com.google.gson.GsonBuilder
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -16,8 +17,40 @@ object ApiClient {
         }
     }
 
+    private val errorLoggingInterceptor = okhttp3.Interceptor { chain ->
+        val request = chain.request()
+        val response = chain.proceed(request)
+        
+        if (!response.isSuccessful || response.code == 500) {
+            val responseBody = response.body
+            if (responseBody != null) {
+                try {
+                    val source = responseBody.source()
+                    source.request(Long.MAX_VALUE)
+                    val buffer = source.buffer
+                    val responseBodyString = buffer.clone().readString(Charsets.UTF_8)
+                    
+                    Log.e("API_HTTP_ERROR", "==================================================")
+                    Log.e("API_HTTP_ERROR", "HTTP ERROR DETECTED ON API CALL")
+                    Log.e("API_HTTP_ERROR", "URL: ${request.url}")
+                    Log.e("API_HTTP_ERROR", "Method: ${request.method}")
+                    Log.e("API_HTTP_ERROR", "Status Code: ${response.code}")
+                    Log.e("API_HTTP_ERROR", "Message: ${response.message}")
+                    Log.e("API_HTTP_ERROR", "Response Body:\n$responseBodyString")
+                    Log.e("API_HTTP_ERROR", "==================================================")
+                } catch (e: Exception) {
+                    Log.e("API_HTTP_ERROR", "Failed to print error response body: ${e.message}")
+                }
+            } else {
+                Log.e("API_HTTP_ERROR", "HTTP ${response.code} error on ${request.url} but body is null")
+            }
+        }
+        response
+    }
+
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .addInterceptor(errorLoggingInterceptor)
             .addInterceptor(loggingInterceptor)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
