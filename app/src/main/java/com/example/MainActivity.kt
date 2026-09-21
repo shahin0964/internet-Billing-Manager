@@ -257,10 +257,10 @@ fun MainAppContent(
     val initialAuthUser = remember {
         try {
             if (com.example.IspApplication.isLoggedIn(context)) {
+                com.example.IspApplication.getUserId(context) ?: "authenticated_user"
+            } else {
                 com.example.IspApplication.ensureFirebaseInitialized(context)
                 com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-            } else {
-                null
             }
         } catch (e: Throwable) {
             null

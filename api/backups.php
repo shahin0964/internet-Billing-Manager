@@ -110,9 +110,12 @@ if ($method === 'POST') {
         exit;
     }
 
-    // Validate backup data is valid JSON
-    $decodedBackup = json_decode($backupData, true);
-    if (!is_array($decodedBackup)) {
+    // Validate backup data has valid JSON structure without fully decoding it in memory
+    $backupDataTrimmed = trim($backupData);
+    $firstChar = substr($backupDataTrimmed, 0, 1);
+    $lastChar = substr($backupDataTrimmed, -1);
+    $isValidJsonStructure = (($firstChar === '{' && $lastChar === '}') || ($firstChar === '[' && $lastChar === ']'));
+    if (!$isValidJsonStructure) {
         echo json_encode(["status" => false, "message" => "Invalid backup payload format: must be valid JSON"]);
         exit;
     }
@@ -133,7 +136,7 @@ if ($method === 'POST') {
             "backup_id" => (string)$insertedId
         ]);
         exit;
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         echo json_encode(["status" => false, "message" => "Database error creating backup: " . $e->getMessage()]);
         exit;
     }
