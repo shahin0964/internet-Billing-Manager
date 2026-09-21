@@ -290,73 +290,14 @@ object FirestoreSyncManager {
                 }
             }
 
-            if (collectionName == "network_diagrams" || collectionName == "network_nodes" || collectionName == "network_connections") {
-                val uid = getCurrentUid(context)
-                if (!uid.isNullOrBlank()) {
-                    val firestore = FirebaseFirestore.getInstance()
-                    val docId = "${collectionName}_$id"
-                    firestore.collection("users").document(uid)
-                        .collection("deleted_records").document(docId)
-                        .set(mapOf(
-                            "collection" to collectionName,
-                            "recordId" to id,
-                            "deletedAt" to System.currentTimeMillis()
-                        ))
-                }
-            }
+
         } catch (e: Throwable) {
             Log.w(TAG, "Error marking record as deleted: ${e.message}")
         }
     }
 
     suspend fun syncAndGetDeletedRecords(context: Context, userRef: com.google.firebase.firestore.DocumentReference): Set<String> {
-        val prefs = context.getSharedPreferences("isp_deleted_records", Context.MODE_PRIVATE)
-        val localDeleted = prefs.getStringSet("deleted_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
-        
-        val combinedDeleted = mutableSetOf<String>()
-        combinedDeleted.addAll(localDeleted)
-        
-        try {
-            val remoteDeletedDocs = withTimeoutOrNull(5000L) {
-                userRef.collection("deleted_records").get().await()
-            }
-            remoteDeletedDocs?.documents?.forEach { doc ->
-                val collection = doc.getString("collection") ?: ""
-                val recordId = doc.getString("recordId") ?: ""
-                if (collection == "network_diagrams" || collection == "network_nodes" || collection == "network_connections") {
-                    combinedDeleted.add("$collection:$recordId")
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error fetching remote deleted records: ${e.message}")
-        }
-        
-        // Sync local deleted ones to remote ONLY for protected network diagram features
-        localDeleted.forEach { key ->
-            val parts = key.split(":")
-            if (parts.size == 2) {
-                val col = parts[0]
-                val id = parts[1]
-                if (col == "network_diagrams" || col == "network_nodes" || col == "network_connections") {
-                    try {
-                        userRef.collection("deleted_records").document("${col}_$id").set(
-                            mapOf(
-                                "collection" to col,
-                                "recordId" to id,
-                                "deletedAt" to System.currentTimeMillis()
-                            )
-                        )
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error uploading deleted record tombstone: ${e.message}")
-                    }
-                }
-            }
-        }
-        
-        // Save the merged list back locally to stay updated
-        prefs.edit().putStringSet("deleted_ids", combinedDeleted).apply()
-        
-        return combinedDeleted
+        return emptySet()
     }
 
     /**
@@ -396,9 +337,9 @@ object FirestoreSyncManager {
             val dirtyExpenses = db.expenseDao().getDirtyExpenses().size
             val dirtyCategories = db.expenseDao().getDirtyCategories().size
             val dirtySettings = if (db.settingsDao().getDirtySettings() != null) 1 else 0
-            val dirtyDiagrams = db.networkDiagramDao().getDirtyDiagrams().size
-            val dirtyNodes = db.networkDiagramDao().getDirtyNodes().size
-            val dirtyConnections = db.networkDiagramDao().getDirtyConnections().size
+            val dirtyDiagrams = 0
+            val dirtyNodes = 0
+            val dirtyConnections = 0
             val dirtyAuditLogs = db.auditLogDao().getDirtyAuditLogs().size
             val dirtyBandwidthBills = db.bandwidthBillDao().getDirtyBandwidthBills().size
             val dirtySpecificAdvances = db.specificAdvanceDao().getDirtySpecificAdvances().size
@@ -465,27 +406,7 @@ object FirestoreSyncManager {
      * Safely deletes a document from user's Firestore collection when deleted locally.
      */
     suspend fun deleteDocumentFromCloud(context: Context, collectionName: String, docId: String) = withContext(Dispatchers.IO) {
-        if (collectionName != "network_diagrams" && collectionName != "network_nodes" && collectionName != "network_connections") {
-            return@withContext
-        }
-        com.example.IspApplication.ensureFirebaseInitialized(context)
-        val uid = getCurrentUid(context) ?: return@withContext
-        try {
-            val firestore = FirebaseFirestore.getInstance()
-            firestore.collection("users").document(uid)
-                .collection(collectionName).document(docId)
-                .delete()
-                .await()
-            Log.d(TAG, "Deleted doc $docId from cloud collection $collectionName")
-        } catch (e: FirebaseFirestoreException) {
-            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                Log.w(TAG, "Firestore delete permission denied for doc $docId: ${e.message}")
-            } else {
-                Log.w(TAG, "Firestore error deleting doc $docId: ${e.message}")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error deleting doc $docId from cloud: ${e.message}")
-        }
+        return@withContext
     }
 
     /**
@@ -494,229 +415,7 @@ object FirestoreSyncManager {
      * Path structure: users/{uid}/{collection}/{id}
      */
     suspend fun syncLocalToCloud(context: Context): Boolean = withContext(Dispatchers.IO) {
-        com.example.IspApplication.ensureFirebaseInitialized(context)
-        val uid = getCurrentUid(context)
-        if (uid.isNullOrBlank()) {
-            Log.d(TAG, "Sync failed: User is guest or unauthenticated.")
-            return@withContext false
-        }
-        if (!isNetworkAvailable(context)) {
-            Log.d(TAG, "Sync skipped: No active network connection.")
-            return@withContext false
-        }
-
-        try {
-            val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("is_syncing", true).apply()
-
-            val db = IspDatabase.getDatabase(context)
-            val firestore = FirebaseFirestore.getInstance()
-            val userRef = firestore.collection("users").document(uid)
-
-            // Step 1: Collect dirty entities only for protected network diagram features
-            val dirtyDiagrams = db.networkDiagramDao().getDirtyDiagrams()
-            val dirtyNodes = db.networkDiagramDao().getDirtyNodes()
-            val dirtyConnections = db.networkDiagramDao().getDirtyConnections()
-            val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions().filter {
-                it.collectionName == "network_diagrams" ||
-                it.collectionName == "network_nodes" ||
-                it.collectionName == "network_connections"
-            }
-
-            val totalDirtyCount = dirtyDiagrams.size + dirtyNodes.size + dirtyConnections.size + pendingDeletions.size
-
-            if (totalDirtyCount == 0) {
-                Log.d(TAG, "Delta Sync: No dirty network diagram records or pending deletions to upload. Quota preserved.")
-                prefs.edit()
-                    .putLong("last_cloud_sync_time_$uid", System.currentTimeMillis())
-                    .putInt("pending_sync_count_$uid", 0)
-                    .putBoolean("is_syncing", false)
-                    .apply()
-                return@withContext true
-            }
-
-            Log.i(TAG, "Delta Sync: Processing $totalDirtyCount modified network diagram records for UID: $uid")
-
-            // Multi-Device Conflict Protection:
-            // Fetch remote metadata ONLY for dirty document IDs (never full collections) to verify updatedAt.
-            val remoteTimestamps = java.util.concurrent.ConcurrentHashMap<String, Long>()
-            val remoteDocsToFetch = mutableListOf<Pair<String, com.google.firebase.firestore.DocumentReference>>()
-
-            for (d in dirtyDiagrams) remoteDocsToFetch.add("network_diagrams:${d.id}" to userRef.collection("network_diagrams").document(d.id.toString()))
-            for (n in dirtyNodes) remoteDocsToFetch.add("network_nodes:${n.id}" to userRef.collection("network_nodes").document(n.id))
-            for (cn in dirtyConnections) remoteDocsToFetch.add("network_connections:${cn.id}" to userRef.collection("network_connections").document(cn.id))
-
-            // Fetch targeted remote snapshots in parallel without blocking delta sync pipeline
-            if (remoteDocsToFetch.isNotEmpty()) {
-                try {
-                    withTimeoutOrNull(4000L) {
-                        kotlinx.coroutines.coroutineScope {
-                            remoteDocsToFetch.map { item ->
-                                launch {
-                                    try {
-                                        val snap = item.second.get().await()
-                                        if (snap != null && snap.exists()) {
-                                            val rUpdatedAt = snap.getLong("updatedAt") ?: snap.getLong("timestamp") ?: 0L
-                                            remoteTimestamps[item.first] = rUpdatedAt
-                                        }
-                                    } catch (_: Exception) { }
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Conflict check non-blocking note: ${e.message}")
-                }
-            }
-
-            val syncOperations = mutableListOf<SyncOperation>()
-
-            // 1. Pending Deletions for Protected Network Diagram features
-            for (del in pendingDeletions) {
-                val docRef = userRef.collection(del.collectionName).document(del.documentId)
-                val delId = del.id
-                syncOperations.add(
-                    SyncOperation(
-                        writeOp = { batch -> batch.delete(docRef) },
-                        onSuccess = { database -> database.pendingDeletionDao().deletePendingDeletionsByIds(listOf(delId)) }
-                    )
-                )
-            }
-
-            // 8. Network Diagrams
-            for (diag in dirtyDiagrams) {
-                val rTime = remoteTimestamps["network_diagrams:${diag.id}"]
-                if (rTime != null && rTime > diag.updatedAt) {
-                    Log.w(TAG, "Conflict detected for Diagram ${diag.id}: remote ($rTime) > local (${diag.updatedAt}). Preserving remote.")
-                    db.networkDiagramDao().markDiagramsSynced(listOf(diag.id))
-                } else {
-                    val map = mapOf(
-                        "id" to diag.id,
-                        "name" to diag.name,
-                        "isDefault" to diag.isDefault,
-                        "createdAt" to diag.createdAt,
-                        "updatedAt" to diag.updatedAt
-                    )
-                    val docRef = userRef.collection("network_diagrams").document(diag.id.toString())
-                    val diagId = diag.id
-                    syncOperations.add(
-                        SyncOperation(
-                            writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
-                            onSuccess = { database -> database.networkDiagramDao().markDiagramsSynced(listOf(diagId)) }
-                        )
-                    )
-                }
-            }
-
-            // 9. Network Nodes
-            for (node in dirtyNodes) {
-                val rTime = remoteTimestamps["network_nodes:${node.id}"]
-                if (rTime != null && rTime > node.updatedAt) {
-                    Log.w(TAG, "Conflict detected for Node ${node.id}: remote ($rTime) > local (${node.updatedAt}). Preserving remote.")
-                    db.networkDiagramDao().markNodesSynced(listOf(node.id))
-                } else {
-                    val nodeMap = mapOf(
-                        "id" to node.id,
-                        "diagramId" to node.diagramId,
-                        "name" to node.name,
-                        "type" to node.type,
-                        "ipAddress" to node.ipAddress,
-                        "location" to node.location,
-                        "areaZone" to node.areaZone,
-                        "portInfo" to node.portInfo,
-                        "customerRef" to node.customerRef,
-                        "customerId" to node.customerId,
-                        "notes" to node.notes,
-                        "positionX" to node.positionX,
-                        "positionY" to node.positionY,
-                        "updatedAt" to node.updatedAt
-                    )
-                    val docRef = userRef.collection("network_nodes").document(node.id)
-                    val nodeId = node.id
-                    syncOperations.add(
-                        SyncOperation(
-                            writeOp = { batch -> batch.set(docRef, nodeMap, SetOptions.merge()) },
-                            onSuccess = { database -> database.networkDiagramDao().markNodesSynced(listOf(nodeId)) }
-                        )
-                    )
-                }
-            }
-
-            // 10. Network Connections
-            for (conn in dirtyConnections) {
-                val rTime = remoteTimestamps["network_connections:${conn.id}"]
-                if (rTime != null && rTime > conn.updatedAt) {
-                    Log.w(TAG, "Conflict detected for Connection ${conn.id}: remote ($rTime) > local (${conn.updatedAt}). Preserving remote.")
-                    db.networkDiagramDao().markConnectionsSynced(listOf(conn.id))
-                } else {
-                    val connMap = mapOf(
-                        "id" to conn.id,
-                        "diagramId" to conn.diagramId,
-                        "fromNodeId" to conn.fromNodeId,
-                        "toNodeId" to conn.toNodeId,
-                        "label" to conn.label,
-                        "notes" to conn.notes,
-                        "updatedAt" to conn.updatedAt
-                    )
-                    val docRef = userRef.collection("network_connections").document(conn.id)
-                    val connId = conn.id
-                    syncOperations.add(
-                        SyncOperation(
-                            writeOp = { batch -> batch.set(docRef, connMap, SetOptions.merge()) },
-                            onSuccess = { database -> database.networkDiagramDao().markConnectionsSynced(listOf(connId)) }
-                        )
-                    )
-                }
-            }
-
-            // Commit write operations in chunks and mark each chunk synced upon success
-            val syncSuccess = commitSyncOperationsInChunks(firestore, db, syncOperations)
-
-            if (syncSuccess) {
-                try {
-                    withTimeoutOrNull(8000L) {
-                        userRef.collection("sync_meta").document("status").set(
-                            mapOf(
-                                "lastSyncTimestamp" to System.currentTimeMillis(),
-                                "lastBatchSize" to totalDirtyCount
-                            ),
-                            SetOptions.merge()
-                        ).await()
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Non-critical: sync_meta update failed: ${e.message}")
-                }
-
-                val remainingDirty = getActualPendingDirtyCount(context)
-                val editor = prefs.edit().putBoolean("is_syncing", false)
-                editor.putLong("last_cloud_sync_time_$uid", System.currentTimeMillis())
-                editor.putInt("pending_sync_count_$uid", remainingDirty)
-                editor.apply()
-
-                Log.i(TAG, "Successfully committed Delta Sync batch of $totalDirtyCount records for UID: $uid")
-                true
-            } else {
-                val remainingDirty = getActualPendingDirtyCount(context)
-                prefs.edit()
-                    .putInt("pending_sync_count_$uid", remainingDirty)
-                    .putBoolean("is_syncing", false)
-                    .apply()
-                Log.w(TAG, "Delta Sync partially completed: Successful chunks were marked synced; failed chunks remain dirty.")
-                false
-            }
-        } catch (e: FirebaseFirestoreException) {
-            context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
-            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                Log.w(TAG, "Firestore sync skipped (Permission Denied): Check Firestore security rules or authentication status.")
-            } else {
-                Log.w(TAG, "Firestore error syncing local data: ${e.message}")
-            }
-            false
-        } catch (e: Exception) {
-            context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_syncing", false).apply()
-            Log.w(TAG, "Error syncing local data to Firestore: ${e.message}")
-            false
-        }
+        return@withContext true
     }
 
     /**
@@ -750,123 +449,8 @@ object FirestoreSyncManager {
             val firestore = FirebaseFirestore.getInstance()
             val userRef = firestore.collection("users").document(uid)
 
-            // Step 1: Collect ALL local network diagram entities regardless of syncStatus (0 or 1)
-            val allDiagrams = db.networkDiagramDao().getAllDiagramsList()
-            val allNodes = db.networkDiagramDao().getAllNodesList()
-            val allConnections = db.networkDiagramDao().getAllConnectionsList()
-            val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions().filter {
-                it.collectionName == "network_diagrams" ||
-                it.collectionName == "network_nodes" ||
-                it.collectionName == "network_connections"
-            }
-
+            // Step 1: Collect ALL local network diagram entities (Completely Removed from Cloud Backup)
             val syncOperations = mutableListOf<SyncOperation>()
-
-            // 1. Pending Deletions for Protected Network Diagram features
-            for (del in pendingDeletions) {
-                val docRef = userRef.collection(del.collectionName).document(del.documentId)
-                val delId = del.id
-                syncOperations.add(
-                    SyncOperation(
-                        writeOp = { batch -> batch.delete(docRef) },
-                        onSuccess = { database -> database.pendingDeletionDao().deletePendingDeletionsByIds(listOf(delId)) }
-                    )
-                )
-            }
-
-            // 1.5. deleted_records (Tombstones from SharedPreferences)
-            val deletedPrefs = context.getSharedPreferences("isp_deleted_records", Context.MODE_PRIVATE)
-            val localDeletedSet = deletedPrefs.getStringSet("deleted_ids", emptySet()) ?: emptySet()
-            for (key in localDeletedSet) {
-                val parts = key.split(":")
-                if (parts.size == 2) {
-                    val col = parts[0]
-                    if (col == "network_diagrams" || col == "network_nodes" || col == "network_connections") {
-                        val id = parts[1]
-                        val docId = "${col}_$id"
-                        val docRef = userRef.collection("deleted_records").document(docId)
-                        val map = mapOf(
-                            "collection" to col,
-                            "recordId" to id,
-                            "deletedAt" to System.currentTimeMillis()
-                        )
-                        syncOperations.add(
-                            SyncOperation(
-                                writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
-                                onSuccess = { /* No Room status change required for preferences tombstone */ }
-                            )
-                        )
-                    }
-                }
-            }
-
-            // 9. Network Diagrams
-            for (diag in allDiagrams) {
-                val map = mapOf(
-                    "id" to diag.id,
-                    "name" to diag.name,
-                    "isDefault" to diag.isDefault,
-                    "createdAt" to diag.createdAt,
-                    "updatedAt" to diag.updatedAt
-                )
-                val docRef = userRef.collection("network_diagrams").document(diag.id.toString())
-                val diagId = diag.id
-                syncOperations.add(
-                    SyncOperation(
-                        writeOp = { batch -> batch.set(docRef, map, SetOptions.merge()) },
-                        onSuccess = { database -> database.networkDiagramDao().markDiagramsSynced(listOf(diagId)) }
-                    )
-                )
-            }
-
-            // 10. Network Nodes
-            for (node in allNodes) {
-                val nodeMap = mapOf(
-                    "id" to node.id,
-                    "diagramId" to node.diagramId,
-                    "name" to node.name,
-                    "type" to node.type,
-                    "ipAddress" to node.ipAddress,
-                    "location" to node.location,
-                    "areaZone" to node.areaZone,
-                    "portInfo" to node.portInfo,
-                    "customerRef" to node.customerRef,
-                    "customerId" to node.customerId,
-                    "notes" to node.notes,
-                    "positionX" to node.positionX,
-                    "positionY" to node.positionY,
-                    "updatedAt" to node.updatedAt
-                )
-                val docRef = userRef.collection("network_nodes").document(node.id)
-                val nodeId = node.id
-                syncOperations.add(
-                    SyncOperation(
-                        writeOp = { batch -> batch.set(docRef, nodeMap, SetOptions.merge()) },
-                        onSuccess = { database -> database.networkDiagramDao().markNodesSynced(listOf(nodeId)) }
-                    )
-                )
-            }
-
-            // 11. Network Connections
-            for (conn in allConnections) {
-                val connMap = mapOf(
-                    "id" to conn.id,
-                    "diagramId" to conn.diagramId,
-                    "fromNodeId" to conn.fromNodeId,
-                    "toNodeId" to conn.toNodeId,
-                    "label" to conn.label,
-                    "notes" to conn.notes,
-                    "updatedAt" to conn.updatedAt
-                )
-                val docRef = userRef.collection("network_connections").document(conn.id)
-                val connId = conn.id
-                syncOperations.add(
-                    SyncOperation(
-                        writeOp = { batch -> batch.set(docRef, connMap, SetOptions.merge()) },
-                        onSuccess = { database -> database.networkDiagramDao().markConnectionsSynced(listOf(connId)) }
-                    )
-                )
-            }
 
             if (syncOperations.isEmpty()) {
                 Log.d(TAG, "Backup to Cloud: No local records found to write.")
@@ -937,158 +521,7 @@ object FirestoreSyncManager {
      * and inserts/updates them in Room with syncStatus = 0 (loop prevention).
      */
     suspend fun pullDeltaFromCloud(context: Context): Boolean = withContext(Dispatchers.IO) {
-        com.example.IspApplication.ensureFirebaseInitialized(context)
-        val uid = getCurrentUid(context)
-        if (uid.isNullOrBlank()) {
-            Log.d(TAG, "Delta Pull skipped: User is guest or unauthenticated.")
-            return@withContext false
-        }
-        if (!isNetworkAvailable(context)) {
-            Log.d(TAG, "Delta Pull skipped: No active network connection.")
-            return@withContext false
-        }
-
-        val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-        val lastPullKey = "last_delta_pull_time_$uid"
-        val lastPullTime = prefs.getLong(lastPullKey, 0L)
-        val pullStartTime = System.currentTimeMillis()
-
-        try {
-            val firestore = FirebaseFirestore.getInstance()
-            val userRef = firestore.collection("users").document(uid)
-
-            if (!isFirestoreAvailable(userRef, testWrite = false)) {
-                Log.w(TAG, "Delta Pull deferred: Firestore backend is currently unreachable.")
-                return@withContext false
-            }
-
-            val db = IspDatabase.getDatabase(context)
-
-            // Retrieve all deleted records (from local tombstones, pending deletions, and remote tombstones)
-            val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions().filter {
-                it.collectionName == "network_diagrams" ||
-                it.collectionName == "network_nodes" ||
-                it.collectionName == "network_connections"
-            }
-            val pendingDeletedKeys = pendingDeletions.map { "${it.collectionName}:${it.documentId}" }.toSet()
-            val deletedRecords = syncAndGetDeletedRecords(context, userRef) + pendingDeletedKeys
-
-            // Step 1: Query only records modified after lastPullTime
-            var pulledCount = 0
-
-
-
-            // 8. Network Diagrams
-            val diagDocs = try {
-                val q = if (lastPullTime > 0L) userRef.collection("network_diagrams").whereGreaterThan("updatedAt", lastPullTime)
-                        else userRef.collection("network_diagrams")
-                q.get().await()
-            } catch (e: Exception) { null }
-            val dirtyDiagIds = db.networkDiagramDao().getDirtyDiagrams().map { it.id }.toSet()
-            val diagramsToApply = diagDocs?.documents?.mapNotNull { doc ->
-                try {
-                    val id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L)
-                    if (dirtyDiagIds.contains(id)) return@mapNotNull null
-                    if (deletedRecords.contains("network_diagrams:$id")) return@mapNotNull null
-                    NetworkDiagramEntity(
-                        id = id,
-                        name = doc.getString("name") ?: "",
-                        isDefault = doc.getBoolean("isDefault") ?: false,
-                        createdAt = doc.safeLong("createdAt", System.currentTimeMillis()),
-                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
-                        syncStatus = 0
-                    )
-                } catch (e: Exception) { null }
-            } ?: emptyList()
-            pulledCount += diagramsToApply.size
-
-            // 9. Network Nodes
-            val nodeDocs = try {
-                val q = if (lastPullTime > 0L) userRef.collection("network_nodes").whereGreaterThan("updatedAt", lastPullTime)
-                        else userRef.collection("network_nodes")
-                q.get().await()
-            } catch (e: Exception) { null }
-            val dirtyNodeIds = db.networkDiagramDao().getDirtyNodes().map { it.id }.toSet()
-            val nodesToApply = nodeDocs?.documents?.mapNotNull { doc ->
-                try {
-                    val id = doc.getString("id") ?: doc.id
-                    if (dirtyNodeIds.contains(id)) return@mapNotNull null
-                    if (deletedRecords.contains("network_nodes:$id")) return@mapNotNull null
-                    NetworkNodeEntity(
-                        id = id,
-                        diagramId = doc.safeLong("diagramId", 0L),
-                        name = doc.getString("name") ?: "",
-                        type = doc.getString("type") ?: "MIKROTIK",
-                        ipAddress = doc.getString("ipAddress") ?: "",
-                        location = doc.getString("location") ?: "",
-                        areaZone = doc.getString("areaZone") ?: "",
-                        portInfo = doc.getString("portInfo") ?: "",
-                        customerRef = doc.getString("customerRef") ?: "",
-                        customerId = doc.getString("customerId") ?: "",
-                        notes = doc.getString("notes") ?: "",
-                        positionX = doc.safeDouble("positionX", 0.0).toFloat(),
-                        positionY = doc.safeDouble("positionY", 0.0).toFloat(),
-                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
-                        syncStatus = 0
-                    )
-                } catch (e: Exception) { null }
-            } ?: emptyList()
-            pulledCount += nodesToApply.size
-
-            // 10. Network Connections
-            val connDocs = try {
-                val q = if (lastPullTime > 0L) userRef.collection("network_connections").whereGreaterThan("updatedAt", lastPullTime)
-                        else userRef.collection("network_connections")
-                q.get().await()
-            } catch (e: Exception) { null }
-            val dirtyConnIds = db.networkDiagramDao().getDirtyConnections().map { it.id }.toSet()
-            val connectionsToApply = connDocs?.documents?.mapNotNull { doc ->
-                try {
-                    val id = doc.getString("id") ?: doc.id
-                    if (dirtyConnIds.contains(id)) return@mapNotNull null
-                    if (deletedRecords.contains("network_connections:$id")) return@mapNotNull null
-                    NetworkConnectionEntity(
-                        id = id,
-                        diagramId = doc.safeLong("diagramId", 0L),
-                        fromNodeId = doc.getString("fromNodeId") ?: "",
-                        toNodeId = doc.getString("toNodeId") ?: "",
-                        label = doc.getString("label") ?: "",
-                        notes = doc.getString("notes") ?: "",
-                        updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
-                        syncStatus = 0
-                    )
-                } catch (e: Exception) { null }
-            } ?: emptyList()
-            pulledCount += connectionsToApply.size
-
-
-
-            // Step 2: Apply pulled delta records transactionally to Room
-            if (pulledCount > 0) {
-                db.withTransaction {
-                    if (diagramsToApply.isNotEmpty()) diagramsToApply.forEach { db.networkDiagramDao().insertDiagram(it) }
-                    if (nodesToApply.isNotEmpty()) db.networkDiagramDao().insertNodes(nodesToApply)
-                    if (connectionsToApply.isNotEmpty()) db.networkDiagramDao().insertConnections(connectionsToApply)
-                }
-                Log.i(TAG, "Delta Pull: Successfully applied $pulledCount changed records into Room")
-            } else {
-                Log.d(TAG, "Delta Pull: No remote changes found since $lastPullTime")
-            }
-
-            // Step 3: Advance last successful pull position only upon successful completion
-            prefs.edit().putLong(lastPullKey, pullStartTime).apply()
-            true
-        } catch (e: FirebaseFirestoreException) {
-            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                Log.w(TAG, "Delta Pull skipped (Permission Denied): Check Firestore security rules or authentication status.")
-            } else {
-                Log.w(TAG, "Firestore error pulling delta data: ${e.message}")
-            }
-            false
-        } catch (e: Exception) {
-            Log.w(TAG, "Error pulling delta data from Firestore: ${e.message}")
-            false
-        }
+        return@withContext true
     }
 
     private data class RestoredCloudPayload(
@@ -1299,65 +732,10 @@ object FirestoreSyncManager {
                     )
                 } else null
 
-                // 8. Restore Network Diagrams, Nodes & Connections
-                val diagDocs = try {
-                    userRef.collection("network_diagrams").get().await()
-                } catch (e: Exception) { null }
-                val restoredDiagrams = diagDocs?.documents?.mapNotNull { doc ->
-                    try {
-                        NetworkDiagramEntity(
-                            id = doc.safeLong("id", doc.id.toLongOrNull() ?: 0L),
-                            name = doc.getString("name") ?: "",
-                            isDefault = doc.getBoolean("isDefault") ?: false,
-                            createdAt = doc.safeLong("createdAt", System.currentTimeMillis()),
-                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
-                            syncStatus = 0
-                        )
-                    } catch (e: Exception) { null }
-                } ?: emptyList()
-
-                val nodeDocs = try {
-                    userRef.collection("network_nodes").get().await()
-                } catch (e: Exception) { null }
-                val restoredNodes = nodeDocs?.documents?.mapNotNull { doc ->
-                    try {
-                        NetworkNodeEntity(
-                            id = doc.getString("id") ?: doc.id,
-                            diagramId = doc.safeLong("diagramId", 0L),
-                            name = doc.getString("name") ?: "",
-                            type = doc.getString("type") ?: "MIKROTIK",
-                            ipAddress = doc.getString("ipAddress") ?: "",
-                            location = doc.getString("location") ?: "",
-                            areaZone = doc.getString("areaZone") ?: "",
-                            portInfo = doc.getString("portInfo") ?: "",
-                            customerRef = doc.getString("customerRef") ?: "",
-                            customerId = doc.getString("customerId") ?: "",
-                            notes = doc.getString("notes") ?: "",
-                            positionX = doc.safeDouble("positionX", 0.0).toFloat(),
-                            positionY = doc.safeDouble("positionY", 0.0).toFloat(),
-                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
-                            syncStatus = 0
-                        )
-                    } catch (e: Exception) { null }
-                } ?: emptyList()
-
-                val connDocs = try {
-                    userRef.collection("network_connections").get().await()
-                } catch (e: Exception) { null }
-                val restoredConnections = connDocs?.documents?.mapNotNull { doc ->
-                    try {
-                        NetworkConnectionEntity(
-                            id = doc.getString("id") ?: doc.id,
-                            diagramId = doc.safeLong("diagramId", 0L),
-                            fromNodeId = doc.getString("fromNodeId") ?: "",
-                            toNodeId = doc.getString("toNodeId") ?: "",
-                            label = doc.getString("label") ?: "",
-                            notes = doc.getString("notes") ?: "",
-                            updatedAt = doc.safeLong("updatedAt", System.currentTimeMillis()),
-                            syncStatus = 0
-                        )
-                    } catch (e: Exception) { null }
-                } ?: emptyList()
+                // 8. Restore Network Diagrams, Nodes & Connections (Completely Removed from Firestore Restore)
+                val restoredDiagrams = emptyList<NetworkDiagramEntity>()
+                val restoredNodes = emptyList<NetworkNodeEntity>()
+                val restoredConnections = emptyList<NetworkConnectionEntity>()
 
                 // 9. Restore Audit Logs
                 val auditDocs = try {
@@ -1456,9 +834,7 @@ object FirestoreSyncManager {
                 db.bandwidthBillDao().deleteAllBandwidthBills()
                 db.specificAdvanceDao().deleteAllSpecificAdvances()
                 db.settingsDao().deleteSettings()
-                db.networkDiagramDao().deleteAllDiagrams()
-                db.networkDiagramDao().deleteAllNodes()
-                db.networkDiagramDao().deleteAllConnections()
+
                 db.auditLogDao().deleteAllLogs()
                 db.pendingDeletionDao().clearAllPendingDeletions()
 
@@ -1489,15 +865,7 @@ object FirestoreSyncManager {
                 if (restoredData.settings != null) {
                     db.settingsDao().insertOrUpdateSettings(restoredData.settings)
                 }
-                if (restoredData.diagrams.isNotEmpty()) {
-                    restoredData.diagrams.forEach { db.networkDiagramDao().insertDiagram(it) }
-                }
-                if (restoredData.nodes.isNotEmpty()) {
-                    db.networkDiagramDao().insertNodes(restoredData.nodes)
-                }
-                if (restoredData.connections.isNotEmpty()) {
-                    db.networkDiagramDao().insertConnections(restoredData.connections)
-                }
+
                 if (restoredData.auditLogs.isNotEmpty()) {
                     db.auditLogDao().insertLogs(restoredData.auditLogs)
                 }
