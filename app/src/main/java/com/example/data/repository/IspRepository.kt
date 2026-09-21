@@ -2085,7 +2085,9 @@ class IspRepository(
                             ponPort = obj.optString("ponPort", ""),
                             onuSerial = obj.optString("onuSerial", ""),
                             routerName = obj.optString("routerName", ""),
-                            advanceBalance = obj.optDouble("advanceBalance", 0.0)
+                            advanceBalance = obj.optDouble("advanceBalance", 0.0),
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
                         )
                     )
                 }
@@ -2105,7 +2107,9 @@ class IspRepository(
                             name = obj.optString("name", ""),
                             speedMbps = obj.optInt("speedMbps", 0),
                             monthlyPrice = obj.optDouble("monthlyPrice", 0.0),
-                            description = obj.optString("description", "")
+                            description = obj.optString("description", ""),
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
                         )
                     )
                 }
@@ -2141,7 +2145,9 @@ class IspRepository(
                             dueAmount = obj.optDouble("dueAmount", 0.0),
                             status = obj.optString("status", "UNPAID"),
                             generatedDate = obj.optString("generatedDate", ""),
-                            dueDate = obj.optString("dueDate", "")
+                            dueDate = obj.optString("dueDate", ""),
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
                         )
                     )
                 }
@@ -2171,7 +2177,9 @@ class IspRepository(
                             amount = obj.optDouble("amount", 0.0),
                             paymentDate = obj.optString("paymentDate", ""),
                             paymentMethod = obj.optString("paymentMethod", "Cash"),
-                            notes = obj.optString("notes", "")
+                            notes = obj.optString("notes", ""),
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
                         )
                     )
                 }
@@ -2193,7 +2201,8 @@ class IspRepository(
                             note = obj.optString("note", ""),
                             receiptPath = obj.optString("receiptPath", "").ifEmpty { null },
                             createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
                         )
                     )
                 }
@@ -2207,7 +2216,9 @@ class IspRepository(
                     categoryList.add(
                         ExpenseCategoryEntity(
                             id = if (obj.has("id")) obj.getLong("id") else 0L,
-                            name = obj.optString("name", "")
+                            name = obj.optString("name", ""),
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
                         )
                     )
                 }
@@ -2224,7 +2235,9 @@ class IspRepository(
                         bandwidthBillList.add(
                             BandwidthBillEntity(
                                 billingMonth = month,
-                                amount = amount
+                                amount = amount,
+                                updatedAt = System.currentTimeMillis(),
+                                syncStatus = 1
                             )
                         )
                     }
@@ -2243,7 +2256,8 @@ class IspRepository(
                             billingMonth = obj.optString("billingMonth", ""),
                             amount = obj.optDouble("amount", 0.0),
                             isConsumed = obj.optBoolean("isConsumed", false),
-                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
                         )
                     )
                 }
@@ -2261,75 +2275,10 @@ class IspRepository(
                     networkStatus = obj.optString("networkStatus", "Operational"),
                     themeMode = obj.optString("themeMode", "SYSTEM"),
                     logoUri = obj.optString("logoUri", "").ifEmpty { null },
-                    email = obj.optString("email", "")
+                    email = obj.optString("email", ""),
+                    updatedAt = System.currentTimeMillis(),
+                    syncStatus = 1
                 )
-            }
-
-            val diagramList = mutableListOf<NetworkDiagramEntity>()
-            if (root.has("networkDiagrams")) {
-                val arr = root.getJSONArray("networkDiagrams")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    diagramList.add(
-                        NetworkDiagramEntity(
-                            id = optJsonLong(obj, "id", i),
-                            name = obj.optString("name", ""),
-                            isDefault = obj.optBoolean("isDefault", false),
-                            createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
-                            syncStatus = 0
-                        )
-                    )
-                }
-            }
-
-            val nodeList = mutableListOf<NetworkNodeEntity>()
-            if (root.has("networkNodes")) {
-                val arr = root.getJSONArray("networkNodes")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val idStr = obj.optString("id", java.util.UUID.randomUUID().toString())
-                    nodeList.add(
-                        NetworkNodeEntity(
-                            id = idStr,
-                            diagramId = optJsonLong(obj, "diagramId", 0),
-                            name = obj.optString("name", ""),
-                            type = obj.optString("type", "MIKROTIK"),
-                            ipAddress = obj.optString("ipAddress", ""),
-                            location = obj.optString("location", ""),
-                            areaZone = obj.optString("areaZone", ""),
-                            portInfo = obj.optString("portInfo", ""),
-                            customerRef = obj.optString("customerRef", ""),
-                            customerId = obj.optString("customerId", ""),
-                            notes = obj.optString("notes", ""),
-                            positionX = obj.optDouble("positionX", 0.0).toFloat(),
-                            positionY = obj.optDouble("positionY", 0.0).toFloat(),
-                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
-                            syncStatus = 0
-                        )
-                    )
-                }
-            }
-
-            val connList = mutableListOf<NetworkConnectionEntity>()
-            if (root.has("networkConnections")) {
-                val arr = root.getJSONArray("networkConnections")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val idStr = obj.optString("id", java.util.UUID.randomUUID().toString())
-                    connList.add(
-                        NetworkConnectionEntity(
-                            id = idStr,
-                            diagramId = optJsonLong(obj, "diagramId", 0),
-                            fromNodeId = obj.optString("fromNodeId", ""),
-                            toNodeId = obj.optString("toNodeId", ""),
-                            label = obj.optString("label", ""),
-                            notes = obj.optString("notes", ""),
-                            updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
-                            syncStatus = 0
-                        )
-                    )
-                }
             }
 
             val logList = mutableListOf<AuditLogEntity>()
@@ -2367,12 +2316,7 @@ class IspRepository(
                 db.bandwidthBillDao().deleteAllBandwidthBills()
                 db.specificAdvanceDao().deleteAllSpecificAdvances()
                 settingsDao.deleteSettings()
-
-                if (diagramList.isNotEmpty() || root.has("networkDiagrams")) {
-                    db.networkDiagramDao().deleteAllDiagrams()
-                    db.networkDiagramDao().deleteAllNodes()
-                    db.networkDiagramDao().deleteAllConnections()
-                }
+                db.pendingDeletionDao().clearAllPendingDeletions()
 
                 if (logList.isNotEmpty() || root.has("auditLogs")) {
                     db.auditLogDao().deleteAllLogs()
@@ -2387,9 +2331,6 @@ class IspRepository(
                 if (bandwidthBillList.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bandwidthBillList)
                 if (specificAdvanceList.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(specificAdvanceList)
                 if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
-                if (diagramList.isNotEmpty()) diagramList.forEach { db.networkDiagramDao().insertDiagram(it) }
-                if (nodeList.isNotEmpty()) db.networkDiagramDao().insertNodes(nodeList)
-                if (connList.isNotEmpty()) db.networkDiagramDao().insertConnections(connList)
                 if (logList.isNotEmpty()) db.auditLogDao().insertLogs(logList)
             }
 
