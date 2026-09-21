@@ -63,7 +63,7 @@ fun BackupAndRestoreScreen(
     // Cloud Sync States
     var isCloudSyncing by remember { mutableStateOf(false) }
     var showCloudRestoreConfirmDialog by remember { mutableStateOf(false) }
-    val currentUid = remember(context) { com.example.util.FirestoreSyncManager.getCurrentUid(context) }
+    val currentUid = remember(context) { com.example.IspApplication.getUserId(context) }
     val coroutineScope = rememberCoroutineScope()
 
     // File Pickers
@@ -353,10 +353,9 @@ fun BackupAndRestoreScreen(
                                 Button(
                                     onClick = {
                                         val uid = com.example.IspApplication.getUserId(context)
-                                            ?: com.example.util.FirestoreSyncManager.getCurrentUid(context)
                                         if (uid.isNullOrBlank()) {
                                             viewModel.showToast("Authentication required")
-                                        } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
+                                        } else if (!com.example.util.HostingSyncManager.isNetworkAvailable(context)) {
                                             viewModel.showToast("No internet connection")
                                         } else if (!isCloudSyncing) {
                                             isCloudSyncing = true
@@ -392,10 +391,10 @@ fun BackupAndRestoreScreen(
 
                                 OutlinedButton(
                                     onClick = {
-                                        val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                                        val uid = com.example.IspApplication.getUserId(context)
                                         if (uid.isNullOrBlank()) {
                                             viewModel.showToast("Authentication required")
-                                        } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
+                                        } else if (!com.example.util.HostingSyncManager.isNetworkAvailable(context)) {
                                             viewModel.showToast("No internet connection")
                                         } else {
                                             showCloudRestoreConfirmDialog = true
@@ -605,10 +604,9 @@ fun BackupAndRestoreScreen(
                     onClick = {
                         showCloudRestoreConfirmDialog = false
                         val uid = com.example.IspApplication.getUserId(context)
-                            ?: com.example.util.FirestoreSyncManager.getCurrentUid(context)
                         if (uid.isNullOrBlank()) {
                             viewModel.showToast("Authentication required")
-                        } else if (!com.example.util.FirestoreSyncManager.isNetworkAvailable(context)) {
+                        } else if (!com.example.util.HostingSyncManager.isNetworkAvailable(context)) {
                             viewModel.showToast("No internet connection")
                         } else {
                             isProcessing = true

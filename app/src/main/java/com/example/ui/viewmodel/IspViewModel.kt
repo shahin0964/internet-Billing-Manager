@@ -77,11 +77,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             application
         )
 
-        // Schedule & Trigger cloud sync if authenticated safely
+        // Schedule & Trigger hosting auto backup check safely if logged in
         try {
-            com.example.util.FirestoreSyncManager.scheduleBackgroundSync(application)
+            // Hosting periodic backup worker is already scheduled by IspApplication
         } catch (e: Throwable) {
-            android.util.Log.e("IspViewModel", "Failed to schedule background sync: ${e.message}")
+            android.util.Log.e("IspViewModel", "Failed to initialize: ${e.message}")
         }
 
         viewModelScope.launch {
@@ -256,7 +256,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             if (currentSettings == null) {
                 // If cloud settings exist for this user in SharedPreferences, restore them first
                 val app = getApplication<Application>()
-                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(app)
+                val uid = com.example.IspApplication.getUserId(app)
                 val userIspName = if (uid != null) {
                     val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
                     prefs.getString("cached_isp_name_$uid", "") ?: ""
@@ -311,19 +311,9 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     fun triggerCloudSyncOnLogin() {
         viewModelScope.launch {
             try {
-                val app = getApplication<Application>()
-                val uid = com.example.util.FirestoreSyncManager.getCurrentUid(app)
-                if (uid != null) {
-                    android.util.Log.d("IspViewModel", "Triggering cloud sync on login for UID: $uid")
-                    com.example.util.FirestoreSyncManager.scheduleBackgroundSync(app)
-                }
-                try {
-                    repository.syncCustomersFromHosting()
-                } catch (e: Throwable) {
-                    android.util.Log.w("IspViewModel", "Hosting customer sync on login note: ${e.message}")
-                }
+                repository.syncCustomersFromHosting()
             } catch (e: Throwable) {
-                android.util.Log.w("IspViewModel", "Cloud sync on login note: ${e.message}")
+                android.util.Log.w("IspViewModel", "Hosting customer sync on login note: ${e.message}")
             }
         }
     }

@@ -107,11 +107,9 @@ class IspRepository(
                 syncStatus = 1
             )
         )
-        context?.let { com.example.util.FirestoreSyncManager.triggerSync(it) }
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = BandwidthBillRequest(
@@ -199,7 +197,7 @@ class IspRepository(
     ): Long {
         return try {
             val email = userEmail?.ifBlank { null }
-                ?: runCatching { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email }.getOrNull()
+                ?: context?.let { com.example.IspApplication.getUserEmail(it) }
                 ?: "admin@isp.com"
             val log = AuditLogEntity(
                 id = generateUniqueId(),
@@ -221,7 +219,6 @@ class IspRepository(
 
             context?.let { ctx ->
                 val userId = com.example.IspApplication.getUserId(ctx)
-                    ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
                 if (userId != null) {
                     try {
                         val request = AuditLogRequest(
@@ -264,11 +261,11 @@ class IspRepository(
 
     private fun notifyCloudSync() {
         context?.let { ctx ->
-            val uid = com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            val uid = com.example.IspApplication.getUserId(ctx)
             if (uid != null) {
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        val actualCount = com.example.util.FirestoreSyncManager.getActualPendingDirtyCount(ctx)
+                        val actualCount = com.example.util.HostingSyncManager.getActualPendingDirtyCount(ctx)
                         val prefs = ctx.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
                         prefs.edit().putInt("pending_sync_count_$uid", actualCount).apply()
                     } catch (e: Exception) {
@@ -278,7 +275,6 @@ class IspRepository(
                     }
                 }
             }
-            com.example.util.FirestoreSyncManager.triggerSync(ctx) 
         }
     }
 
@@ -302,7 +298,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = ExpenseRequest(
@@ -348,7 +343,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = ExpenseRequest(
@@ -379,12 +373,8 @@ class IspRepository(
 
     suspend fun deleteExpense(expense: ExpenseEntity) {
         expenseDao.deleteExpense(expense)
-        context?.let {
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "expenses", expense.id.toString())
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "expenses", expense.id.toString())
-
-            val userId = com.example.IspApplication.getUserId(it)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(it)
+        context?.let { ctx ->
+            val userId = com.example.IspApplication.getUserId(ctx)
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deleteExpense(
@@ -425,7 +415,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = ExpenseCategoryRequest(
@@ -470,7 +459,7 @@ class IspRepository(
         notifyCloudSync()
 
         context?.let { ctx ->
-            val userId = com.example.IspApplication.getUserId(ctx) ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            val userId = com.example.IspApplication.getUserId(ctx)
             if (userId != null) {
                 try {
                     val savedCustomerId = if (customerToSave.id != 0L) customerToSave.id else result
@@ -596,7 +585,7 @@ class IspRepository(
         notifyCloudSync()
 
         context?.let { ctx ->
-            val userId = com.example.IspApplication.getUserId(ctx) ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            val userId = com.example.IspApplication.getUserId(ctx)
             if (userId != null) {
                 try {
                     val cycleDate = try {
@@ -647,19 +636,11 @@ class IspRepository(
                 Log.e("IspRepository", "Failed to delete pending SMS for customer: ${e.message}")
             }
 
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "customers", customer.id.toString())
             bills.forEach { bill ->
                 markBillAsDeletedForMonth(bill.customerId, bill.customerCode, bill.billingMonth)
-                com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "bills", bill.id.toString())
-                com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "bills", bill.id.toString())
             }
-            payments.forEach { payment ->
-                com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "payments", payment.id.toString())
-                com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "payments", payment.id.toString())
-            }
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "customers", customer.id.toString())
 
-            val userId = com.example.IspApplication.getUserId(ctx) ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
+            val userId = com.example.IspApplication.getUserId(ctx)
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deleteCustomer(
@@ -722,7 +703,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = com.example.data.remote.PackageRequest(
@@ -762,7 +742,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = com.example.data.remote.PackageRequest(
@@ -788,11 +767,7 @@ class IspRepository(
     suspend fun deletePackage(pkg: IspPackageEntity) {
         packageDao.deletePackage(pkg)
         context?.let { ctx ->
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "packages", pkg.id.toString())
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "packages", pkg.id.toString())
-
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deletePackage(
@@ -822,11 +797,7 @@ class IspRepository(
         billDao.deleteBill(bill)
         markBillAsDeletedForMonth(bill.customerId, bill.customerCode, bill.billingMonth)
         context?.let { ctx ->
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "bills", bill.id.toString())
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(ctx, "bills", bill.id.toString())
-
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deleteBill(
@@ -871,7 +842,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = BillRequest(
@@ -948,7 +918,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = BillRequest(
@@ -1338,7 +1307,6 @@ class IspRepository(
 
                 context?.let { ctx ->
                     val userId = com.example.IspApplication.getUserId(ctx)
-                        ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
                     if (userId != null) {
                         try {
                             val request = PaymentRequest(
@@ -1468,17 +1436,9 @@ class IspRepository(
                 }
             }
 
-            // Remove document from Cloud Firestore if online sync is active
+            // Sync deletion to Hosting API if online
             context?.let { ctx ->
-                com.example.util.FirestoreSyncManager.markRecordAsDeleted(ctx, "payments", payment.id.toString())
-                com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(
-                    ctx,
-                    "payments",
-                    payment.id.toString()
-                )
-
                 val userId = com.example.IspApplication.getUserId(ctx)
-                    ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
                 if (userId != null) {
                     try {
                         val response = ApiClient.apiService.deletePayment(
@@ -1526,7 +1486,6 @@ class IspRepository(
 
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
             if (userId != null) {
                 try {
                     val request = SettingsRequest(
@@ -2344,7 +2303,7 @@ class IspRepository(
 
             try {
                 if (com.example.util.HostingSyncManager.isNetworkAvailable(context)) {
-                    val uid = com.example.IspApplication.getUserId(context) ?: com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                    val uid = com.example.IspApplication.getUserId(context)
                     if (!uid.isNullOrBlank()) {
                         val exportedAt = root.optLong("exportedAt", 0L)
                         if (exportedAt > 0L) {
@@ -2380,6 +2339,21 @@ class IspRepository(
             if (userId.isBlank()) {
                 return@withContext Pair(false, "Authentication required")
             }
+
+            // Step 1 & 2: Sync dirty local records to active MySQL tables first
+            val syncSuccess = try {
+                com.example.util.HostingSyncManager.syncLocalToHosting(context)
+            } catch (ex: Exception) {
+                Log.e("IspRepository", "Hosting sync during backup failed: ${ex.message}")
+                false
+            }
+
+            // Step 3: Check if live sync succeeded
+            if (!syncSuccess) {
+                return@withContext Pair(false, "Live hosting synchronization failed. Backup aborted.")
+            }
+
+            // Step 4: After confirmed live sync success, generate snapshot and upload to cloud_backups
             val jsonPayload = generateFullBackupJson(context)
             if (jsonPayload.isBlank()) {
                 return@withContext Pair(false, "No local data to back up")
@@ -2394,21 +2368,9 @@ class IspRepository(
             )
             val response = ApiClient.apiService.saveCloudBackup(request)
             if (response.status) {
-                // Sync dirty local records to active MySQL tables and Firestore so pending count drops to 0
-                try {
-                    com.example.util.HostingSyncManager.syncLocalToHosting(context)
-                } catch (ex: Exception) {
-                    Log.e("IspRepository", "Hosting sync during backup failed: ${ex.message}")
-                }
-                try {
-                    com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
-                } catch (ex: Exception) {
-                    Log.e("IspRepository", "Firestore sync during backup failed: ${ex.message}")
-                }
-
                 // Update the last cloud sync time and pending sync count so the UI updates immediately
                 try {
-                    val remainingDirty = com.example.util.FirestoreSyncManager.getActualPendingDirtyCount(context)
+                    val remainingDirty = com.example.util.HostingSyncManager.getActualPendingDirtyCount(context)
                     context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
                         .edit()
                         .putLong("last_cloud_sync_time_$userId", System.currentTimeMillis())
@@ -2833,10 +2795,6 @@ class IspRepository(
     suspend fun deleteNode(nodeId: String) {
         networkDiagramDao.deleteConnectionsForNode(nodeId)
         networkDiagramDao.deleteNodeById(nodeId)
-        context?.let {
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "network_nodes", nodeId)
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "network_nodes", nodeId)
-        }
         logActivity(
             action = "NETWORK_DIAGRAM_EDIT",
             actionType = "NETWORK",
@@ -2862,10 +2820,6 @@ class IspRepository(
 
     suspend fun deleteConnection(connectionId: String) {
         networkDiagramDao.deleteConnectionById(connectionId)
-        context?.let {
-            com.example.util.FirestoreSyncManager.markRecordAsDeleted(it, "network_connections", connectionId)
-            com.example.util.FirestoreSyncManager.deleteDocumentFromCloud(it, "network_connections", connectionId)
-        }
         logActivity(
             action = "NETWORK_DIAGRAM_EDIT",
             actionType = "NETWORK",
@@ -2975,9 +2929,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3059,9 +3012,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3137,9 +3089,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3246,9 +3197,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3309,9 +3259,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3412,9 +3361,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3494,9 +3442,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3597,9 +3544,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3709,9 +3655,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {
@@ -3789,9 +3734,8 @@ class IspRepository(
         val ctx = context
         val userId = userIdOverride?.ifBlank { null } ?: if (ctx != null) {
             com.example.IspApplication.getUserId(ctx)
-                ?: com.example.util.FirestoreSyncManager.getCurrentUid(ctx)
         } else {
-            com.example.util.FirestoreSyncManager.getCurrentUid()
+            null
         }
 
         if (userId.isNullOrBlank()) {

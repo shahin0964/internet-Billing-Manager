@@ -461,10 +461,10 @@ fun AboutScreen(
                                     description = "Type-safe HTTP client and modern JSON parser for Android."
                                 ),
                                 LicenseInfo(
-                                    name = "Firebase AI & App Check",
-                                    developer = "Google",
+                                    name = "App Update Manager",
+                                    developer = "AOSP / Community",
                                     license = "Apache License 2.0",
-                                    description = "Firebase platform SDKs and app verification tools."
+                                    description = "Local update engine checks and installer tools."
                                 )
                             )
                         }

@@ -26,7 +26,6 @@ import com.example.R
 import com.example.ui.components.PinSetupDialog
 import com.example.util.PinLockManager
 import com.example.IspApplication
-import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -49,17 +48,8 @@ fun ProfileScreen(
     val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
     var privacyModeEnabled by remember { mutableStateOf(prefs.getBoolean("privacy_mode", false)) }
     
-    val authUser = try {
-        if (IspApplication.isLoggedIn(context)) {
-            IspApplication.ensureFirebaseInitialized(context)
-            FirebaseAuth.getInstance().currentUser
-        } else {
-            null
-        }
-    } catch (e: Throwable) { null }
-
-    val userEmail = authUser?.email ?: IspApplication.getUserEmail(context) ?: "Unknown"
-    val currentUid = authUser?.uid ?: IspApplication.getUserId(context)
+    val userEmail = IspApplication.getUserEmail(context) ?: "Unknown"
+    val currentUid = IspApplication.getUserId(context)
     val syncTimeKey = currentUid?.let { "last_cloud_sync_time_$it" }
     val pendingCountKey = currentUid?.let { "pending_sync_count_$it" }
 
@@ -78,7 +68,7 @@ fun ProfileScreen(
     
     androidx.compose.runtime.LaunchedEffect(currentUid) {
         if (currentUid != null) {
-            val actual = com.example.util.FirestoreSyncManager.getActualPendingDirtyCount(context)
+            val actual = com.example.util.HostingSyncManager.getActualPendingDirtyCount(context)
             prefs.edit().putInt("pending_sync_count_$currentUid", actual).apply()
             pendingBackups = actual
             syncTimeState = prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
@@ -176,13 +166,6 @@ fun ProfileScreen(
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
-                    TextButton(
-                        onClick = { showPasswordChangeDialog = true },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 1.dp)
-                    ) {
-                        Text(stringResource(R.string.change_password), color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-                    }
                 }
             }
 
@@ -339,7 +322,6 @@ fun ProfileScreen(
                 onClick = {
                     try {
                         IspApplication.setLoggedIn(context, false)
-                        FirebaseAuth.getInstance().signOut()
                         onSignOut()
                     } catch (e: Exception) {
                         onShowToast(context.getString(R.string.logout_failed, e.message))
@@ -359,68 +341,6 @@ fun ProfileScreen(
             }
             
             Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        if (showPasswordChangeDialog) {
-            AlertDialog(
-                onDismissRequest = { showPasswordChangeDialog = false },
-                title = { Text(stringResource(R.string.change_password)) },
-                text = {
-                    Column {
-                        OutlinedTextField(
-                            value = currentPassword,
-                            onValueChange = { currentPassword = it },
-                            label = { Text(stringResource(R.string.current_password)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = newPassword,
-                            onValueChange = { newPassword = it },
-                            label = { Text(stringResource(R.string.new_password)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (currentPassword.isNotEmpty() && newPassword.isNotEmpty() && authUser != null) {
-                                isLoading = true
-                                val credential = com.google.firebase.auth.EmailAuthProvider.getCredential(userEmail, currentPassword)
-                                authUser.reauthenticate(credential).addOnCompleteListener { reauthTask ->
-                                    if (reauthTask.isSuccessful) {
-                                        authUser.updatePassword(newPassword).addOnCompleteListener { updateTask ->
-                                            isLoading = false
-                                            if (updateTask.isSuccessful) {
-                                                onShowToast(context.getString(R.string.password_changed_success))
-                                                showPasswordChangeDialog = false
-                                            } else {
-                                                onShowToast(context.getString(R.string.password_change_failed, updateTask.exception?.message))
-                                            }
-                                        }
-                                    } else {
-                                        isLoading = false
-                                        onShowToast(context.getString(R.string.incorrect_current_password, reauthTask.exception?.message))
-                                    }
-                                }
-                            } else {
-                                onShowToast(context.getString(R.string.fill_all_fields))
-                            }
-                        },
-                        enabled = !isLoading
-                    ) {
-                        Text(if (isLoading) stringResource(R.string.please_wait) else stringResource(R.string.change))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showPasswordChangeDialog = false }) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                }
-            )
         }
 
         if (showPinSetupDialog) {

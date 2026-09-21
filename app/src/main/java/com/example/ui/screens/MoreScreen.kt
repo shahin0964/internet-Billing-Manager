@@ -143,16 +143,6 @@ fun MoreScreen(
     var isPinLockEnabled by remember { mutableStateOf(com.example.util.PinLockManager.isPinLockEnabled(context)) }
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showPinChangeDialog by remember { mutableStateOf(false) }
-    var authUser by remember {
-        mutableStateOf(
-            try {
-                com.example.IspApplication.ensureFirebaseInitialized(context)
-                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-            } catch (e: Throwable) {
-                null
-            }
-        )
-    }
 
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()

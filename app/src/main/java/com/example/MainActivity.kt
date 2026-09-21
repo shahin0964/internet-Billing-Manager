@@ -259,8 +259,7 @@ fun MainAppContent(
             if (com.example.IspApplication.isLoggedIn(context)) {
                 com.example.IspApplication.getUserId(context) ?: "authenticated_user"
             } else {
-                com.example.IspApplication.ensureFirebaseInitialized(context)
-                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                null
             }
         } catch (e: Throwable) {
             null
@@ -458,31 +457,7 @@ fun MainAppContent(
                     isAuthChosen = true
                 },
                 onForgotPasswordClick = { identifier, onError, onSuccess ->
-                    try {
-                        com.example.IspApplication.ensureFirebaseInitialized(context)
-                        val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
-                        val email = identifier.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
-                        if (!email.contains("@") || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-                            onError("Please enter a valid Gmail / Email address to receive password reset link.")
-                        } else {
-                            auth.sendPasswordResetEmail(email)
-                                .addOnSuccessListener {
-                                    onSuccess("Password reset email sent to $email")
-                                }
-                                .addOnFailureListener { e ->
-                                    val rawMsg = e.localizedMessage ?: e.message ?: ""
-                                    val friendlyMsg = when {
-                                        rawMsg.contains("USER_NOT_FOUND", ignoreCase = true) ||
-                                        rawMsg.contains("no user record", ignoreCase = true) ->
-                                            "No account found with this email address."
-                                        else -> rawMsg.ifBlank { "Failed to send password reset email." }
-                                    }
-                                    onError(friendlyMsg)
-                                }
-                        }
-                    } catch (e: Throwable) {
-                        onError(e.localizedMessage ?: e.message ?: "Password reset error occurred.")
-                    }
+                    onError("Password reset is not supported directly. Please contact your system administrator.")
                 }
             )
         }
@@ -849,7 +824,7 @@ fun MainAppContent(
                             isAuthChosen = false
                         },
                         onSignOut = {
-                            val uid = com.example.util.FirestoreSyncManager.getCurrentUid(context)
+                            val uid = com.example.IspApplication.getUserId(context)
                             viewModel.clearAllLocalData()
                             val prefs = context.getSharedPreferences("isp_prefs", android.content.Context.MODE_PRIVATE)
                             val editor = prefs.edit()

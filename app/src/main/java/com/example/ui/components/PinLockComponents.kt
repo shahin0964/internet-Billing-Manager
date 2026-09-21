@@ -28,7 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.util.PinLockManager
-import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
 
 @Composable
 fun PinUnlockOverlayScreen(
@@ -538,29 +538,14 @@ fun PinRecoveryDialog(
     onSuccess: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var emailInput by remember {
-        mutableStateOf(
-            try {
-                com.example.IspApplication.ensureFirebaseInitialized(context)
-                FirebaseAuth.getInstance().currentUser?.email ?: ""
-            } catch (e: Throwable) {
-                ""
-            }
-        )
+        mutableStateOf(com.example.IspApplication.getUserEmail(context) ?: "")
     }
     var passwordInput by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    val currentUser = remember {
-        try {
-            com.example.IspApplication.ensureFirebaseInitialized(context)
-            FirebaseAuth.getInstance().currentUser
-        } catch (e: Throwable) {
-            null
-        }
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -581,8 +566,8 @@ fun PinRecoveryDialog(
         text = {
             Column {
                 Text(
-                    text = if (currentUser != null)
-                        "Verify your account password (${currentUser.email}) to reset PIN lock."
+                    text = if (emailInput.isNotEmpty())
+                        "Verify your account password ($emailInput) to reset PIN lock."
                     else
                         "Sign in with your account credentials to verify ownership and reset PIN lock.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -594,10 +579,10 @@ fun PinRecoveryDialog(
                 OutlinedTextField(
                     value = emailInput,
                     onValueChange = {
-                        if (currentUser == null) emailInput = it
+                        emailInput = it
                         errorMessage = null
                     },
-                    enabled = currentUser == null,
+                    enabled = true,
                     label = { Text("Account Email") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -651,35 +636,20 @@ fun PinRecoveryDialog(
 
                     isLoading = true
                     errorMessage = null
-                    try {
-                        com.example.IspApplication.ensureFirebaseInitialized(context)
-                        val auth = FirebaseAuth.getInstance()
-                        auth.signInWithEmailAndPassword(email, passwordInput)
-                            .addOnSuccessListener {
-                                isLoading = false
+                    coroutineScope.launch {
+                        try {
+                            val request = com.example.data.remote.LoginRequest(email, passwordInput)
+                            val response = com.example.data.remote.ApiClient.apiService.login(request)
+                            isLoading = false
+                            if (response.status) {
                                 onSuccess()
+                            } else {
+                                errorMessage = response.message ?: "Incorrect password. Please try again."
                             }
-                            .addOnFailureListener { e ->
-                                isLoading = false
-                                val rawMsg = e.localizedMessage ?: e.message ?: ""
-                                val friendlyMsg = when {
-                                    rawMsg.contains("supplied auth credential", ignoreCase = true) ||
-                                    rawMsg.contains("malformed", ignoreCase = true) ||
-                                    rawMsg.contains("expired", ignoreCase = true) ||
-                                    rawMsg.contains("INVALID", ignoreCase = true) ||
-                                    rawMsg.contains("WRONG_PASSWORD", ignoreCase = true) ->
-                                        "Incorrect password. Please try again."
-                                    rawMsg.contains("blocked all requests", ignoreCase = true) ||
-                                    rawMsg.contains("unusual activity", ignoreCase = true) ||
-                                    rawMsg.contains("TOO_MANY", ignoreCase = true) ->
-                                        "Too many attempts or unusual activity detected. Please wait a few moments and try again."
-                                    else -> "Account verification failed. Incorrect password."
-                                }
-                                errorMessage = friendlyMsg
-                            }
-                    } catch (e: Throwable) {
-                        isLoading = false
-                        errorMessage = "Authentication service unavailable."
+                        } catch (e: Exception) {
+                            isLoading = false
+                            errorMessage = e.localizedMessage ?: e.message ?: "Failed to connect to hosting server."
+                        }
                     }
                 },
                 enabled = !isLoading

@@ -29,11 +29,7 @@ object HostingSyncManager {
     private fun getCurrentUid(context: Context): String? {
         val uid = IspApplication.getUserId(context)
         if (!uid.isNullOrBlank()) return uid
-        return try {
-            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-        } catch (_: Throwable) {
-            null
-        }
+        return null
     }
 
     /**
@@ -297,7 +293,7 @@ object HostingSyncManager {
                 prefs.edit().putLong("last_sync_time_$uid", newServerTime).apply()
 
                 // Refresh pending sync count in SharedPreferences so UI displays real remaining unsynced records
-                val remainingDirty = FirestoreSyncManager.getActualPendingDirtyCount(context)
+                val remainingDirty = getActualPendingDirtyCount(context)
                 context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
                     .edit()
                     .putInt("pending_sync_count_$uid", remainingDirty)
@@ -550,6 +546,23 @@ object HostingSyncManager {
                 )
                 db.specificAdvanceDao().insertSpecificAdvance(entity)
             }
+        }
+    }
+
+    suspend fun getActualPendingDirtyCount(context: Context): Int = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val db = IspDatabase.getDatabase(context)
+            val customers = db.customerDao().getDirtyCustomers().size
+            val packages = db.packageDao().getDirtyPackages().size
+            val bills = db.billDao().getDirtyBills().size
+            val payments = db.paymentDao().getDirtyPayments().size
+            val expenses = db.expenseDao().getDirtyExpenses().size
+            val expenseCategories = db.expenseDao().getDirtyCategories().size
+            val settings = if (db.settingsDao().getDirtySettings() != null) 1 else 0
+            
+            customers + packages + bills + payments + expenses + expenseCategories + settings
+        } catch (e: Exception) {
+            0
         }
     }
 }

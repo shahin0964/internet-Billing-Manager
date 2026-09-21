@@ -33,17 +33,7 @@ class AutoBackupWorker(
             HostingSyncManager.pullDeltaFromHosting(context)
         } ?: false
 
-        // 3. Optional fallback/sync to Firestore
-        val firestoreUploadSuccess = withTimeoutOrNull(45000L) {
-            try {
-                FirestoreSyncManager.syncLocalToCloud(context)
-            } catch (e: Exception) {
-                Log.e(TAG, "Firestore sync error during auto backup: ${e.message}")
-                false
-            }
-        } ?: false
-
-        return if (hostingUploadSuccess || hostingPullSuccess || firestoreUploadSuccess) {
+        return if (hostingUploadSuccess || hostingPullSuccess) {
             Log.d(TAG, "Auto backup sync completed successfully.")
             Result.success()
         } else {
