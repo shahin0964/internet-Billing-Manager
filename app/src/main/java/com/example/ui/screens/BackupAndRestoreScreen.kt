@@ -614,12 +614,12 @@ fun BackupAndRestoreScreen(
                             isProcessing = true
                             coroutineScope.launch {
                                 try {
-                                    val hostingResult = viewModel.restoreFromHosting(context, uid)
-                                    if (hostingResult.first) {
-                                        viewModel.showToast(hostingResult.second)
+                                    val (success, message) = viewModel.restoreFromHosting(context, uid)
+                                    if (success) {
+                                        viewModel.showToast(message)
                                         localBackups = viewModel.getLocalBackupFiles()
                                     } else {
-                                        viewModel.showToast("Cloud restore failed: ${hostingResult.second}")
+                                        viewModel.showToast("Cloud restore failed: $message")
                                     }
                                 } catch (e: Exception) {
                                     viewModel.showToast("Cloud restore failed: ${e.localizedMessage ?: "Error"}")

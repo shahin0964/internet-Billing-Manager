@@ -2453,6 +2453,30 @@ class IspRepository(
             )
             val response = ApiClient.apiService.saveCloudBackup(request)
             if (response.status) {
+                // Sync dirty local records to active MySQL tables and Firestore so pending count drops to 0
+                try {
+                    com.example.util.HostingSyncManager.syncLocalToHosting(context)
+                } catch (ex: Exception) {
+                    Log.e("IspRepository", "Hosting sync during backup failed: ${ex.message}")
+                }
+                try {
+                    com.example.util.FirestoreSyncManager.syncLocalToCloud(context)
+                } catch (ex: Exception) {
+                    Log.e("IspRepository", "Firestore sync during backup failed: ${ex.message}")
+                }
+
+                // Update the last cloud sync time and pending sync count so the UI updates immediately
+                try {
+                    val remainingDirty = com.example.util.FirestoreSyncManager.getActualPendingDirtyCount(context)
+                    context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                        .edit()
+                        .putLong("last_cloud_sync_time_$userId", System.currentTimeMillis())
+                        .putInt("pending_sync_count_$userId", remainingDirty)
+                        .apply()
+                } catch (ex: Exception) {
+                    Log.e("IspRepository", "Updating sync preferences failed: ${ex.message}")
+                }
+
                 Pair(true, response.message ?: "Cloud backup successful")
             } else {
                 Pair(false, response.message ?: "Cloud backup failed")

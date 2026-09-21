@@ -30,6 +30,20 @@ class IspApplication : Application() {
 
         ensureFirebaseInitialized(this)
         com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
+
+        val backupRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.util.AutoBackupWorker>(
+            24, java.util.concurrent.TimeUnit.HOURS
+        ).setConstraints(
+            androidx.work.Constraints.Builder()
+                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                .build()
+        ).build()
+
+        androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "auto_hosting_backup",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            backupRequest
+        )
     }
 
     companion object {
