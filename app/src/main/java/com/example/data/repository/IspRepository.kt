@@ -2350,13 +2350,25 @@ class IspRepository(
 
             // Step 3: Check if live sync succeeded
             if (!syncSuccess) {
-                return@withContext Pair(false, "Live Hosting sync failed. Cloud backup was not created.")
+                val lastError = context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                    .getString("last_sync_error_$userId", "Live Hosting sync failed") ?: "Live Hosting sync failed"
+                return@withContext Pair(false, "Cloud backup failed: $lastError. Cloud backup was not created.")
             }
 
             // Step 4: After confirmed live sync success, generate snapshot and upload to cloud_backups
-            val jsonPayload = generateFullBackupJson(context)
-            if (jsonPayload.isBlank()) {
+            val rawJsonPayload = generateFullBackupJson(context)
+            if (rawJsonPayload.isBlank()) {
                 return@withContext Pair(false, "No local data to back up")
+            }
+            val jsonPayload = try {
+                val jsonObject = org.json.JSONObject(rawJsonPayload)
+                jsonObject.remove("networkDiagrams")
+                jsonObject.remove("networkNodes")
+                jsonObject.remove("networkConnections")
+                jsonObject.toString()
+            } catch (ex: Exception) {
+                Log.e("IspRepository", "Failed to filter local network data from cloud backup", ex)
+                return@withContext Pair(false, "Failed to filter local network data from cloud backup: ${ex.message}")
             }
             val timeStamp = java.text.SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", java.util.Locale.US).format(java.util.Date())
             val backupName = "ISP-Cloud-Backup-$timeStamp"

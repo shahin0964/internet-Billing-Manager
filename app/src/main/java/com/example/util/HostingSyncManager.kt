@@ -302,10 +302,30 @@ object HostingSyncManager {
                 true
             } else {
                 Log.w(TAG, "Sync to Hosting failed: ${response.message}")
+                val errMsg = response.message ?: "Unknown server error"
+                context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("last_sync_error_$uid", errMsg)
+                    .apply()
                 false
             }
+        } catch (e: retrofit2.HttpException) {
+            val code = e.code()
+            val errorBody = e.response()?.errorBody()?.string() ?: "No error body"
+            Log.e(TAG, "HTTP Exception syncing to hosting (status $code): $errorBody", e)
+            val errMsg = "HTTP $code: $errorBody"
+            context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                .edit()
+                .putString("last_sync_error_$uid", errMsg)
+                .apply()
+            false
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing to hosting: ${e.message}", e)
+            val errMsg = e.localizedMessage ?: e.message ?: "Unknown exception"
+            context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                .edit()
+                .putString("last_sync_error_$uid", errMsg)
+                .apply()
             false
         }
     }

@@ -53,7 +53,7 @@ class AutoBackupWorker(
             HostingSyncManager.pullDeltaFromHosting(context)
         } ?: false
 
-        return if (backupSuccess || hostingPullSuccess) {
+        return if (backupSuccess) {
             Log.d(TAG, "Auto backup sync completed successfully.")
             Result.success()
         } else {
