@@ -125,19 +125,33 @@ if ($method === 'POST') {
 
         $backupSize = strlen($backupData);
 
-        $stmt = $pdo->prepare("INSERT INTO cloud_backups (user_id, backup_name, backup_data, backup_size, version) VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([$userId, $backupName, $backupData, $backupSize, $version]);
+        // Check if an existing backup already exists for this user
+        $checkStmt = $pdo->prepare("SELECT id FROM cloud_backups WHERE user_id = ? LIMIT 1");
+        $checkStmt->execute([$userId]);
+        $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-        $insertedId = $pdo->lastInsertId();
+        if ($existing) {
+            // Update existing record and overwrite
+            $stmt = $pdo->prepare("UPDATE cloud_backups SET backup_name = ?, backup_data = ?, backup_size = ?, version = ?, created_at = CURRENT_TIMESTAMP WHERE user_id = ?");
+            $stmt->execute([$backupName, $backupData, $backupSize, $version, $userId]);
+            $insertedId = $existing['id'];
+            $msg = "Backup updated successfully on Hosting";
+        } else {
+            // Insert first record
+            $stmt = $pdo->prepare("INSERT INTO cloud_backups (user_id, backup_name, backup_data, backup_size, version) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$userId, $backupName, $backupData, $backupSize, $version]);
+            $insertedId = $pdo->lastInsertId();
+            $msg = "Backup created successfully on Hosting";
+        }
 
         echo json_encode([
             "status" => true,
-            "message" => "Backup created successfully on Hosting",
+            "message" => $msg,
             "backup_id" => (string)$insertedId
         ]);
         exit;
     } catch (Throwable $e) {
-        echo json_encode(["status" => false, "message" => "Database error creating backup: " . $e->getMessage()]);
+        echo json_encode(["status" => false, "message" => "Database error creating/updating backup: " . $e->getMessage()]);
         exit;
     }
 }

@@ -2350,7 +2350,7 @@ class IspRepository(
 
             // Step 3: Check if live sync succeeded
             if (!syncSuccess) {
-                return@withContext Pair(false, "Live hosting synchronization failed. Backup aborted.")
+                return@withContext Pair(false, "Live Hosting sync failed. Cloud backup was not created.")
             }
 
             // Step 4: After confirmed live sync success, generate snapshot and upload to cloud_backups
