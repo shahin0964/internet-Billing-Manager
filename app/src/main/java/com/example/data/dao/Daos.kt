@@ -31,6 +31,9 @@ interface CustomerDao {
     @Query("SELECT * FROM customers WHERE syncStatus = 1")
     suspend fun getDirtyCustomers(): List<CustomerEntity>
 
+    @Query("SELECT COUNT(*) FROM customers WHERE syncStatus = 1")
+    fun getDirtyCustomersCount(): Flow<Int>
+
     @Query("UPDATE customers SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markCustomersSynced(ids: List<Long>)
 
@@ -67,6 +70,9 @@ interface IspPackageDao {
     @Query("SELECT * FROM packages WHERE syncStatus = 1")
     suspend fun getDirtyPackages(): List<IspPackageEntity>
 
+    @Query("SELECT COUNT(*) FROM packages WHERE syncStatus = 1")
+    fun getDirtyPackagesCount(): Flow<Int>
+
     @Query("UPDATE packages SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markPackagesSynced(ids: List<Long>)
 
@@ -99,6 +105,9 @@ interface BillDao {
 
     @Query("SELECT * FROM bills WHERE syncStatus = 1")
     suspend fun getDirtyBills(): List<BillEntity>
+
+    @Query("SELECT COUNT(*) FROM bills WHERE syncStatus = 1")
+    fun getDirtyBillsCount(): Flow<Int>
 
     @Query("UPDATE bills SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markBillsSynced(ids: List<Long>)
@@ -147,6 +156,9 @@ interface PaymentDao {
 
     @Query("SELECT * FROM payments WHERE syncStatus = 1")
     suspend fun getDirtyPayments(): List<PaymentEntity>
+
+    @Query("SELECT COUNT(*) FROM payments WHERE syncStatus = 1")
+    fun getDirtyPaymentsCount(): Flow<Int>
 
     @Query("UPDATE payments SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markPaymentsSynced(ids: List<Long>)
@@ -199,6 +211,9 @@ interface BusinessSettingsDao {
     @Query("SELECT * FROM business_settings WHERE id = 1 AND syncStatus = 1 LIMIT 1")
     suspend fun getDirtySettings(): BusinessSettingsEntity?
 
+    @Query("SELECT COUNT(*) FROM business_settings WHERE id = 1 AND syncStatus = 1")
+    fun getDirtySettingsCount(): Flow<Int>
+
     @Query("UPDATE business_settings SET syncStatus = 0 WHERE id = 1")
     suspend fun markSettingsSynced()
 
@@ -219,6 +234,9 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expenses WHERE syncStatus = 1")
     suspend fun getDirtyExpenses(): List<ExpenseEntity>
+
+    @Query("SELECT COUNT(*) FROM expenses WHERE syncStatus = 1")
+    fun getDirtyExpensesCount(): Flow<Int>
 
     @Query("UPDATE expenses SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markExpensesSynced(ids: List<Long>)
@@ -246,6 +264,9 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expense_categories WHERE syncStatus = 1")
     suspend fun getDirtyCategories(): List<ExpenseCategoryEntity>
+
+    @Query("SELECT COUNT(*) FROM expense_categories WHERE syncStatus = 1")
+    fun getDirtyCategoriesCount(): Flow<Int>
 
     @Query("UPDATE expense_categories SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markCategoriesSynced(ids: List<Long>)
@@ -277,6 +298,9 @@ interface SpecificAdvanceDao {
     @Query("SELECT * FROM specific_advances WHERE syncStatus = 1")
     suspend fun getDirtySpecificAdvances(): List<SpecificAdvanceEntity>
 
+    @Query("SELECT COUNT(*) FROM specific_advances WHERE syncStatus = 1")
+    fun getDirtySpecificAdvancesCount(): Flow<Int>
+
     @Query("UPDATE specific_advances SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markSpecificAdvancesSynced(ids: List<Long>)
 
@@ -300,6 +324,9 @@ interface BandwidthBillDao {
 
     @Query("SELECT * FROM bandwidth_bills WHERE syncStatus = 1")
     suspend fun getDirtyBandwidthBills(): List<BandwidthBillEntity>
+
+    @Query("SELECT COUNT(*) FROM bandwidth_bills WHERE syncStatus = 1")
+    fun getDirtyBandwidthBillsCount(): Flow<Int>
 
     @Query("UPDATE bandwidth_bills SET syncStatus = 0 WHERE billingMonth IN (:months)")
     suspend fun markBandwidthBillsSynced(months: List<String>)

@@ -18,6 +18,9 @@ interface AuditLogDao {
     @Query("SELECT * FROM audit_logs WHERE syncStatus = 1")
     suspend fun getDirtyAuditLogs(): List<AuditLogEntity>
 
+    @Query("SELECT COUNT(*) FROM audit_logs WHERE syncStatus = 1")
+    fun getDirtyAuditLogsCount(): Flow<Int>
+
     @Query("UPDATE audit_logs SET syncStatus = 0 WHERE id IN (:ids)")
     suspend fun markAuditLogsSynced(ids: List<Long>)
 

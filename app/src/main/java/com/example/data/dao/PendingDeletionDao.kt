@@ -5,11 +5,15 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.example.data.model.PendingDeletionEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PendingDeletionDao {
     @Query("SELECT * FROM pending_deletions ORDER BY timestamp ASC")
     suspend fun getAllPendingDeletions(): List<PendingDeletionEntity>
+
+    @Query("SELECT COUNT(*) FROM pending_deletions")
+    fun getPendingDeletionsCount(): Flow<Int>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPendingDeletion(deletion: PendingDeletionEntity): Long

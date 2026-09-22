@@ -2,9 +2,18 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class IspApplication : Application() {
+    private var networkCallbackRegistered = false
+
     override fun onCreate() {
         super.onCreate()
         
@@ -47,6 +56,46 @@ class IspApplication : Application() {
         }
 
         com.example.data.remote.ApiClient.authToken = getAuthToken(this)
+
+        registerNetworkSyncCallback()
+    }
+
+    private fun registerNetworkSyncCallback() {
+        if (networkCallbackRegistered) return
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+
+            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    triggerAutoSyncIfLoggedIn()
+                }
+
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                        triggerAutoSyncIfLoggedIn()
+                    }
+                }
+            })
+            networkCallbackRegistered = true
+        } catch (e: Throwable) {
+            Log.w(TAG, "Network sync callback registration deferred: ${e.message}")
+        }
+    }
+
+    private fun triggerAutoSyncIfLoggedIn() {
+        val uid = getUserId(this)
+        if (!uid.isNullOrBlank() && isLoggedIn(this) && com.example.util.HostingSyncManager.isSessionValid(this, uid)) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    com.example.util.HostingSyncManager.syncLocalToHosting(this@IspApplication)
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Auto sync on network available note: ${e.message}")
+                }
+            }
+        }
     }
 
     companion object {

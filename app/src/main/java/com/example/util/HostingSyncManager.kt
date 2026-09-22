@@ -9,11 +9,23 @@ import com.example.data.database.IspDatabase
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 
 object HostingSyncManager {
 
     private const val TAG = "HostingSyncManager"
+
+    private val _isSyncingFlow = MutableStateFlow(false)
+    val isSyncingFlow: StateFlow<Boolean> = _isSyncingFlow.asStateFlow()
+
+    private val syncMutex = Mutex()
 
     fun isNetworkAvailable(context: Context): Boolean {
         return try {
@@ -59,8 +71,17 @@ object HostingSyncManager {
             return@withContext false
         }
 
+        if (!syncMutex.tryLock()) {
+            Log.d(TAG, "Sync already in progress. Skipping concurrent invocation.")
+            return@withContext false
+        }
+
+        _isSyncingFlow.value = true
+        val appPrefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+        appPrefs.edit().putBoolean("is_syncing", true).apply()
+
         try {
-            val db = IspDatabase.getDatabase(context)
+            val db = IspDatabase.getDatabase(context, uid)
             val prefs = context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
             val lastSyncTime = prefs.getLong("last_sync_time_$uid", 0L)
 
@@ -332,13 +353,11 @@ object HostingSyncManager {
 
                 val newServerTime = if (response.serverTimestamp > 0) response.serverTimestamp else System.currentTimeMillis()
                 prefs.edit().putLong("last_sync_time_$uid", newServerTime).apply()
+                appPrefs.edit().putLong("last_cloud_sync_time_$uid", newServerTime).apply()
 
                 // Refresh pending sync count in SharedPreferences so UI displays real remaining unsynced records
                 val remainingDirty = getActualPendingDirtyCount(context)
-                context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-                    .edit()
-                    .putInt("pending_sync_count_$uid", remainingDirty)
-                    .apply()
+                appPrefs.edit().putInt("pending_sync_count_$uid", remainingDirty).apply()
 
                 true
             } else {
@@ -374,6 +393,10 @@ object HostingSyncManager {
                     .apply()
             }
             false
+        } finally {
+            _isSyncingFlow.value = false
+            appPrefs.edit().putBoolean("is_syncing", false).apply()
+            syncMutex.unlock()
         }
     }
 
@@ -656,9 +679,40 @@ object HostingSyncManager {
         }
     }
 
+    fun observePendingDirtyCount(context: Context, userId: String? = null): Flow<Int> {
+        val actualUid = if (userId.isNullOrBlank() || userId == "guest" || userId == "authenticated_user") {
+            IspApplication.getUserId(context)?.takeIf { it.isNotBlank() && it != "guest" && it != "authenticated_user" }
+        } else {
+            userId
+        }
+        if (actualUid.isNullOrBlank() || !IspApplication.isLoggedIn(context)) {
+            return flowOf(0)
+        }
+        val db = IspDatabase.getDatabase(context, actualUid)
+        return combine(
+            listOf(
+                db.customerDao().getDirtyCustomersCount(),
+                db.packageDao().getDirtyPackagesCount(),
+                db.billDao().getDirtyBillsCount(),
+                db.paymentDao().getDirtyPaymentsCount(),
+                db.expenseDao().getDirtyExpensesCount(),
+                db.expenseDao().getDirtyCategoriesCount(),
+                db.settingsDao().getDirtySettingsCount(),
+                db.auditLogDao().getDirtyAuditLogsCount(),
+                db.bandwidthBillDao().getDirtyBandwidthBillsCount(),
+                db.specificAdvanceDao().getDirtySpecificAdvancesCount(),
+                db.pendingDeletionDao().getPendingDeletionsCount()
+            )
+        ) { counts ->
+            counts.sum()
+        }
+    }
+
     suspend fun getActualPendingDirtyCount(context: Context): Int = withContext(Dispatchers.IO) {
+        val uid = getCurrentUid(context)
+        if (uid.isNullOrBlank()) return@withContext 0
         return@withContext try {
-            val db = IspDatabase.getDatabase(context)
+            val db = IspDatabase.getDatabase(context, uid)
             val customers = db.customerDao().getDirtyCustomers().size
             val packages = db.packageDao().getDirtyPackages().size
             val bills = db.billDao().getDirtyBills().size
@@ -666,8 +720,12 @@ object HostingSyncManager {
             val expenses = db.expenseDao().getDirtyExpenses().size
             val expenseCategories = db.expenseDao().getDirtyCategories().size
             val settings = if (db.settingsDao().getDirtySettings() != null) 1 else 0
+            val auditLogs = db.auditLogDao().getDirtyAuditLogs().size
+            val bandwidthBills = db.bandwidthBillDao().getDirtyBandwidthBills().size
+            val specificAdvances = db.specificAdvanceDao().getDirtySpecificAdvances().size
+            val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions().size
             
-            customers + packages + bills + payments + expenses + expenseCategories + settings
+            customers + packages + bills + payments + expenses + expenseCategories + settings + auditLogs + bandwidthBills + specificAdvances + pendingDeletions
         } catch (e: Exception) {
             0
         }

@@ -45,51 +45,59 @@ fun ProfileScreen(
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showDisablePinDialog by remember { mutableStateOf(false) }
     
-    val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+    val prefs = remember { context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE) }
+    val hostingPrefs = remember { context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE) }
     var privacyModeEnabled by remember { mutableStateOf(prefs.getBoolean("privacy_mode", false)) }
     
     val userEmail = IspApplication.getUserEmail(context) ?: "Unknown"
     val currentUid = IspApplication.getUserId(context)
     val syncTimeKey = currentUid?.let { "last_cloud_sync_time_$it" }
-    val pendingCountKey = currentUid?.let { "pending_sync_count_$it" }
+    val hostingSyncTimeKey = currentUid?.let { "last_sync_time_$it" }
 
     var showPasswordChangeDialog by remember { mutableStateOf(false) }
     var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
-    var syncTimeState by remember(currentUid) { 
-        mutableStateOf(if (syncTimeKey != null) prefs.getLong(syncTimeKey, 0L) else 0L) 
-    }
-    var pendingBackups by remember(currentUid) { 
-        mutableStateOf(if (pendingCountKey != null) prefs.getInt(pendingCountKey, 0) else 0) 
-    }
-    var isSyncing by remember { mutableStateOf(prefs.getBoolean("is_syncing", false)) }
-    
-    androidx.compose.runtime.LaunchedEffect(currentUid) {
-        if (currentUid != null) {
-            val actual = com.example.util.HostingSyncManager.getActualPendingDirtyCount(context)
-            prefs.edit().putInt("pending_sync_count_$currentUid", actual).apply()
-            pendingBackups = actual
-            syncTimeState = prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
-        } else {
-            pendingBackups = 0
-            syncTimeState = 0L
-        }
+    fun readLatestSyncTime(): Long {
+        if (currentUid.isNullOrBlank()) return 0L
+        val t1 = prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
+        val t2 = hostingPrefs.getLong("last_sync_time_$currentUid", 0L)
+        return maxOf(t1, t2)
     }
 
-    androidx.compose.runtime.DisposableEffect(prefs, currentUid) {
+    var syncTimeState by remember(currentUid) { 
+        mutableStateOf(readLatestSyncTime()) 
+    }
+
+    val isSyncing by com.example.util.HostingSyncManager.isSyncingFlow.collectAsState()
+
+    val pendingBackups by remember(currentUid) {
+        if (currentUid != null && IspApplication.isLoggedIn(context)) {
+            com.example.util.HostingSyncManager.observePendingDirtyCount(context, currentUid)
+        } else {
+            kotlinx.coroutines.flow.flowOf(0)
+        }
+    }.collectAsState(initial = 0)
+
+    androidx.compose.runtime.LaunchedEffect(currentUid, isSyncing, pendingBackups) {
+        syncTimeState = readLatestSyncTime()
+    }
+
+    androidx.compose.runtime.DisposableEffect(prefs, hostingPrefs, currentUid) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
             when (key) {
                 "privacy_mode" -> privacyModeEnabled = sharedPreferences.getBoolean("privacy_mode", false)
-                syncTimeKey -> syncTimeState = if (syncTimeKey != null) sharedPreferences.getLong(syncTimeKey, 0L) else 0L
-                pendingCountKey -> pendingBackups = if (pendingCountKey != null) sharedPreferences.getInt(pendingCountKey, 0) else 0
-                "is_syncing" -> isSyncing = sharedPreferences.getBoolean("is_syncing", false)
+                syncTimeKey, hostingSyncTimeKey, "last_cloud_sync_time_$currentUid", "last_sync_time_$currentUid" -> {
+                    syncTimeState = readLatestSyncTime()
+                }
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
+        hostingPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose {
             prefs.unregisterOnSharedPreferenceChangeListener(listener)
+            hostingPrefs.unregisterOnSharedPreferenceChangeListener(listener)
         }
     }
     
