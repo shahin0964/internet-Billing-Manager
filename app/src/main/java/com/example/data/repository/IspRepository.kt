@@ -509,7 +509,9 @@ class IspRepository(
                         status = customerToSave.status
                     )
                     val response = ApiClient.apiService.saveCustomer(request)
-                    if (!response.status) {
+                    if (response.status) {
+                        customerDao.markCustomersSynced(listOf(savedCustomerId))
+                    } else {
                         Log.w("IspRepository", "Server rejected customer save: ${response.message}")
                     }
                 } catch (e: Exception) {
