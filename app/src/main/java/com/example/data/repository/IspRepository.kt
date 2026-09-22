@@ -3937,10 +3937,11 @@ class IspRepository(
         }
 
         // Package sync must run before customer sync so packageDao is populated
-        try {
+        val pkgSyncOk = try {
             syncPackagesFromHosting(userIdOverride)
         } catch (e: Throwable) {
             Log.w("IspRepository", "Pre-customer package sync failed (continuing with existing local packages): ${e.message}")
+            false
         }
 
         if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
@@ -3990,7 +3991,7 @@ class IspRepository(
                 val existing = existingMap[numId]
                 if (existing != null) {
                     val targetPackageId = remote.packageId?.toLongOrNull() ?: existing.packageId
-                    val matchedPkg = packageMap[targetPackageId]
+                    val matchedPkg = if (targetPackageId > 0L) packageMap[targetPackageId] else null
                     val updated = existing.copy(
                         name = remote.name,
                         phone = remote.phone ?: existing.phone,
@@ -4009,26 +4010,18 @@ class IspRepository(
                     entitiesToPersist.add(updated)
                 } else {
                     // New remote customer
-                    val custCode = remote.customerCode?.trim()
-                    val pppoeUser = remote.pppoeUsername?.trim()
-                    val joinDate = remote.joiningDate?.trim()
-                    val targetPackageId = remote.packageId?.toLongOrNull()
-                    val matchedPkg = if (targetPackageId != null) packageMap[targetPackageId] else null
+                    if (remote.name.isBlank()) {
+                        Log.w("IspRepository", "Skipping new remote customer $numId: missing required name")
+                        continue
+                    }
+                    val custCode = remote.customerCode?.trim().orEmpty()
+                    val pppoeUser = remote.pppoeUsername?.trim().orEmpty()
+                    val joinDate = remote.joiningDate?.trim().orEmpty()
+                    val targetPackageId = remote.packageId?.toLongOrNull() ?: 0L
+                    val matchedPkg = if (targetPackageId > 0L) packageMap[targetPackageId] else null
 
-                    if (custCode.isNullOrBlank()) {
-                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): missing required customer_code")
-                        continue
-                    }
-                    if (pppoeUser.isNullOrBlank()) {
-                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): missing required pppoe_username")
-                        continue
-                    }
-                    if (joinDate.isNullOrBlank()) {
-                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): missing required joining_date")
-                        continue
-                    }
-                    if (targetPackageId == null || matchedPkg == null) {
-                        Log.w("IspRepository", "Skipping new remote customer $numId (${remote.name}): package_id ($targetPackageId) could not be resolved in package database")
+                    if (targetPackageId > 0L && matchedPkg == null) {
+                        Log.w("IspRepository", "Deferring import of new customer $numId ($custCode - ${remote.name}): referenced package $targetPackageId cannot be resolved locally (pkgSyncOk=$pkgSyncOk, packageTableSize=${packageMap.size})")
                         continue
                     }
 
@@ -4041,9 +4034,9 @@ class IspRepository(
                         pppoeUsername = pppoeUser,
                         ipAddress = remote.ipAddress ?: "",
                         packageId = targetPackageId,
-                        packageName = matchedPkg.name,
-                        monthlyFee = matchedPkg.monthlyPrice,
-                        status = remote.status,
+                        packageName = matchedPkg?.name ?: "",
+                        monthlyFee = matchedPkg?.monthlyPrice ?: 0.0,
+                        status = if (remote.status.isNotBlank()) remote.status else "ACTIVE",
                         joiningDate = joinDate,
                         syncStatus = 0
                     )
