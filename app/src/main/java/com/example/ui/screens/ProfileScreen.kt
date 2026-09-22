@@ -321,7 +321,6 @@ fun ProfileScreen(
             Button(
                 onClick = {
                     try {
-                        IspApplication.setLoggedIn(context, false)
                         onSignOut()
                     } catch (e: Exception) {
                         onShowToast(context.getString(R.string.logout_failed, e.message))

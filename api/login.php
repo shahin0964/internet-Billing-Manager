@@ -40,7 +40,8 @@ function ensureUsersSchema($pdo) {
             'password_hash' => "VARCHAR(255) NOT NULL",
             'phone' => "VARCHAR(50) NULL DEFAULT ''",
             'role' => "VARCHAR(50) NOT NULL DEFAULT 'User'",
-            'status' => "VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'"
+            'status' => "VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'",
+            'api_token' => "VARCHAR(128) NULL UNIQUE"
         ];
 
         foreach ($colsToAdd as $col => $definition) {
@@ -98,13 +99,18 @@ if (!password_verify($password, $user['password_hash'])) {
     exit;
 }
 
+$apiToken = bin2hex(random_bytes(32));
+$updateStmt = $pdo->prepare("UPDATE users SET api_token = ? WHERE id = ?");
+$updateStmt->execute([$apiToken, $user['id']]);
+
 echo json_encode([
     "status" => true,
     "message" => "Login successful!",
     "user" => [
         "id" => (string)$user['id'],
         "name" => (string)$user['name'],
-        "email" => (string)$user['email']
+        "email" => (string)$user['email'],
+        "api_token" => $apiToken
     ]
 ]);
 exit;

@@ -40,7 +40,8 @@ function ensureUsersSchema($pdo) {
             'password_hash' => "VARCHAR(255) NOT NULL",
             'phone' => "VARCHAR(50) NULL DEFAULT ''",
             'role' => "VARCHAR(50) NOT NULL DEFAULT 'User'",
-            'status' => "VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'"
+            'status' => "VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'",
+            'api_token' => "VARCHAR(128) NULL UNIQUE"
         ];
 
         foreach ($colsToAdd as $col => $definition) {
@@ -110,8 +111,10 @@ $role = ($userCount === 0) ? 'Admin' : 'User';
 // Hash password with bcrypt
 $passwordHash = password_hash($password, PASSWORD_BCRYPT);
 
-$insertStmt = $pdo->prepare("INSERT INTO users (id, name, email, password_hash, phone, role, status) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')");
-$insertStmt->execute([$userId, $name, $email, $passwordHash, $phone, $role]);
+$apiToken = bin2hex(random_bytes(32));
+
+$insertStmt = $pdo->prepare("INSERT INTO users (id, name, email, password_hash, phone, role, status, api_token) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)");
+$insertStmt->execute([$userId, $name, $email, $passwordHash, $phone, $role, $apiToken]);
 
 echo json_encode([
     "status" => true,
@@ -119,7 +122,8 @@ echo json_encode([
     "user" => [
         "id" => $userId,
         "name" => $name,
-        "email" => $email
+        "email" => $email,
+        "api_token" => $apiToken
     ]
 ]);
 exit;

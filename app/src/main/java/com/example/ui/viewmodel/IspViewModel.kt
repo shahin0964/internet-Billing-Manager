@@ -16,6 +16,8 @@ import com.example.data.model.PaymentEntity
 import com.example.data.model.PreviousDueItem
 import com.example.data.model.BandwidthBillEntity
 import com.example.data.repository.IspRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,17 +33,88 @@ import java.util.Locale
 
 class IspViewModel(application: Application) : AndroidViewModel(application) {
 
-    val repository: IspRepository
+    private val _activeRepository = MutableStateFlow(
+        IspRepository.create(application, com.example.IspApplication.getUserId(application))
+    )
+    val repository: IspRepository get() = _activeRepository.value
 
-    val customers: StateFlow<List<CustomerEntity>>
-    val packages: StateFlow<List<IspPackageEntity>>
-    val bills: StateFlow<List<BillEntity>>
-    val payments: StateFlow<List<PaymentEntity>>
-    val settings: StateFlow<BusinessSettingsEntity>
-    val todayCollectionAmount: StateFlow<Double>
-    val expenses: StateFlow<List<ExpenseEntity>>
-    val expenseCategories: StateFlow<List<ExpenseCategoryEntity>>
-    val bandwidthBills: StateFlow<List<BandwidthBillEntity>>
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val customers: StateFlow<List<CustomerEntity>> = _activeRepository
+        .flatMapLatest { it.customers }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val packages: StateFlow<List<IspPackageEntity>> = _activeRepository
+        .flatMapLatest { it.packages }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val bills: StateFlow<List<BillEntity>> = _activeRepository
+        .flatMapLatest { it.bills }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val payments: StateFlow<List<PaymentEntity>> = _activeRepository
+        .flatMapLatest { it.payments }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val settings: StateFlow<BusinessSettingsEntity> = _activeRepository
+        .flatMapLatest { repo ->
+            repo.settings.map { s ->
+                val cur = s ?: BusinessSettingsEntity(
+                    id = 1,
+                    ispName = "",
+                    hotline = "",
+                    address = "",
+                    currencySymbol = "৳",
+                    networkStatus = "Operational",
+                    themeMode = "SYSTEM"
+                )
+                val cleanIspName = if (cur.ispName in listOf("Global Fiber ISP", "FastNet Broadband", "Broadband ISP")) "" else cur.ispName
+                val cleanHotline = if (cur.hotline == "+1 (800) 555-0199") "" else cur.hotline
+                val cleanAddress = if (cur.address in listOf("Central NOC, Tech City", "Main NOC, Plaza Suite 10")) "" else cur.address
+                if (cleanIspName != cur.ispName || cleanHotline != cur.hotline || cleanAddress != cur.address) {
+                    cur.copy(ispName = cleanIspName, hotline = cleanHotline, address = cleanAddress)
+                } else {
+                    cur
+                }
+            }
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            BusinessSettingsEntity(ispName = "", hotline = "", address = "")
+        )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val expenses: StateFlow<List<ExpenseEntity>> = _activeRepository
+        .flatMapLatest { it.expenses }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val expenseCategories: StateFlow<List<ExpenseCategoryEntity>> = _activeRepository
+        .flatMapLatest { it.expenseCategories }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val bandwidthBills: StateFlow<List<BandwidthBillEntity>> = _activeRepository
+        .flatMapLatest { it.bandwidthBills }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val auditLogs: StateFlow<List<com.example.data.model.AuditLogEntity>> = _activeRepository
+        .flatMapLatest { it.auditLogs }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val todayCollectionAmount: StateFlow<Double> = _activeRepository
+        .flatMapLatest { repo ->
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            val todayStr = sdf.format(java.util.Date())
+            repo.getCollectedAmountForDate(todayStr)
+        }.stateIn(
+            viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0
+        )
 
     // UI state filters & queries
     val customerSearchQuery = MutableStateFlow("")
@@ -60,107 +133,65 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAppInitializing = MutableStateFlow(true)
     val isAppInitializing: StateFlow<Boolean> = _isAppInitializing.asStateFlow()
 
-    val auditLogs: StateFlow<List<com.example.data.model.AuditLogEntity>>
+    private val activeSyncJobs = java.util.Collections.synchronizedSet(java.util.HashSet<kotlinx.coroutines.Job>())
+
+    private fun trackSyncJob(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit): kotlinx.coroutines.Job {
+        val job = viewModelScope.launch {
+            block()
+        }
+        activeSyncJobs.add(job)
+        job.invokeOnCompletion {
+            activeSyncJobs.remove(job)
+        }
+        return job
+    }
+
+    fun cancelAllSyncOperations() {
+        synchronized(activeSyncJobs) {
+            val iterator = activeSyncJobs.iterator()
+            while (iterator.hasNext()) {
+                val job = iterator.next()
+                if (job.isActive) {
+                    job.cancel()
+                }
+                iterator.remove()
+            }
+        }
+    }
+
+    fun switchUserSession(newUserId: String?) {
+        cancelAllSyncOperations()
+        selectedCustomerForDetail.value = null
+        val newRepo = IspRepository.create(getApplication(), newUserId)
+        _activeRepository.value = newRepo
+        seedDefaultPackagesAndSettingsIfNeeded()
+        autoGenerateCurrentMonthBills()
+        if (!newUserId.isNullOrBlank() && newUserId != "guest" && newUserId != "authenticated_user") {
+            triggerCloudSyncOnLogin()
+        }
+    }
 
     init {
-        val db = IspDatabase.getDatabase(application)
-        repository = IspRepository(
-            db.customerDao(),
-            db.packageDao(),
-            db.billDao(),
-            db.paymentDao(),
-            db.settingsDao(),
-            db.expenseDao(),
-            db.networkDiagramDao(),
-            db.auditLogDao(),
-            db,
-            application
-        )
+        seedDefaultPackagesAndSettingsIfNeeded()
+        autoGenerateCurrentMonthBills()
 
-        // Schedule & Trigger hosting auto backup check safely if logged in
-        try {
-            // Hosting periodic backup worker is already scheduled by IspApplication
-        } catch (e: Throwable) {
-            android.util.Log.e("IspViewModel", "Failed to initialize: ${e.message}")
-        }
-
-        viewModelScope.launch {
-            try {
-                repository.syncCustomersFromHosting()
-                repository.syncBillsFromHosting()
-                repository.syncPaymentsFromHosting()
-                repository.syncExpensesFromHosting()
-                repository.syncExpenseCategoriesFromHosting()
-                repository.syncSettingsFromHosting()
-                repository.syncAuditLogsFromHosting()
-                repository.syncBandwidthBillsFromHosting()
-                repository.syncSpecificAdvancesFromHosting()
-            } catch (e: Throwable) {
-                android.util.Log.w("IspViewModel", "Hosting customer/bill/payment/expense/settings/audit_logs/bandwidth_bills/specific_advances sync on init note: ${e.message}")
+        if (com.example.IspApplication.isLoggedIn(application)) {
+            trackSyncJob {
+                try {
+                    repository.syncCustomersFromHosting()
+                    repository.syncBillsFromHosting()
+                    repository.syncPaymentsFromHosting()
+                    repository.syncExpensesFromHosting()
+                    repository.syncExpenseCategoriesFromHosting()
+                    repository.syncSettingsFromHosting()
+                    repository.syncAuditLogsFromHosting()
+                    repository.syncBandwidthBillsFromHosting()
+                    repository.syncSpecificAdvancesFromHosting()
+                } catch (e: Throwable) {
+                    android.util.Log.w("IspViewModel", "Hosting customer/bill/payment/expense/settings/audit_logs/bandwidth_bills/specific_advances sync on init note: ${e.message}")
+                }
             }
         }
-
-        customers = repository.customers.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
-
-        packages = repository.packages.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
-
-        bills = repository.bills.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
-
-        payments = repository.payments.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
-
-        expenses = repository.expenses.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
-
-        expenseCategories = repository.expenseCategories.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
-
-        auditLogs = repository.auditLogs.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
-
-        settings = repository.settings.map { s ->
-            val cur = s ?: BusinessSettingsEntity(
-                id = 1,
-                ispName = "",
-                hotline = "",
-                address = "",
-                currencySymbol = "৳",
-                networkStatus = "Operational",
-                themeMode = "SYSTEM"
-            )
-            val cleanIspName = if (cur.ispName in listOf("Global Fiber ISP", "FastNet Broadband", "Broadband ISP")) "" else cur.ispName
-            val cleanHotline = if (cur.hotline == "+1 (800) 555-0199") "" else cur.hotline
-            val cleanAddress = if (cur.address in listOf("Central NOC, Tech City", "Main NOC, Plaza Suite 10")) "" else cur.address
-            if (cleanIspName != cur.ispName || cleanHotline != cur.hotline || cleanAddress != cur.address) {
-                cur.copy(ispName = cleanIspName, hotline = cleanHotline, address = cleanAddress)
-            } else {
-                cur
-            }
-        }.stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5000),
-            BusinessSettingsEntity(ispName = "", hotline = "", address = "")
-        )
-
-        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-        val todayStr = sdf.format(java.util.Date())
-        todayCollectionAmount = repository.getCollectedAmountForDate(todayStr).stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0
-        )
-
-        bandwidthBills = repository.bandwidthBills.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
-        )
 
         seedDefaultPackagesAndSettingsIfNeeded()
         autoGenerateCurrentMonthBills()
@@ -309,17 +340,25 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun triggerCloudSyncOnLogin() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncCustomersFromHosting()
+                repository.syncBillsFromHosting()
+                repository.syncPaymentsFromHosting()
+                repository.syncExpensesFromHosting()
+                repository.syncExpenseCategoriesFromHosting()
+                repository.syncSettingsFromHosting()
+                repository.syncAuditLogsFromHosting()
+                repository.syncBandwidthBillsFromHosting()
+                repository.syncSpecificAdvancesFromHosting()
             } catch (e: Throwable) {
-                android.util.Log.w("IspViewModel", "Hosting customer sync on login note: ${e.message}")
+                android.util.Log.w("IspViewModel", "Hosting sync on login note: ${e.message}")
             }
         }
     }
 
     fun syncCustomersFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncCustomersFromHosting()
                 repository.syncBillsFromHosting()
@@ -330,7 +369,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncBillsFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncBillsFromHosting()
             } catch (e: Throwable) {
@@ -340,7 +379,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncPaymentsFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncPaymentsFromHosting()
             } catch (e: Throwable) {
@@ -350,7 +389,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncExpensesFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncExpensesFromHosting()
             } catch (e: Throwable) {
@@ -360,7 +399,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncExpenseCategoriesFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncExpenseCategoriesFromHosting()
             } catch (e: Throwable) {
@@ -370,7 +409,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncSettingsFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncSettingsFromHosting()
             } catch (e: Throwable) {
@@ -380,7 +419,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncAuditLogsFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncAuditLogsFromHosting()
             } catch (e: Throwable) {
@@ -390,7 +429,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncBandwidthBillsFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncBandwidthBillsFromHosting()
             } catch (e: Throwable) {
@@ -400,7 +439,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncSpecificAdvancesFromHosting() {
-        viewModelScope.launch {
+        trackSyncJob {
             try {
                 repository.syncSpecificAdvancesFromHosting()
             } catch (e: Throwable) {
@@ -870,13 +909,13 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun clearAllLocalData() {
-        viewModelScope.launch {
-            try {
-                repository.clearAllLocalData()
-            } catch (e: Throwable) {
-                android.util.Log.e("IspViewModel", "Failed to clear all local data safely: ${e.message}", e)
-            }
+    suspend fun clearAllLocalData(): Boolean {
+        return try {
+            repository.clearAllLocalData()
+            true
+        } catch (e: Throwable) {
+            android.util.Log.e("IspViewModel", "Failed to clear all local data safely: ${e.message}", e)
+            false
         }
     }
 

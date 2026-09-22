@@ -11,12 +11,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once 'db.php';
 
+if (!function_exists('authenticateUser')) {
+    function authenticateUser($pdo) {
+        $token = null;
+        $headers = getallheaders();
+        if (isset($headers['Authorization'])) {
+            if (preg_match('/Bearer\\s(\\S+)/', $headers['Authorization'], $matches)) {
+                $token = $matches[1];
+            }
+        } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            if (preg_match('/Bearer\\s(\\S+)/', $_SERVER['HTTP_AUTHORIZATION'], $matches)) {
+                $token = $matches[1];
+            }
+        }
+
+        if (empty($token)) {
+            http_response_code(401);
+            echo json_encode(["status" => false, "message" => "Unauthorized: Token missing."]);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("SELECT id FROM users WHERE api_token = ? LIMIT 1");
+        $stmt->execute([$token]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            http_response_code(401);
+            echo json_encode(["status" => false, "message" => "Unauthorized: Invalid token."]);
+            exit;
+        }
+
+        return $user['id'];
+    }
+}
+
+$authenticatedUserId = authenticateUser($pdo);
+
+
 function ensureColumnExists($pdo, $table, $column, $definition) {
     try {
         $stmt = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
         $stmt->execute([$column]);
         if ($stmt->rowCount() == 0) {
             $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+        }
+    } catch (Exception $e) {
+        // Safe to ignore
+    }
+}
+
+function ensureUniqueIndexExists($pdo, $table, $indexName, $columnsDefinition) {
+    try {
+        $stmt = $pdo->prepare("SHOW INDEX FROM `$table` WHERE Key_name = ?");
+        $stmt->execute([$indexName]);
+        if ($stmt->rowCount() == 0) {
+            $dupStmt = $pdo->query("SELECT $columnsDefinition, COUNT(*) as cnt FROM `$table` GROUP BY $columnsDefinition HAVING cnt > 1 LIMIT 1");
+            if (!$dupStmt || $dupStmt->rowCount() == 0) {
+                $pdo->exec("ALTER TABLE `$table` ADD UNIQUE KEY `$indexName` ($columnsDefinition)");
+            }
         }
     } catch (Exception $e) {
         // Safe to ignore
@@ -35,13 +87,15 @@ function ensureAllSyncSchemas($pdo) {
             user_id VARCHAR(100) NOT NULL,
             collection_name VARCHAR(100) NOT NULL,
             record_id VARCHAR(100) NOT NULL,
-            deleted_at BIGINT NOT NULL
+            deleted_at BIGINT NOT NULL,
+            UNIQUE KEY uq_user_coll_record (user_id, collection_name, record_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     } catch (Exception $e) {}
     ensureColumnExists($pdo, 'deleted_records', 'collection_name', 'VARCHAR(100) NOT NULL');
     ensureColumnExists($pdo, 'deleted_records', 'record_id', 'VARCHAR(100) NOT NULL');
     ensureColumnExists($pdo, 'deleted_records', 'deleted_at', 'BIGINT NOT NULL');
     ensureColumnExists($pdo, 'deleted_records', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    ensureUniqueIndexExists($pdo, 'deleted_records', 'uq_user_coll_record', 'user_id, collection_name, record_id');
 
     // 2. Customers
     try {
@@ -277,7 +331,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
     try {
-        $userId = $_GET['user_id'] ?? null;
+        $userId = $authenticatedUserId;
         $since = isset($_GET['since']) ? (int)$_GET['since'] : (isset($_GET['last_sync_timestamp']) ? (int)$_GET['last_sync_timestamp'] : 0);
 
         if (!$userId) {
@@ -310,7 +364,7 @@ if ($method === 'POST') {
         $raw = file_get_contents("php://input");
         $payload = json_decode($raw, true);
 
-        $userId = $payload['user_id'] ?? null;
+        $userId = $authenticatedUserId;
         $since = isset($payload['last_sync_timestamp']) ? (int)$payload['last_sync_timestamp'] : 0;
 
         if (!$userId) {

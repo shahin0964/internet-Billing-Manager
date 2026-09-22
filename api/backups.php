@@ -11,6 +11,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once 'db.php';
 
+if (!function_exists('authenticateUser')) {
+    function authenticateUser($pdo) {
+        $token = null;
+        $headers = getallheaders();
+        if (isset($headers['Authorization'])) {
+            if (preg_match('/Bearer\\s(\\S+)/', $headers['Authorization'], $matches)) {
+                $token = $matches[1];
+            }
+        } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            if (preg_match('/Bearer\\s(\\S+)/', $_SERVER['HTTP_AUTHORIZATION'], $matches)) {
+                $token = $matches[1];
+            }
+        }
+
+        if (empty($token)) {
+            http_response_code(401);
+            echo json_encode(["status" => false, "message" => "Unauthorized: Token missing."]);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("SELECT id FROM users WHERE api_token = ? LIMIT 1");
+        $stmt->execute([$token]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            http_response_code(401);
+            echo json_encode(["status" => false, "message" => "Unauthorized: Invalid token."]);
+            exit;
+        }
+
+        return $user['id'];
+    }
+}
+
+$authenticatedUserId = authenticateUser($pdo);
+
+
 function ensureBackupsSchema($pdo) {
     static $checked = false;
     if ($checked) return;
@@ -26,8 +63,19 @@ function ensureBackupsSchema($pdo) {
             version INT NOT NULL DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_user_id (user_id),
-            INDEX idx_created_at (created_at)
+            INDEX idx_created_at (created_at),
+            UNIQUE KEY uq_cloud_backup_user (user_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        // Ensure unique constraint exists on existing table if created previously without it
+        $stmt = $pdo->prepare("SHOW INDEX FROM `cloud_backups` WHERE Key_name = 'uq_cloud_backup_user'");
+        $stmt->execute();
+        if ($stmt->rowCount() == 0) {
+            $dupStmt = $pdo->query("SELECT user_id, COUNT(*) as cnt FROM `cloud_backups` GROUP BY user_id HAVING cnt > 1 LIMIT 1");
+            if (!$dupStmt || $dupStmt->rowCount() == 0) {
+                $pdo->exec("ALTER TABLE `cloud_backups` ADD UNIQUE KEY `uq_cloud_backup_user` (user_id)");
+            }
+        }
     } catch (Exception $e) {
         // Continue safely
     }
@@ -36,7 +84,7 @@ function ensureBackupsSchema($pdo) {
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    $userId = $_GET['user_id'] ?? null;
+    $userId = $authenticatedUserId;
     if (!$userId) {
         echo json_encode(["status" => false, "message" => "user_id is required", "data" => null]);
         exit;
@@ -100,7 +148,7 @@ if ($method === 'POST') {
     $raw = file_get_contents("php://input");
     $data = json_decode($raw, true);
 
-    $userId = $data['user_id'] ?? null;
+    $userId = $authenticatedUserId;
     $backupData = $data['backup_data'] ?? null;
     $backupName = $data['backup_name'] ?? ('ISP-Cloud-Backup-' . date('Y-m-d-H-i-s'));
     $version = isset($data['version']) ? (int)$data['version'] : 1;

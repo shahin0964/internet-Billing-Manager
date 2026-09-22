@@ -48,8 +48,25 @@ object ApiClient {
         response
     }
 
+    @Volatile
+    var authToken: String? = null
+
+    private val authInterceptor = okhttp3.Interceptor { chain ->
+        val original = chain.request()
+        val token = authToken
+        val request = if (!token.isNullOrBlank()) {
+            original.newBuilder()
+                .header("Authorization", "Bearer $token")
+                .build()
+        } else {
+            original
+        }
+        chain.proceed(request)
+    }
+
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .addInterceptor(authInterceptor)
             .addInterceptor(errorLoggingInterceptor)
             .addInterceptor(loggingInterceptor)
             .connectTimeout(30, TimeUnit.SECONDS)

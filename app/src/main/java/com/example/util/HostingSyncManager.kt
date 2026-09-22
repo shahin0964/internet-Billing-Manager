@@ -32,6 +32,13 @@ object HostingSyncManager {
         return null
     }
 
+    fun isSessionValid(context: Context, operationUserId: String): Boolean {
+        if (operationUserId.isBlank()) return false
+        val currentUid = IspApplication.getUserId(context)
+        val loggedIn = IspApplication.isLoggedIn(context)
+        return loggedIn && currentUid == operationUserId
+    }
+
     /**
      * Performs Background Sync from local Room database to Hosting API & MySQL.
      * Uploads only modified (syncStatus = 1) records and processes pending deletions.
@@ -41,6 +48,10 @@ object HostingSyncManager {
         val uid = getCurrentUid(context)
         if (uid.isNullOrBlank()) {
             Log.d(TAG, "Sync skipped: User is guest or unauthenticated.")
+            return@withContext false
+        }
+        if (!isSessionValid(context, uid)) {
+            Log.w(TAG, "Sync skipped: Active session does not match initiating user $uid.")
             return@withContext false
         }
         if (!isNetworkAvailable(context)) {
@@ -225,11 +236,29 @@ object HostingSyncManager {
                 deletedRecords = deletedPayloads
             )
 
+            // Before network transmission: verify session
+            if (!isSessionValid(context, uid)) {
+                Log.w(TAG, "Sync aborted before push: session invalidated for user $uid")
+                return@withContext false
+            }
+
             // Step 2: Push to Hosting API
             val response = ApiClient.apiService.sync(pushRequest)
 
+            // After network response: verify session
+            if (!isSessionValid(context, uid)) {
+                Log.w(TAG, "Sync response discarded: session invalidated for user $uid")
+                return@withContext false
+            }
+
             if (response.status) {
                 Log.d(TAG, "Sync to Hosting succeeded for user $uid")
+
+                // Immediately before marking dirty rows clean: verify session
+                if (!isSessionValid(context, uid)) {
+                    Log.w(TAG, "Dirty-flag clearance aborted: session invalidated for user $uid")
+                    return@withContext false
+                }
 
                 // Step 3: Clear synced dirty flags based on confirmed synced IDs
                 val synced = response.syncedIds
@@ -284,9 +313,21 @@ object HostingSyncManager {
                     if (pendingDeletions.isNotEmpty()) db.pendingDeletionDao().deletePendingDeletionsByIds(pendingDeletions.map { it.id })
                 }
 
+                // Immediately before applyDeltaToRoom: verify session
+                if (!isSessionValid(context, uid)) {
+                    Log.w(TAG, "Delta application aborted: session invalidated for user $uid")
+                    return@withContext false
+                }
+
                 // Step 4: Apply remote delta to Room safely
                 if (response.data != null) {
-                    applyDeltaToRoom(context, db, response.data)
+                    applyDeltaToRoom(context, db, response.data, uid)
+                }
+
+                // Immediately before preference writes: verify session
+                if (!isSessionValid(context, uid)) {
+                    Log.w(TAG, "Preference updates aborted: session invalidated for user $uid")
+                    return@withContext false
                 }
 
                 val newServerTime = if (response.serverTimestamp > 0) response.serverTimestamp else System.currentTimeMillis()
@@ -302,30 +343,36 @@ object HostingSyncManager {
                 true
             } else {
                 Log.w(TAG, "Sync to Hosting failed: ${response.message}")
-                val errMsg = response.message ?: "Unknown server error"
-                context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("last_sync_error_$uid", errMsg)
-                    .apply()
+                if (isSessionValid(context, uid)) {
+                    val errMsg = response.message ?: "Unknown server error"
+                    context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("last_sync_error_$uid", errMsg)
+                        .apply()
+                }
                 false
             }
         } catch (e: retrofit2.HttpException) {
             val code = e.code()
             val errorBody = e.response()?.errorBody()?.string() ?: "No error body"
             Log.e(TAG, "HTTP Exception syncing to hosting (status $code): $errorBody", e)
-            val errMsg = "HTTP $code: $errorBody"
-            context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
-                .edit()
-                .putString("last_sync_error_$uid", errMsg)
-                .apply()
+            if (isSessionValid(context, uid)) {
+                val errMsg = "HTTP $code: $errorBody"
+                context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("last_sync_error_$uid", errMsg)
+                    .apply()
+            }
             false
         } catch (e: Exception) {
             Log.e(TAG, "Error syncing to hosting: ${e.message}", e)
-            val errMsg = e.localizedMessage ?: e.message ?: "Unknown exception"
-            context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
-                .edit()
-                .putString("last_sync_error_$uid", errMsg)
-                .apply()
+            if (isSessionValid(context, uid)) {
+                val errMsg = e.localizedMessage ?: e.message ?: "Unknown exception"
+                context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("last_sync_error_$uid", errMsg)
+                    .apply()
+            }
             false
         }
     }
@@ -335,7 +382,7 @@ object HostingSyncManager {
      */
     suspend fun pullDeltaFromHosting(context: Context): Boolean = withContext(Dispatchers.IO) {
         val uid = getCurrentUid(context)
-        if (uid.isNullOrBlank() || !isNetworkAvailable(context)) {
+        if (uid.isNullOrBlank() || !isSessionValid(context, uid) || !isNetworkAvailable(context)) {
             return@withContext false
         }
 
@@ -344,9 +391,34 @@ object HostingSyncManager {
             val prefs = context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
             val lastSyncTime = prefs.getLong("last_sync_time_$uid", 0L)
 
+            // Before network transmission: verify session
+            if (!isSessionValid(context, uid)) {
+                Log.w(TAG, "Pull delta aborted before request: session invalidated for user $uid")
+                return@withContext false
+            }
+
             val response = ApiClient.apiService.getDelta(uid, lastSyncTime)
+
+            // After network response: verify session
+            if (!isSessionValid(context, uid)) {
+                Log.w(TAG, "Pull delta response discarded: session invalidated for user $uid")
+                return@withContext false
+            }
+
             if (response.status && response.data != null) {
-                applyDeltaToRoom(context, db, response.data)
+                // Immediately before applyDeltaToRoom: verify session
+                if (!isSessionValid(context, uid)) {
+                    Log.w(TAG, "Pull delta application aborted: session invalidated for user $uid")
+                    return@withContext false
+                }
+                applyDeltaToRoom(context, db, response.data, uid)
+
+                // Immediately before preference write: verify session
+                if (!isSessionValid(context, uid)) {
+                    Log.w(TAG, "Pull delta preference write aborted: session invalidated for user $uid")
+                    return@withContext false
+                }
+
                 val newServerTime = if (response.serverTimestamp > 0) response.serverTimestamp else System.currentTimeMillis()
                 prefs.edit().putLong("last_sync_time_$uid", newServerTime).apply()
                 true
@@ -359,7 +431,11 @@ object HostingSyncManager {
         }
     }
 
-    private suspend fun applyDeltaToRoom(context: Context, db: IspDatabase, delta: SyncDeltaData) {
+    private suspend fun applyDeltaToRoom(context: Context, db: IspDatabase, delta: SyncDeltaData, operationUserId: String) {
+        if (!isSessionValid(context, operationUserId)) {
+            Log.w(TAG, "applyDeltaToRoom aborted: session invalidated for user $operationUserId")
+            return
+        }
         // Collect local dirty IDs to protect unsaved local changes from remote overwrites
         val dirtyCustomerIds: Set<Long> = db.customerDao().getDirtyCustomers().map { it.id }.toSet()
         val dirtyPackageIds: Set<Long> = db.packageDao().getDirtyPackages().map { it.id }.toSet()
@@ -372,6 +448,7 @@ object HostingSyncManager {
         val isSettingsDirty: Boolean = (db.settingsDao().getDirtySettings() != null)
 
         // 1. Process Deleted Records tombstones
+        if (!isSessionValid(context, operationUserId)) return
         delta.deletedRecords?.forEach { del ->
             when (del.collectionName) {
                 "payments" -> del.recordId.toLongOrNull()?.let { pmid ->
@@ -383,6 +460,7 @@ object HostingSyncManager {
         }
 
         // 2. Customers
+        if (!isSessionValid(context, operationUserId)) return
         delta.customers?.forEach { c ->
             val cid = c.id.toLongOrNull() ?: 0L
             if (cid > 0 && !dirtyCustomerIds.contains(cid)) {
@@ -407,6 +485,7 @@ object HostingSyncManager {
         }
 
         // 3. Packages
+        if (!isSessionValid(context, operationUserId)) return
         delta.packages?.forEach { p ->
             val pid = p.id.toLongOrNull() ?: 0L
             if (pid > 0 && !dirtyPackageIds.contains(pid)) {
@@ -424,6 +503,7 @@ object HostingSyncManager {
         }
 
         // 4. Bills
+        if (!isSessionValid(context, operationUserId)) return
         delta.bills?.forEach { b ->
             if (!dirtyBillIds.contains(b.id)) {
                 val entity = BillEntity(
@@ -447,6 +527,7 @@ object HostingSyncManager {
         }
 
         // 5. Payments
+        if (!isSessionValid(context, operationUserId)) return
         delta.payments?.forEach { pm ->
             if (!dirtyPaymentIds.contains(pm.id)) {
                 val entity = PaymentEntity(
@@ -467,6 +548,7 @@ object HostingSyncManager {
         }
 
         // 6. Expenses
+        if (!isSessionValid(context, operationUserId)) return
         delta.expenses?.forEach { e ->
             if (!dirtyExpenseIds.contains(e.id)) {
                 val entity = ExpenseEntity(
@@ -487,6 +569,7 @@ object HostingSyncManager {
         }
 
         // 7. Expense Categories
+        if (!isSessionValid(context, operationUserId)) return
         delta.expenseCategories?.forEach { ec ->
             if (!dirtyCategoryIds.contains(ec.id)) {
                 val entity = ExpenseCategoryEntity(
@@ -500,6 +583,7 @@ object HostingSyncManager {
         }
 
         // 8. Business Settings
+        if (!isSessionValid(context, operationUserId)) return
         delta.settings?.let { s ->
             if (!isSettingsDirty) {
                 val entity = BusinessSettingsEntity(
@@ -520,6 +604,7 @@ object HostingSyncManager {
         }
 
         // 9. Audit Logs
+        if (!isSessionValid(context, operationUserId)) return
         delta.auditLogs?.forEach { al ->
             val entity = AuditLogEntity(
                 id = al.id,
@@ -540,6 +625,7 @@ object HostingSyncManager {
         }
 
         // 10. Bandwidth Bills
+        if (!isSessionValid(context, operationUserId)) return
         delta.bandwidthBills?.forEach { bb ->
             if (!dirtyBandwidthMonths.contains(bb.billingMonth)) {
                 val entity = BandwidthBillEntity(
@@ -553,6 +639,7 @@ object HostingSyncManager {
         }
 
         // 11. Specific Advances
+        if (!isSessionValid(context, operationUserId)) return
         delta.specificAdvances?.forEach { sa ->
             if (!dirtySpecificAdvanceIds.contains(sa.id)) {
                 val entity = SpecificAdvanceEntity(

@@ -282,21 +282,105 @@ abstract class IspDatabase : RoomDatabase() {
             }
         }
 
-        @Volatile
-        private var INSTANCE: IspDatabase? = null
+        private val instances = java.util.concurrent.ConcurrentHashMap<String, IspDatabase>()
 
-        fun getDatabase(context: Context): IspDatabase {
-            return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
+        fun getDatabaseNameForUser(userId: String?): String {
+            if (userId.isNullOrBlank() || userId == "guest" || userId == "authenticated_user") {
+                return "isp_control_center_guest.db"
+            }
+            val safeId = userId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+            val hash = try {
+                val md = java.security.MessageDigest.getInstance("SHA-256")
+                md.digest(userId.toByteArray(Charsets.UTF_8))
+                    .joinToString("") { "%02x".format(it) }
+                    .take(12)
+            } catch (e: Exception) {
+                userId.hashCode().toString().replace("-", "n")
+            }
+            return "isp_user_${safeId}_${hash}.db"
+        }
+
+        private fun migrateLegacyDatabaseIfOwned(context: Context, targetDbName: String, targetUserId: String?) {
+            try {
+                val targetDbFile = context.getDatabasePath(targetDbName)
+                if (targetDbFile.exists()) return
+
+                val legacyDbFile = context.getDatabasePath("isp_control_center.db")
+                if (!legacyDbFile.exists()) return
+
+                val lastAuthUser = com.example.IspApplication.getLastAuthenticatedUserId(context)
+                val isTargetAuthenticated = !targetUserId.isNullOrBlank() && targetUserId != "guest" && targetUserId != "authenticated_user"
+                val shouldAdopt = isTargetAuthenticated && lastAuthUser != null && lastAuthUser == targetUserId
+
+                if (shouldAdopt) {
+                    targetDbFile.parentFile?.mkdirs()
+                    legacyDbFile.copyTo(targetDbFile, overwrite = false)
+                    val legacyWal = java.io.File(legacyDbFile.path + "-wal")
+                    val targetWal = java.io.File(targetDbFile.path + "-wal")
+                    if (legacyWal.exists()) legacyWal.copyTo(targetWal, overwrite = false)
+                    val legacyShm = java.io.File(legacyDbFile.path + "-shm")
+                    val targetShm = java.io.File(targetDbFile.path + "-shm")
+                    if (legacyShm.exists()) legacyShm.copyTo(targetShm, overwrite = false)
+                    android.util.Log.i("IspDatabase", "Adopted legacy database isp_control_center.db into $targetDbName (owner: $targetUserId)")
+                }
+            } catch (e: Throwable) {
+                android.util.Log.w("IspDatabase", "Legacy database adoption note: ${e.message}")
+            }
+        }
+
+        fun getDatabase(context: Context, userId: String? = null): IspDatabase {
+            val actualUid = if (userId.isNullOrBlank() || userId == "guest" || userId == "authenticated_user") {
+                com.example.IspApplication.getUserId(context)?.takeIf { it.isNotBlank() && it != "guest" && it != "authenticated_user" }
+            } else {
+                userId
+            }
+            val dbName = getDatabaseNameForUser(actualUid)
+
+            return instances.computeIfAbsent(dbName) {
+                migrateLegacyDatabaseIfOwned(context.applicationContext, dbName, actualUid)
+                Room.databaseBuilder(
                     context.applicationContext,
                     IspDatabase::class.java,
-                    "isp_control_center.db"
+                    dbName
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
-                INSTANCE = instance
-                instance
+            }
+        }
+
+        fun closeDatabase(userId: String?) {
+            val actualUid = if (userId.isNullOrBlank() || userId == "guest" || userId == "authenticated_user") {
+                null
+            } else {
+                userId
+            }
+            val dbName = getDatabaseNameForUser(actualUid)
+            synchronized(this) {
+                instances.remove(dbName)?.let { db ->
+                    try {
+                        if (db.isOpen) {
+                            db.close()
+                        }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("IspDatabase", "Error closing database $dbName: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        fun closeAllDatabases() {
+            synchronized(this) {
+                instances.forEach { (name, db) ->
+                    try {
+                        if (db.isOpen) {
+                            db.close()
+                        }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("IspDatabase", "Error closing database $name: ${e.message}")
+                    }
+                }
+                instances.clear()
             }
         }
     }

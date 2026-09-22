@@ -224,7 +224,9 @@ data class LoginRequest(
 data class LoginUser(
     val id: String,
     val name: String,
-    val email: String
+    val email: String,
+    @SerializedName("api_token")
+    val apiToken: String? = null
 )
 
 data class LoginResponse(
@@ -243,7 +245,9 @@ data class SignupRequest(
 data class SignupUser(
     val id: String,
     val name: String,
-    val email: String
+    val email: String,
+    @SerializedName("api_token")
+    val apiToken: String? = null
 )
 
 data class SignupResponse(

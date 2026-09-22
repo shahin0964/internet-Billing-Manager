@@ -57,14 +57,15 @@ fun AutomaticSmsScreen(
     val isBn = Locale.getDefault().language == "bn"
 
     // Database access
-    val smsDb = remember { SmsDatabase.getDatabase(context) }
-    val ispDb = remember { IspDatabase.getDatabase(context) }
+    val currentUserId = com.example.IspApplication.getUserId(context)
+    val smsDb = remember(currentUserId) { SmsDatabase.getDatabase(context, currentUserId) }
+    val ispDb = remember(currentUserId) { IspDatabase.getDatabase(context, currentUserId) }
 
     // Retrieve lists reactively
-    val smsList by smsDb.smsQueueDao().getAllSmsFlow().collectAsState(initial = emptyList())
-    val customerList by ispDb.customerDao().getAllCustomers().collectAsState(initial = emptyList())
-    val billsList by ispDb.billDao().getAllBills().collectAsState(initial = emptyList())
-    val businessSettings by ispDb.settingsDao().getSettings().collectAsState(initial = null)
+    val smsList by remember(smsDb) { smsDb.smsQueueDao().getAllSmsFlow() }.collectAsState(initial = emptyList())
+    val customerList by remember(ispDb) { ispDb.customerDao().getAllCustomers() }.collectAsState(initial = emptyList())
+    val billsList by remember(ispDb) { ispDb.billDao().getAllBills() }.collectAsState(initial = emptyList())
+    val businessSettings by remember(ispDb) { ispDb.settingsDao().getSettings() }.collectAsState(initial = null)
     val ispName = businessSettings?.ispName ?: "ISP Net"
     val currencySymbol = businessSettings?.currencySymbol ?: "৳"
 

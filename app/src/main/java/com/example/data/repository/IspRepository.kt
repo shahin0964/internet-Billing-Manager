@@ -77,8 +77,9 @@ class IspRepository(
     private val expenseDao: ExpenseDao,
     private val networkDiagramDao: NetworkDiagramDao,
     private val auditLogDao: AuditLogDao,
-    private val db: IspDatabase,
-    private val context: Context? = null
+    val db: IspDatabase,
+    private val context: Context? = null,
+    val databaseOwner: String? = null
 ) {
     @Volatile private var idCounter = 0
     private fun generateUniqueId(): Long {
@@ -133,6 +134,28 @@ class IspRepository(
 
     companion object {
         private val globalBillGenerationMutex = Mutex()
+
+        fun create(context: Context, userId: String? = null): IspRepository {
+            val actualUid = if (userId.isNullOrBlank() || userId == "guest" || userId == "authenticated_user") {
+                com.example.IspApplication.getUserId(context)?.takeIf { it.isNotBlank() && it != "guest" && it != "authenticated_user" }
+            } else {
+                userId
+            }
+            val db = IspDatabase.getDatabase(context, actualUid)
+            return IspRepository(
+                customerDao = db.customerDao(),
+                packageDao = db.packageDao(),
+                billDao = db.billDao(),
+                paymentDao = db.paymentDao(),
+                settingsDao = db.settingsDao(),
+                expenseDao = db.expenseDao(),
+                networkDiagramDao = db.networkDiagramDao(),
+                auditLogDao = db.auditLogDao(),
+                db = db,
+                context = context.applicationContext,
+                databaseOwner = actualUid
+            )
+        }
     }
 
     private fun markBillAsDeletedForMonth(customerId: Long, customerCode: String, billingMonth: String) {
@@ -1197,6 +1220,7 @@ class IspRepository(
                 val receiptNo = "PAY-${System.currentTimeMillis().toString().takeLast(6)}"
 
                 var remainingPayment = amount
+                val allocatedBills = mutableListOf<Pair<BillEntity, Double>>()
 
                 // 4. Apply payment to unpaid bills for this customer (oldest to newest)
                 if (effectiveCustId != 0L) {
@@ -1220,6 +1244,9 @@ class IspRepository(
                             syncStatus = 1
                         )
                         billDao.updateBill(updated)
+                        if (applyAmount > 0.0) {
+                            allocatedBills.add(b to applyAmount)
+                        }
                         remainingPayment -= applyAmount
                     }
                 } else if (targetBill != null && remainingPayment > 0.0) {
@@ -1240,6 +1267,9 @@ class IspRepository(
                         syncStatus = 1
                     )
                     billDao.updateBill(updated)
+                    if (applyAmount > 0.0) {
+                        allocatedBills.add(targetBill to applyAmount)
+                    }
                     remainingPayment -= applyAmount
                 }
 
@@ -1272,7 +1302,11 @@ class IspRepository(
 
                 // 6. Record payment entity
                 val custName = customer?.name ?: targetBill?.customerName ?: "Customer #$effectiveCustId"
-                val linkedBillId = targetBill?.id ?: 0L
+                val linkedBillId = when {
+                    allocatedBills.size == 1 -> allocatedBills.first().first.id
+                    allocatedBills.size > 1 -> 0L
+                    else -> 0L
+                }
                 val payment = PaymentEntity(
                     id = generateUniqueId(),
                     paymentReceiptNo = receiptNo,
@@ -2336,8 +2370,8 @@ class IspRepository(
 
     suspend fun backupToHosting(context: Context, userId: String): Pair<Boolean, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            if (userId.isBlank()) {
-                return@withContext Pair(false, "Authentication required")
+            if (userId.isBlank() || !com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+                return@withContext Pair(false, "Authentication required or session invalid")
             }
 
             // Step 1 & 2: Sync dirty local records to active MySQL tables first
@@ -2348,6 +2382,10 @@ class IspRepository(
                 false
             }
 
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+                return@withContext Pair(false, "Cloud backup aborted: session invalidated")
+            }
+
             // Step 3: Check if live sync succeeded
             if (!syncSuccess) {
                 val lastError = context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
@@ -2356,6 +2394,9 @@ class IspRepository(
             }
 
             // Step 4: After confirmed live sync success, generate snapshot and upload to cloud_backups
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+                return@withContext Pair(false, "Cloud backup aborted: session invalidated")
+            }
             val rawJsonPayload = generateFullBackupJson(context)
             if (rawJsonPayload.isBlank()) {
                 return@withContext Pair(false, "No local data to back up")
@@ -2378,16 +2419,24 @@ class IspRepository(
                 backupData = jsonPayload,
                 version = 1
             )
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+                return@withContext Pair(false, "Cloud backup aborted before upload: session invalidated")
+            }
             val response = ApiClient.apiService.saveCloudBackup(request)
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+                return@withContext Pair(false, "Cloud backup response discarded: session invalidated")
+            }
             if (response.status) {
                 // Update the last cloud sync time and pending sync count so the UI updates immediately
                 try {
-                    val remainingDirty = com.example.util.HostingSyncManager.getActualPendingDirtyCount(context)
-                    context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-                        .edit()
-                        .putLong("last_cloud_sync_time_$userId", System.currentTimeMillis())
-                        .putInt("pending_sync_count_$userId", remainingDirty)
-                        .apply()
+                    if (com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+                        val remainingDirty = com.example.util.HostingSyncManager.getActualPendingDirtyCount(context)
+                        context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                            .edit()
+                            .putLong("last_cloud_sync_time_$userId", System.currentTimeMillis())
+                            .putInt("pending_sync_count_$userId", remainingDirty)
+                            .apply()
+                    }
                 } catch (ex: Exception) {
                     Log.e("IspRepository", "Updating sync preferences failed: ${ex.message}")
                 }
@@ -2746,6 +2795,39 @@ class IspRepository(
             db.networkDiagramDao().deleteAllNodes()
             db.networkDiagramDao().deleteAllConnections()
             db.auditLogDao().deleteAllLogs()
+            db.pendingDeletionDao().clearAllPendingDeletions()
+        }
+
+        context?.let { ctx ->
+            try {
+                com.example.data.database.SmsDatabase.getDatabase(ctx).smsQueueDao().clearAll()
+            } catch (e: Exception) {
+                Log.w("IspRepository", "Failed to clear SMS database on logout: ${e.message}")
+            }
+
+            try {
+                ctx.getSharedPreferences("isp_deleted_monthly_bills", Context.MODE_PRIVATE)
+                    .edit()
+                    .clear()
+                    .apply()
+            } catch (e: Exception) {
+                Log.w("IspRepository", "Failed to clear isp_deleted_monthly_bills on logout: ${e.message}")
+            }
+
+            try {
+                val safetyFile = java.io.File(ctx.filesDir, "safety_backup_before_restore.json")
+                if (safetyFile.exists()) safetyFile.delete()
+
+                val latestPreUpdate = java.io.File(ctx.filesDir, "backups/latest_pre_update_backup.json")
+                if (latestPreUpdate.exists()) latestPreUpdate.delete()
+
+                val exportDir = java.io.File(ctx.cacheDir, "exports")
+                if (exportDir.exists() && exportDir.isDirectory) {
+                    exportDir.listFiles()?.forEach { it.delete() }
+                }
+            } catch (e: Exception) {
+                Log.w("IspRepository", "Failed to clear temporary user files on logout: ${e.message}")
+            }
         }
     }
 
@@ -2945,8 +3027,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync specific advances from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync specific advances from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -2963,12 +3045,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync specific advances discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting specific advance API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = db.specificAdvanceDao().getAllSpecificAdvancesList()
             val existingMap = existingList.associateBy { it.id }
             val dirtyIds = db.specificAdvanceDao().getDirtySpecificAdvances().map { it.id }.toSet()
@@ -3010,6 +3100,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 db.specificAdvanceDao().insertSpecificAdvances(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} specific advances from Hosting.")
             }
@@ -3028,8 +3121,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync bandwidth bills from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync bandwidth bills from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3046,12 +3139,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync bandwidth bills discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting bandwidth bill API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = db.bandwidthBillDao().getAllBandwidthBillsList()
             val existingMap = existingList.associateBy { it.billingMonth }
             val dirtyMonths = db.bandwidthBillDao().getDirtyBandwidthBills().map { it.billingMonth }.toSet()
@@ -3087,6 +3188,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 db.bandwidthBillDao().insertOrUpdateBandwidthBills(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} bandwidth bills from Hosting.")
             }
@@ -3105,8 +3209,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync audit logs from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync audit logs from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3123,12 +3227,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync audit logs discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting audit log API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = auditLogDao.getAllAuditLogsList()
             val existingMap = existingList.associateBy { it.id }
             val dirtyLogIds = auditLogDao.getDirtyAuditLogs().map { it.id }.toSet()
@@ -3195,6 +3307,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 auditLogDao.insertLogs(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} audit logs from Hosting.")
             }
@@ -3213,8 +3328,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync settings from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync settings from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3231,6 +3346,11 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync settings discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.d("IspRepository", "No settings found on Hosting or server returned false: ${response.message}")
             return@withContext false
@@ -3238,6 +3358,9 @@ class IspRepository(
 
         val remote = response.data
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val dirtySettings = settingsDao.getDirtySettings()
             if (dirtySettings != null) {
                 Log.d("IspRepository", "Local settings have unpushed changes; skipping overwrite from Hosting.")
@@ -3258,6 +3381,9 @@ class IspRepository(
                 updatedAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis(),
                 syncStatus = 0
             )
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             settingsDao.insertOrUpdateSettings(entity)
             Log.d("IspRepository", "Successfully synced and updated business settings from Hosting.")
             true
@@ -3275,8 +3401,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync expenses from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync expenses from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3293,12 +3419,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync expenses discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting expense API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = expenseDao.getAllExpensesList()
             val existingMap = existingList.associateBy { it.id }
             val dirtyExpenseIds = expenseDao.getDirtyExpenses().map { it.id }.toSet()
@@ -3359,6 +3493,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 expenseDao.insertExpenses(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} expenses from Hosting.")
             }
@@ -3377,8 +3514,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync expense categories from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync expense categories from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3395,12 +3532,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync expense categories discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting expense categories API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = expenseDao.getAllCategoriesList()
             val existingMap = existingList.associateBy { it.id }
             val dirtyCategoryIds = expenseDao.getDirtyCategories().map { it.id }.toSet()
@@ -3440,6 +3585,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 expenseDao.insertCategories(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} expense categories from Hosting.")
             }
@@ -3458,8 +3606,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync payments from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync payments from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3476,12 +3624,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync payments discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting payment API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = paymentDao.getAllPaymentsList()
             val existingMap = existingList.associateBy { it.id }
             val dirtyPaymentIds = paymentDao.getDirtyPayments().map { it.id }.toSet()
@@ -3542,6 +3698,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 paymentDao.insertPayments(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} payments from Hosting.")
             }
@@ -3560,8 +3719,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync bills from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync bills from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3578,12 +3737,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync bills discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting bill API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = billDao.getAllBillsList()
             val existingMap = existingList.associateBy { it.id }
             val dirtyBillIds = billDao.getDirtyBills().map { it.id }.toSet()
@@ -3653,6 +3820,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 billDao.insertBills(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} bills from Hosting.")
             }
@@ -3671,8 +3841,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync packages from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync packages from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3689,12 +3859,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync packages discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting package API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = packageDao.getAllPackagesList()
             val existingMap = existingList.associateBy { it.id }
             val entitiesToPersist = mutableListOf<IspPackageEntity>()
@@ -3732,6 +3910,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 packageDao.insertPackages(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced ${entitiesToPersist.size} packages from Hosting.")
             }
@@ -3750,8 +3931,8 @@ class IspRepository(
             null
         }
 
-        if (userId.isNullOrBlank()) {
-            Log.w("IspRepository", "Cannot sync customers from Hosting: unauthenticated (user ID is null)")
+        if (userId.isNullOrBlank() || (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId))) {
+            Log.w("IspRepository", "Cannot sync customers from Hosting: session invalid or unauthenticated")
             return@withContext false
         }
 
@@ -3760,6 +3941,10 @@ class IspRepository(
             syncPackagesFromHosting(userIdOverride)
         } catch (e: Throwable) {
             Log.w("IspRepository", "Pre-customer package sync failed (continuing with existing local packages): ${e.message}")
+        }
+
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            return@withContext false
         }
 
         val response = try {
@@ -3775,12 +3960,20 @@ class IspRepository(
             return@withContext false
         }
 
+        if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+            Log.w("IspRepository", "Sync customers discarded: session invalidated for user $userId")
+            return@withContext false
+        }
+
         if (!response.status || response.data == null) {
             Log.w("IspRepository", "Hosting API returned status=false or null data: ${response.message}")
             return@withContext false
         }
 
         try {
+            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                return@withContext false
+            }
             val existingList = customerDao.getAllCustomersList()
             val existingMap = existingList.associateBy { it.id }
             val packageList = packageDao.getAllPackagesList()
@@ -3859,6 +4052,9 @@ class IspRepository(
             }
 
             if (entitiesToPersist.isNotEmpty()) {
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
                 customerDao.insertCustomers(entitiesToPersist)
                 Log.d("IspRepository", "Successfully synced and persisted ${entitiesToPersist.size} customers from Hosting.")
             }

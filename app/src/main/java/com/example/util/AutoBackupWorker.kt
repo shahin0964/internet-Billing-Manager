@@ -24,34 +24,44 @@ class AutoBackupWorker(
         }
 
         val userId = com.example.IspApplication.getUserId(context)
-        val backupSuccess = if (!userId.isNullOrBlank()) {
-            val db = com.example.data.database.IspDatabase.getDatabase(context)
-            val repository = com.example.data.repository.IspRepository(
-                db.customerDao(),
-                db.packageDao(),
-                db.billDao(),
-                db.paymentDao(),
-                db.settingsDao(),
-                db.expenseDao(),
-                db.networkDiagramDao(),
-                db.auditLogDao(),
-                db,
-                context
-            )
-            withTimeoutOrNull(120000L) {
-                repository.backupToHosting(context, userId).first
-            } ?: false
-        } else {
-            // 1. Sync local data to hosting
-            withTimeoutOrNull(60000L) {
-                HostingSyncManager.syncLocalToHosting(context)
-            } ?: false
+        if (userId.isNullOrBlank() || !com.example.IspApplication.isLoggedIn(context) || !HostingSyncManager.isSessionValid(context, userId)) {
+            Log.d(TAG, "Skipping auto backup: User is not logged in or session is invalid.")
+            return Result.success()
+        }
+
+        val db = com.example.data.database.IspDatabase.getDatabase(context)
+        val repository = com.example.data.repository.IspRepository(
+            db.customerDao(),
+            db.packageDao(),
+            db.billDao(),
+            db.paymentDao(),
+            db.settingsDao(),
+            db.expenseDao(),
+            db.networkDiagramDao(),
+            db.auditLogDao(),
+            db,
+            context
+        )
+        val backupSuccess = withTimeoutOrNull(120000L) {
+            if (!HostingSyncManager.isSessionValid(context, userId)) return@withTimeoutOrNull false
+            repository.backupToHosting(context, userId).first
+        } ?: false
+
+        if (!HostingSyncManager.isSessionValid(context, userId)) {
+            Log.d(TAG, "Auto backup worker: Session invalidated during backup. Aborting.")
+            return Result.success()
         }
 
         // 2. Pull delta from hosting to keep local database fresh
         val hostingPullSuccess = withTimeoutOrNull(45000L) {
+            if (!HostingSyncManager.isSessionValid(context, userId)) return@withTimeoutOrNull false
             HostingSyncManager.pullDeltaFromHosting(context)
         } ?: false
+
+        if (!HostingSyncManager.isSessionValid(context, userId)) {
+            Log.d(TAG, "Auto backup worker: Session invalidated during delta pull. Aborting.")
+            return Result.success()
+        }
 
         return if (backupSuccess) {
             Log.d(TAG, "Auto backup sync completed successfully.")

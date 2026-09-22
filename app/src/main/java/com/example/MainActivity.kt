@@ -257,7 +257,12 @@ fun MainAppContent(
     val initialAuthUser = remember {
         try {
             if (com.example.IspApplication.isLoggedIn(context)) {
-                com.example.IspApplication.getUserId(context) ?: "authenticated_user"
+                val currentUid = com.example.IspApplication.getUserId(context)
+                val ownerUid = com.example.IspApplication.getLastAuthenticatedUserId(context)
+                if (currentUid != null && ownerUid == null) {
+                    com.example.IspApplication.setLastAuthenticatedUserId(context, currentUid)
+                }
+                currentUid ?: "authenticated_user"
             } else {
                 null
             }
@@ -384,14 +389,31 @@ fun MainAppContent(
                                     )
                                 )
                                 if (response.status && response.user != null) {
+                                    val newUserId = response.user.id
+                                    val previousOwner = com.example.IspApplication.getLastAuthenticatedUserId(context)
+
+                                    // Cancel any previous sync operations
+                                    viewModel.cancelAllSyncOperations()
+
+                                    // Sanitize local data if transitioning from another account or unverified state
+                                    if (previousOwner != newUserId) {
+                                        val sanitized = viewModel.clearAllLocalData()
+                                        if (!sanitized) {
+                                            onError("Failed to sanitize local database before login. Please try again.")
+                                            return@launch
+                                        }
+                                    }
+
+                                    com.example.IspApplication.setLastAuthenticatedUserId(context, newUserId)
                                     com.example.IspApplication.setLoggedIn(context, true)
-                                    com.example.IspApplication.setUserId(context, response.user.id)
+                                    com.example.IspApplication.setUserId(context, newUserId)
                                     com.example.IspApplication.setUserName(context, response.user.name)
                                     com.example.IspApplication.setUserEmail(context, response.user.email)
+                                    com.example.IspApplication.setAuthToken(context, response.user.apiToken)
+                                    viewModel.switchUserSession(newUserId)
                                     isGuestMode = false
                                     isAuthChosen = true
                                     viewModel.showToast(response.message ?: "Account created successfully!")
-                                    viewModel.triggerCloudSyncOnLogin()
                                     onSuccess()
                                 } else {
                                     onError(response.message ?: "Sign up failed. Please try again.")
@@ -426,14 +448,35 @@ fun MainAppContent(
                                         com.example.data.remote.LoginRequest(normalizedId, pass)
                                     )
                                     if (response.status && response.user != null) {
+                                        val newUserId = response.user.id
+                                        val previousOwner = com.example.IspApplication.getLastAuthenticatedUserId(context)
+
+                                        // Cancel any previous sync operations
+                                        viewModel.cancelAllSyncOperations()
+
+                                        // Sanitize local data if transitioning from another account or unverified state
+                                        if (previousOwner != newUserId) {
+                                            val sanitized = viewModel.clearAllLocalData()
+                                            if (!sanitized) {
+                                                onError("Failed to sanitize local database before login. Please try again.")
+                                                return@launch
+                                            }
+                                            if (previousOwner != null) {
+                                                com.example.data.database.IspDatabase.closeDatabase(previousOwner)
+                                                com.example.data.database.SmsDatabase.closeDatabase(previousOwner)
+                                            }
+                                        }
+
+                                        com.example.IspApplication.setLastAuthenticatedUserId(context, newUserId)
                                         com.example.IspApplication.setLoggedIn(context, true)
-                                        com.example.IspApplication.setUserId(context, response.user.id)
+                                        com.example.IspApplication.setUserId(context, newUserId)
                                         com.example.IspApplication.setUserName(context, response.user.name)
                                         com.example.IspApplication.setUserEmail(context, response.user.email)
+                                        com.example.IspApplication.setAuthToken(context, response.user.apiToken)
+                                        viewModel.switchUserSession(newUserId)
                                         isGuestMode = false
                                         isAuthChosen = true
                                         viewModel.showToast(response.message ?: "Login successful!")
-                                        viewModel.triggerCloudSyncOnLogin()
                                         onSuccess()
                                     } else {
                                         onError(response.message ?: "Incorrect email or password. Please check your credentials.")
@@ -453,8 +496,27 @@ fun MainAppContent(
                     authModeSignUp = true
                 },
                 onContinueAsGuest = {
-                    isGuestMode = true
-                    isAuthChosen = true
+                    coroutineScope.launch {
+                        try {
+                            viewModel.cancelAllSyncOperations()
+                            val previousOwner = com.example.IspApplication.getLastAuthenticatedUserId(context)
+                            if (previousOwner != null) {
+                                viewModel.clearAllLocalData()
+                                com.example.data.database.IspDatabase.closeDatabase(previousOwner)
+                                com.example.data.database.SmsDatabase.closeDatabase(previousOwner)
+                                com.example.IspApplication.setLastAuthenticatedUserId(context, null)
+                            }
+                            com.example.IspApplication.setLoggedIn(context, false)
+                            com.example.IspApplication.setUserId(context, null)
+                            viewModel.switchUserSession(null)
+                            isGuestMode = true
+                            isAuthChosen = true
+                        } catch (e: Throwable) {
+                            viewModel.switchUserSession(null)
+                            isGuestMode = true
+                            isAuthChosen = true
+                        }
+                    }
                 },
                 onForgotPasswordClick = { identifier, onError, onSuccess ->
                     onError("Password reset is not supported directly. Please contact your system administrator.")
@@ -824,17 +886,52 @@ fun MainAppContent(
                             isAuthChosen = false
                         },
                         onSignOut = {
-                            val uid = com.example.IspApplication.getUserId(context)
-                            viewModel.clearAllLocalData()
-                            val prefs = context.getSharedPreferences("isp_prefs", android.content.Context.MODE_PRIVATE)
-                            val editor = prefs.edit()
-                            if (uid != null) {
-                                editor.remove("cloud_initial_restore_done_$uid")
+                            coroutineScope.launch {
+                                try {
+                                    // Cancel all in-flight ViewModel and background sync operations immediately
+                                    viewModel.cancelAllSyncOperations()
+                                    try {
+                                        androidx.work.WorkManager.getInstance(context).cancelUniqueWork("auto_hosting_backup")
+                                        androidx.work.WorkManager.getInstance(context).cancelUniqueWork("sms_queue_periodic")
+                                    } catch (we: Exception) {
+                                        android.util.Log.w("MainActivity", "Cancelling background work on sign out failed: ${we.message}")
+                                    }
+
+                                    val uid = com.example.IspApplication.getUserId(context)
+                                    val cleared = viewModel.clearAllLocalData()
+                                    if (!cleared) {
+                                        android.util.Log.w("MainActivity", "Warning: Local database cleanup encountered an issue during logout.")
+                                        viewModel.showToast("Note: Local database cleanup encountered an issue during logout.")
+                                    }
+                                    if (uid != null) {
+                                        com.example.data.database.IspDatabase.closeDatabase(uid)
+                                        com.example.data.database.SmsDatabase.closeDatabase(uid)
+                                    }
+                                    com.example.IspApplication.setLastAuthenticatedUserId(context, null)
+                                    com.example.IspApplication.setLoggedIn(context, false)
+                                    com.example.IspApplication.setUserId(context, null)
+                                    com.example.IspApplication.setUserName(context, null)
+                                    com.example.IspApplication.setUserEmail(context, null)
+                                    com.example.IspApplication.setAuthToken(context, null)
+                                    val prefs = context.getSharedPreferences("isp_prefs", android.content.Context.MODE_PRIVATE)
+                                    val editor = prefs.edit()
+                                    if (uid != null) {
+                                        editor.remove("cloud_initial_restore_done_$uid")
+                                    }
+                                    editor.remove("pending_sync_count").remove("last_cloud_sync_time")
+                                    editor.apply()
+                                    context.getSharedPreferences("isp_deleted_monthly_bills", android.content.Context.MODE_PRIVATE)
+                                        .edit()
+                                        .clear()
+                                        .apply()
+                                    viewModel.switchUserSession(null)
+                                    isGuestMode = false
+                                    isAuthChosen = false
+                                } catch (e: Exception) {
+                                    android.util.Log.e("MainActivity", "Logout cleanup error", e)
+                                    viewModel.showToast("Error during logout: ${e.message}")
+                                }
                             }
-                            editor.remove("pending_sync_count").remove("last_cloud_sync_time")
-                            editor.apply()
-                            isGuestMode = false
-                            isAuthChosen = false
                         }
                     )
                 }
