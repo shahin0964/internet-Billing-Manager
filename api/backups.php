@@ -11,93 +11,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once 'db.php';
 
-if (!function_exists('authenticateUser')) {
-    function authenticateUser($pdo) {
-        $token = null;
-        $headers = getallheaders();
-        if (isset($headers['Authorization'])) {
-            if (preg_match('/Bearer\\s(\\S+)/', $headers['Authorization'], $matches)) {
-                $token = $matches[1];
-            }
-        } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-            if (preg_match('/Bearer\\s(\\S+)/', $_SERVER['HTTP_AUTHORIZATION'], $matches)) {
-                $token = $matches[1];
-            }
-        }
-
-        if (empty($token)) {
-            http_response_code(401);
-            echo json_encode(["status" => false, "message" => "Unauthorized: Token missing."]);
-            exit;
-        }
-
-        $stmt = $pdo->prepare("SELECT id FROM users WHERE api_token = ? LIMIT 1");
-        $stmt->execute([$token]);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$user) {
-            http_response_code(401);
-            echo json_encode(["status" => false, "message" => "Unauthorized: Invalid token."]);
-            exit;
-        }
-
-        return $user['id'];
-    }
-}
-
-$authenticatedUserId = authenticateUser($pdo);
-
-
-function ensureBackupsSchema($pdo) {
-    static $checked = false;
-    if ($checked) return;
-    $checked = true;
-    try {
-        // Use a highly compatible schema that works on all MySQL/MariaDB versions (no dual DEFAULT CURRENT_TIMESTAMP limitations)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS cloud_backups (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            user_id VARCHAR(100) NOT NULL,
-            backup_name VARCHAR(255) NOT NULL DEFAULT '',
-            backup_data LONGTEXT NOT NULL,
-            backup_size INT NOT NULL DEFAULT 0,
-            version INT NOT NULL DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_user_id (user_id),
-            INDEX idx_created_at (created_at),
-            UNIQUE KEY uq_cloud_backup_user (user_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        // Ensure unique constraint exists on existing table if created previously without it
-        $stmt = $pdo->prepare("SHOW INDEX FROM `cloud_backups` WHERE Key_name = 'uq_cloud_backup_user'");
-        $stmt->execute();
-        if ($stmt->rowCount() == 0) {
-            $dupStmt = $pdo->query("SELECT user_id, COUNT(*) as cnt FROM `cloud_backups` GROUP BY user_id HAVING cnt > 1 LIMIT 1");
-            if (!$dupStmt || $dupStmt->rowCount() == 0) {
-                $pdo->exec("ALTER TABLE `cloud_backups` ADD UNIQUE KEY `uq_cloud_backup_user` (user_id)");
-            }
-        }
-    } catch (Exception $e) {
-        // Continue safely
-    }
-}
+$systemPdo = getSystemPdo();
+$authenticatedUser = getAuthenticatedUser($systemPdo);
+$userId = $authenticatedUser['id'];
+$accountPdo = getAccountPdo($systemPdo, $userId);
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    $userId = $authenticatedUserId;
-    if (!$userId) {
-        echo json_encode(["status" => false, "message" => "user_id is required", "data" => null]);
-        exit;
-    }
-
     try {
-        ensureBackupsSchema($pdo);
-
         $action = $_GET['action'] ?? 'latest';
 
         if ($action === 'latest') {
-            $stmt = $pdo->prepare("SELECT id, user_id, backup_name, backup_data, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at FROM cloud_backups WHERE user_id = ? ORDER BY created_at DESC LIMIT 1");
-            $stmt->execute([$userId]);
+            $stmt = $accountPdo->query("SELECT id, backup_name, backup_data, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at FROM cloud_backups ORDER BY created_at DESC LIMIT 1");
             $backup = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$backup) {
@@ -110,7 +36,7 @@ if ($method === 'GET') {
                 "message" => "Backup retrieved successfully",
                 "data" => [
                     "id" => (string)$backup['id'],
-                    "user_id" => $backup['user_id'],
+                    "user_id" => $userId,
                     "backup_name" => $backup['backup_name'],
                     "backup_data" => $backup['backup_data'],
                     "backup_size" => (int)$backup['backup_size'],
@@ -120,14 +46,13 @@ if ($method === 'GET') {
             ]);
             exit;
         } elseif ($action === 'list') {
-            $stmt = $pdo->prepare("SELECT id, user_id, backup_name, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at FROM cloud_backups WHERE user_id = ? ORDER BY created_at DESC LIMIT 10");
-            $stmt->execute([$userId]);
+            $stmt = $accountPdo->query("SELECT id, backup_name, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at FROM cloud_backups ORDER BY created_at DESC LIMIT 10");
             $backups = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $formatted = array_map(function($b) {
+            $formatted = array_map(function($b) use ($userId) {
                 return [
                     "id" => (string)$b['id'],
-                    "user_id" => $b['user_id'],
+                    "user_id" => $userId,
                     "backup_name" => $b['backup_name'],
                     "backup_size" => (int)$b['backup_size'],
                     "version" => (int)$b['version'],
@@ -148,17 +73,15 @@ if ($method === 'POST') {
     $raw = file_get_contents("php://input");
     $data = json_decode($raw, true);
 
-    $userId = $authenticatedUserId;
     $backupData = $data['backup_data'] ?? null;
     $backupName = $data['backup_name'] ?? ('ISP-Cloud-Backup-' . date('Y-m-d-H-i-s'));
     $version = isset($data['version']) ? (int)$data['version'] : 1;
 
-    if (!$userId || !$backupData) {
-        echo json_encode(["status" => false, "message" => "user_id and backup_data are required"]);
+    if (!$backupData) {
+        echo json_encode(["status" => false, "message" => "backup_data is required"]);
         exit;
     }
 
-    // Validate backup data has valid JSON structure without fully decoding it in memory
     $backupDataTrimmed = trim($backupData);
     $firstChar = substr($backupDataTrimmed, 0, 1);
     $lastChar = substr($backupDataTrimmed, -1);
@@ -169,26 +92,20 @@ if ($method === 'POST') {
     }
 
     try {
-        ensureBackupsSchema($pdo);
-
         $backupSize = strlen($backupData);
 
-        // Check if an existing backup already exists for this user
-        $checkStmt = $pdo->prepare("SELECT id FROM cloud_backups WHERE user_id = ? LIMIT 1");
-        $checkStmt->execute([$userId]);
+        $checkStmt = $accountPdo->query("SELECT id FROM cloud_backups ORDER BY id DESC LIMIT 1");
         $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
         if ($existing) {
-            // Update existing record and overwrite
-            $stmt = $pdo->prepare("UPDATE cloud_backups SET backup_name = ?, backup_data = ?, backup_size = ?, version = ?, created_at = CURRENT_TIMESTAMP WHERE user_id = ?");
-            $stmt->execute([$backupName, $backupData, $backupSize, $version, $userId]);
+            $stmt = $accountPdo->prepare("UPDATE cloud_backups SET backup_name = ?, backup_data = ?, backup_size = ?, version = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?");
+            $stmt->execute([$backupName, $backupData, $backupSize, $version, $existing['id']]);
             $insertedId = $existing['id'];
             $msg = "Backup updated successfully on Hosting";
         } else {
-            // Insert first record
-            $stmt = $pdo->prepare("INSERT INTO cloud_backups (user_id, backup_name, backup_data, backup_size, version) VALUES (?, ?, ?, ?, ?)");
+            $stmt = $accountPdo->prepare("INSERT INTO cloud_backups (user_id, backup_name, backup_data, backup_size, version) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$userId, $backupName, $backupData, $backupSize, $version]);
-            $insertedId = $pdo->lastInsertId();
+            $insertedId = $accountPdo->lastInsertId();
             $msg = "Backup created successfully on Hosting";
         }
 

@@ -11,18 +11,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once 'db.php';
 
+$systemPdo = getSystemPdo();
+$authenticatedUser = getAuthenticatedUser($systemPdo);
+$userId = $authenticatedUser['id'];
+$accountPdo = getAccountPdo($systemPdo, $userId);
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    $userId = $_GET['user_id'] ?? null;
-    if (!$userId) {
-        echo json_encode(["status" => false, "message" => "user_id is required"]);
-        exit;
-    }
-
-    $stmt = $pdo->prepare("SELECT id, user_id, name, price, speed, created_at FROM packages WHERE user_id = ? ORDER BY id ASC");
-    $stmt->execute([$userId]);
+    $stmt = $accountPdo->query("SELECT id, name, price, speed, created_at, updated_at FROM packages ORDER BY id ASC");
     $packages = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($packages as &$p) {
+        $p['user_id'] = $userId;
+    }
 
     echo json_encode(["status" => true, "data" => $packages]);
     exit;
@@ -33,35 +35,28 @@ if ($method === 'POST') {
     $data = json_decode($raw, true);
 
     $id = $data['id'] ?? null;
-    $userId = $data['user_id'] ?? null;
     $name = $data['name'] ?? null;
     $price = $data['price'] ?? null;
     $speed = $data['speed'] ?? null;
+    $updatedAt = isset($data['updated_at']) ? (int)$data['updated_at'] : (int)(microtime(true) * 1000);
 
-    if ($id === null || $userId === null || $name === null || $price === null || $id === '' || $userId === '' || $name === '' || $price === '') {
-        echo json_encode(["status" => false, "message" => "id, user_id, name and price are required"]);
+    if ($id === null || $name === null || $price === null || $id === '' || $name === '' || $price === '') {
+        echo json_encode(["status" => false, "message" => "id, name and price are required"]);
         exit;
     }
 
-    // Check if package exists to ensure user ownership protection
-    $checkStmt = $pdo->prepare("SELECT user_id FROM packages WHERE id = ?");
+    $checkStmt = $accountPdo->prepare("SELECT id FROM packages WHERE id = ?");
     $checkStmt->execute([$id]);
     $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
     if ($existing) {
-        if ($existing['user_id'] !== $userId) {
-            http_response_code(403);
-            echo json_encode(["status" => false, "message" => "Unauthorized to modify this package"]);
-            exit;
-        }
-
-        $updateStmt = $pdo->prepare("UPDATE packages SET name = ?, price = ?, speed = ? WHERE id = ? AND user_id = ?");
-        $updateStmt->execute([$name, $price, $speed, $id, $userId]);
+        $updateStmt = $accountPdo->prepare("UPDATE packages SET name = ?, price = ?, speed = ?, updated_at = ? WHERE id = ?");
+        $updateStmt->execute([$name, $price, $speed, $updatedAt, $id]);
         echo json_encode(["status" => true, "message" => "Package updated successfully"]);
         exit;
     } else {
-        $insertStmt = $pdo->prepare("INSERT INTO packages (id, user_id, name, price, speed, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
-        $insertStmt->execute([$id, $userId, $name, $price, $speed]);
+        $insertStmt = $accountPdo->prepare("INSERT INTO packages (id, user_id, name, price, speed, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+        $insertStmt->execute([$id, $userId, $name, $price, $speed, $updatedAt]);
         echo json_encode(["status" => true, "message" => "Package created successfully"]);
         exit;
     }
@@ -69,15 +64,13 @@ if ($method === 'POST') {
 
 if ($method === 'DELETE') {
     $id = $_GET['id'] ?? null;
-    $userId = $_GET['user_id'] ?? null;
-
-    if (!$id || !$userId) {
-        echo json_encode(["status" => false, "message" => "id and user_id are required"]);
+    if (!$id) {
+        echo json_encode(["status" => false, "message" => "id is required"]);
         exit;
     }
 
-    $stmt = $pdo->prepare("DELETE FROM packages WHERE id = ? AND user_id = ?");
-    $stmt->execute([$id, $userId]);
+    $stmt = $accountPdo->prepare("DELETE FROM packages WHERE id = ?");
+    $stmt->execute([$id]);
 
     if ($stmt->rowCount() > 0) {
         echo json_encode(["status" => true, "message" => "Package deleted successfully"]);

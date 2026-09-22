@@ -11,64 +11,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once 'db.php';
 
-function ensureCustomersSchema($pdo) {
-    static $checked = false;
-    if ($checked) return;
-    $checked = true;
-    try {
-        $pdo->exec("CREATE TABLE IF NOT EXISTS customers (
-            id VARCHAR(100) NOT NULL,
-            user_id VARCHAR(100) NOT NULL,
-            name VARCHAR(255) NOT NULL,
-            PRIMARY KEY (id),
-            INDEX idx_user_id (user_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    } catch (Exception $e) {
-        // Safe fallback
-    }
-
-    $colsToAdd = [
-        'phone' => "VARCHAR(50) NULL DEFAULT ''",
-        'address' => "TEXT NULL DEFAULT NULL",
-        'ip_address' => "VARCHAR(100) NULL DEFAULT ''",
-        'package_id' => "VARCHAR(100) NULL DEFAULT ''",
-        'billing_cycle_date' => "INT NOT NULL DEFAULT 1",
-        'status' => "VARCHAR(50) NOT NULL DEFAULT 'ACTIVE'",
-        'pppoe_username' => "VARCHAR(100) NULL DEFAULT ''",
-        'customer_code' => "VARCHAR(100) NULL DEFAULT ''",
-        'joining_date' => "VARCHAR(50) NULL DEFAULT ''",
-        'updated_at' => "BIGINT NULL DEFAULT NULL",
-        'created_at' => "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-    ];
-
-    foreach ($colsToAdd as $col => $definition) {
-        try {
-            $stmt = $pdo->prepare("SHOW COLUMNS FROM customers LIKE ?");
-            $stmt->execute([$col]);
-            if ($stmt->rowCount() == 0) {
-                $pdo->exec("ALTER TABLE customers ADD COLUMN `$col` $definition");
-            }
-        } catch (Exception $e) {
-            // Ignore failure of individual column alter
-        }
-    }
-}
+$systemPdo = getSystemPdo();
+$authenticatedUser = getAuthenticatedUser($systemPdo);
+$userId = $authenticatedUser['id'];
+$accountPdo = getAccountPdo($systemPdo, $userId);
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
     try {
-        $userId = $_GET['user_id'] ?? null;
-        if (!$userId) {
-            echo json_encode(["status" => false, "message" => "user_id is required"]);
-            exit;
-        }
-
-        ensureCustomersSchema($pdo);
-
-        $stmt = $pdo->prepare("SELECT id, user_id, name, phone, address, ip_address, package_id, billing_cycle_date, status, pppoe_username, customer_code, joining_date, created_at, updated_at FROM customers WHERE user_id = ? ORDER BY name ASC");
-        $stmt->execute([$userId]);
+        $stmt = $accountPdo->query("SELECT id, name, phone, address, ip_address, package_id, billing_cycle_date, status, pppoe_username, customer_code, joining_date, created_at, updated_at FROM customers ORDER BY name ASC");
         $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Inject user_id for client compatibility
+        foreach ($customers as &$c) {
+            $c['user_id'] = $userId;
+        }
 
         echo json_encode(["status" => true, "data" => $customers]);
         exit;
@@ -84,7 +42,6 @@ if ($method === 'POST') {
         $data = json_decode($raw, true);
 
         $id = $data['id'] ?? null;
-        $userId = $data['user_id'] ?? null;
         $name = $data['name'] ?? null;
         $phone = $data['phone'] ?? '';
         $address = $data['address'] ?? '';
@@ -97,31 +54,23 @@ if ($method === 'POST') {
         $joiningDate = $data['joining_date'] ?? '';
         $updatedAt = isset($data['updated_at']) ? (int)$data['updated_at'] : (int)(microtime(true) * 1000);
 
-        if ($id === null || $userId === null || $name === null || $id === '' || $userId === '' || $name === '') {
-            echo json_encode(["status" => false, "message" => "id, user_id and name are required"]);
+        if ($id === null || $name === null || $id === '' || $name === '') {
+            echo json_encode(["status" => false, "message" => "id and name are required"]);
             exit;
         }
 
-        ensureCustomersSchema($pdo);
-
-        // Check existing customer
-        $checkStmt = $pdo->prepare("SELECT user_id FROM customers WHERE id = ?");
+        // Check existing customer in this user's isolated database
+        $checkStmt = $accountPdo->prepare("SELECT id FROM customers WHERE id = ?");
         $checkStmt->execute([$id]);
         $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
         if ($existing) {
-            if ($existing['user_id'] !== $userId) {
-                http_response_code(403);
-                echo json_encode(["status" => false, "message" => "Unauthorized to modify this customer"]);
-                exit;
-            }
-
-            $updateStmt = $pdo->prepare("UPDATE customers SET name = ?, phone = ?, address = ?, ip_address = ?, package_id = ?, billing_cycle_date = ?, status = ?, pppoe_username = ?, customer_code = ?, joining_date = ?, updated_at = ? WHERE id = ? AND user_id = ?");
-            $updateStmt->execute([$name, $phone, $address, $ipAddress, $packageId, $billingCycleDate, $status, $pppoeUsername, $customerCode, $joiningDate, $updatedAt, $id, $userId]);
+            $updateStmt = $accountPdo->prepare("UPDATE customers SET name = ?, phone = ?, address = ?, ip_address = ?, package_id = ?, billing_cycle_date = ?, status = ?, pppoe_username = ?, customer_code = ?, joining_date = ?, updated_at = ? WHERE id = ?");
+            $updateStmt->execute([$name, $phone, $address, $ipAddress, $packageId, $billingCycleDate, $status, $pppoeUsername, $customerCode, $joiningDate, $updatedAt, $id]);
             echo json_encode(["status" => true, "message" => "Customer updated successfully"]);
             exit;
         } else {
-            $insertStmt = $pdo->prepare("INSERT INTO customers (id, user_id, name, phone, address, ip_address, package_id, billing_cycle_date, status, pppoe_username, customer_code, joining_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $insertStmt = $accountPdo->prepare("INSERT INTO customers (id, user_id, name, phone, address, ip_address, package_id, billing_cycle_date, status, pppoe_username, customer_code, joining_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $insertStmt->execute([$id, $userId, $name, $phone, $address, $ipAddress, $packageId, $billingCycleDate, $status, $pppoeUsername, $customerCode, $joiningDate, $updatedAt]);
             echo json_encode(["status" => true, "message" => "Customer added successfully"]);
             exit;
@@ -135,17 +84,13 @@ if ($method === 'POST') {
 if ($method === 'DELETE') {
     try {
         $id = $_GET['id'] ?? null;
-        $userId = $_GET['user_id'] ?? null;
-
-        if (!$id || !$userId) {
-            echo json_encode(["status" => false, "message" => "id and user_id are required"]);
+        if (!$id) {
+            echo json_encode(["status" => false, "message" => "id is required"]);
             exit;
         }
 
-        ensureCustomersSchema($pdo);
-
-        $deleteStmt = $pdo->prepare("DELETE FROM customers WHERE id = ? AND user_id = ?");
-        $deleteStmt->execute([$id, $userId]);
+        $deleteStmt = $accountPdo->prepare("DELETE FROM customers WHERE id = ?");
+        $deleteStmt->execute([$id]);
 
         echo json_encode(["status" => true, "message" => "Customer deleted successfully"]);
         exit;

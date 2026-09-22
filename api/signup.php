@@ -113,17 +113,31 @@ $passwordHash = password_hash($password, PASSWORD_BCRYPT);
 
 $apiToken = bin2hex(random_bytes(32));
 
-$insertStmt = $pdo->prepare("INSERT INTO users (id, name, email, password_hash, phone, role, status, api_token) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)");
-$insertStmt->execute([$userId, $name, $email, $passwordHash, $phone, $role, $apiToken]);
+try {
+    // Provision dedicated physical database for new account
+    $provision = provisionUserDatabase($pdo, $userId);
+    $dbName = $provision['db_name'];
 
-echo json_encode([
-    "status" => true,
-    "message" => "Account created successfully!",
-    "user" => [
-        "id" => $userId,
-        "name" => $name,
-        "email" => $email,
-        "api_token" => $apiToken
-    ]
-]);
-exit;
+    $insertStmt = $pdo->prepare("INSERT INTO users (id, name, email, password_hash, phone, role, status, api_token, db_name) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)");
+    $insertStmt->execute([$userId, $name, $email, $passwordHash, $phone, $role, $apiToken, $dbName]);
+
+    echo json_encode([
+        "status" => true,
+        "message" => "Account created successfully!",
+        "user" => [
+            "id" => $userId,
+            "name" => $name,
+            "email" => $email,
+            "api_token" => $apiToken
+        ]
+    ]);
+    exit;
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode([
+        "status" => false,
+        "message" => "Failed to initialize account database. Please try again.",
+        "user" => null
+    ]);
+    exit;
+}

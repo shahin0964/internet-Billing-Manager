@@ -103,6 +103,13 @@ $apiToken = bin2hex(random_bytes(32));
 $updateStmt = $pdo->prepare("UPDATE users SET api_token = ? WHERE id = ?");
 $updateStmt->execute([$apiToken, $user['id']]);
 
+// Ensure physical database for this user exists
+try {
+    getAccountPdo($pdo, $user['id']);
+} catch (Exception $e) {
+    // Database creation will be attempted on next request
+}
+
 echo json_encode([
     "status" => true,
     "message" => "Login successful!",
