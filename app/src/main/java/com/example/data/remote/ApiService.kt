@@ -199,12 +199,6 @@ interface ApiService {
         @Body request: com.example.data.model.SyncPushRequest
     ): com.example.data.model.SyncResponse
 
-    @GET("api/sync.php")
-    suspend fun getDelta(
-        @Query("user_id") userId: String,
-        @Query("since") since: Long
-    ): com.example.data.model.SyncResponse
-
     @POST("api/login.php")
     suspend fun login(
         @Body request: LoginRequest

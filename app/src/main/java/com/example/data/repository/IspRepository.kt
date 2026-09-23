@@ -398,18 +398,29 @@ class IspRepository(
         expenseDao.deleteExpense(expense)
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
+            var deletedOnServer = false
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deleteExpense(
                         id = expense.id.toString(),
                         userId = userId
                     )
-                    if (!response.status) {
+                    if (response.status) {
+                        deletedOnServer = true
+                    } else {
                         Log.w("IspRepository", "Server rejected expense deletion: ${response.message}")
                     }
                 } catch (e: Exception) {
                     Log.e("IspRepository", "Failed to delete expense via Hosting API: ${e.message}")
                 }
+            }
+            if (!deletedOnServer) {
+                db.pendingDeletionDao().insertPendingDeletion(
+                    com.example.data.model.PendingDeletionEntity(
+                        collectionName = "expenses",
+                        documentId = expense.id.toString()
+                    )
+                )
             }
         }
         logActivity(
@@ -666,18 +677,29 @@ class IspRepository(
             }
 
             val userId = com.example.IspApplication.getUserId(ctx)
+            var deletedOnServer = false
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deleteCustomer(
                         id = customer.id.toString(),
                         userId = userId
                     )
-                    if (!response.status) {
+                    if (response.status) {
+                        deletedOnServer = true
+                    } else {
                         Log.w("IspRepository", "Server rejected customer deletion: ${response.message}")
                     }
                 } catch (e: Exception) {
                     Log.e("IspRepository", "Failed to delete customer via Hosting API: ${e.message}")
                 }
+            }
+            if (!deletedOnServer) {
+                db.pendingDeletionDao().insertPendingDeletion(
+                    com.example.data.model.PendingDeletionEntity(
+                        collectionName = "customers",
+                        documentId = customer.id.toString()
+                    )
+                )
             }
         }
         logActivity(
@@ -793,18 +815,29 @@ class IspRepository(
         packageDao.deletePackage(pkg)
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
+            var deletedOnServer = false
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deletePackage(
                         id = pkg.id.toString(),
                         userId = userId
                     )
-                    if (!response.status) {
+                    if (response.status) {
+                        deletedOnServer = true
+                    } else {
                         Log.w("IspRepository", "Server rejected package deletion: ${response.message}")
                     }
                 } catch (e: Exception) {
                     Log.e("IspRepository", "Failed to delete package via Hosting API: ${e.message}")
                 }
+            }
+            if (!deletedOnServer) {
+                db.pendingDeletionDao().insertPendingDeletion(
+                    com.example.data.model.PendingDeletionEntity(
+                        collectionName = "packages",
+                        documentId = pkg.id.toString()
+                    )
+                )
             }
         }
         logActivity(
@@ -823,18 +856,29 @@ class IspRepository(
         markBillAsDeletedForMonth(bill.customerId, bill.customerCode, bill.billingMonth)
         context?.let { ctx ->
             val userId = com.example.IspApplication.getUserId(ctx)
+            var deletedOnServer = false
             if (userId != null) {
                 try {
                     val response = ApiClient.apiService.deleteBill(
                         id = bill.id.toString(),
                         userId = userId
                     )
-                    if (!response.status) {
+                    if (response.status) {
+                        deletedOnServer = true
+                    } else {
                         Log.w("IspRepository", "Server rejected bill deletion: ${response.message}")
                     }
                 } catch (e: Exception) {
                     Log.e("IspRepository", "Failed to delete bill via Hosting API: ${e.message}")
                 }
+            }
+            if (!deletedOnServer) {
+                db.pendingDeletionDao().insertPendingDeletion(
+                    com.example.data.model.PendingDeletionEntity(
+                        collectionName = "bills",
+                        documentId = bill.id.toString()
+                    )
+                )
             }
         }
         logActivity(
@@ -1475,18 +1519,29 @@ class IspRepository(
             // Sync deletion to Hosting API if online
             context?.let { ctx ->
                 val userId = com.example.IspApplication.getUserId(ctx)
+                var deletedOnServer = false
                 if (userId != null) {
                     try {
                         val response = ApiClient.apiService.deletePayment(
                             id = payment.id.toString(),
                             userId = userId
                         )
-                        if (!response.status) {
+                        if (response.status) {
+                            deletedOnServer = true
+                        } else {
                             Log.w("IspRepository", "Server rejected payment deletion: ${response.message}")
                         }
                     } catch (e: Exception) {
                         Log.e("IspRepository", "Failed to delete payment via Hosting API: ${e.message}")
                     }
+                }
+                if (!deletedOnServer) {
+                    db.pendingDeletionDao().insertPendingDeletion(
+                        com.example.data.model.PendingDeletionEntity(
+                            collectionName = "payments",
+                            documentId = payment.id.toString()
+                        )
+                    )
                 }
             }
 
@@ -2339,16 +2394,6 @@ class IspRepository(
 
             try {
                 if (com.example.util.HostingSyncManager.isNetworkAvailable(context)) {
-                    val uid = com.example.IspApplication.getUserId(context)
-                    if (!uid.isNullOrBlank()) {
-                        val exportedAt = root.optLong("exportedAt", 0L)
-                        if (exportedAt > 0L) {
-                            context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
-                                .edit()
-                                .putLong("last_sync_time_$uid", exportedAt)
-                                .apply()
-                        }
-                    }
                     com.example.util.HostingSyncManager.syncLocalToHosting(context)
                 }
             } catch (e: Exception) {

@@ -5,8 +5,6 @@ import com.google.gson.annotations.SerializedName
 data class SyncPushRequest(
     @SerializedName("user_id")
     val userId: String,
-    @SerializedName("last_sync_timestamp")
-    val lastSyncTimestamp: Long = 0L,
     @SerializedName("customers")
     val customers: List<SyncCustomerPayload> = emptyList(),
     @SerializedName("packages")
@@ -27,8 +25,13 @@ data class SyncPushRequest(
     val bandwidthBills: List<SyncBandwidthBillPayload> = emptyList(),
     @SerializedName("specific_advances")
     val specificAdvances: List<SyncSpecificAdvancePayload> = emptyList(),
-    @SerializedName("deleted_records")
-    val deletedRecords: List<SyncDeletedRecordPayload> = emptyList()
+    @SerializedName("pending_deletions")
+    val pendingDeletions: List<SyncPendingDeletionPayload> = emptyList()
+)
+
+data class SyncPendingDeletionPayload(
+    @SerializedName("collection_name") val collectionName: String,
+    @SerializedName("document_id") val documentId: String
 )
 
 data class SyncCustomerPayload(
@@ -146,18 +149,12 @@ data class SyncSpecificAdvancePayload(
     @SerializedName("updated_at") val updatedAt: Long = System.currentTimeMillis()
 )
 
-data class SyncDeletedRecordPayload(
-    @SerializedName("collection_name") val collectionName: String,
-    @SerializedName("record_id") val recordId: String,
-    @SerializedName("deleted_at") val deletedAt: Long = System.currentTimeMillis()
-)
-
 data class SyncResponse(
     @SerializedName("status") val status: Boolean,
     @SerializedName("message") val message: String? = null,
     @SerializedName("server_timestamp") val serverTimestamp: Long = 0L,
     @SerializedName("synced_ids") val syncedIds: SyncSyncedIds? = null,
-    @SerializedName("data") val data: SyncDeltaData? = null
+    @SerializedName("data") val data: SyncFullData? = null
 )
 
 data class SyncSyncedIds(
@@ -171,10 +168,10 @@ data class SyncSyncedIds(
     @SerializedName("audit_logs") val auditLogs: List<Long>? = null,
     @SerializedName("bandwidth_bills") val bandwidthBills: List<String>? = null,
     @SerializedName("specific_advances") val specificAdvances: List<Long>? = null,
-    @SerializedName("deleted_records") val deletedRecords: List<String>? = null
+    @SerializedName("pending_deletions") val pendingDeletions: List<String>? = null
 )
 
-data class SyncDeltaData(
+data class SyncFullData(
     @SerializedName("customers") val customers: List<SyncCustomerPayload>? = null,
     @SerializedName("packages") val packages: List<SyncPackagePayload>? = null,
     @SerializedName("bills") val bills: List<SyncBillPayload>? = null,
@@ -184,6 +181,5 @@ data class SyncDeltaData(
     @SerializedName("settings") val settings: SyncSettingsPayload? = null,
     @SerializedName("audit_logs") val auditLogs: List<SyncAuditLogPayload>? = null,
     @SerializedName("bandwidth_bills") val bandwidthBills: List<SyncBandwidthBillPayload>? = null,
-    @SerializedName("specific_advances") val specificAdvances: List<SyncSpecificAdvancePayload>? = null,
-    @SerializedName("deleted_records") val deletedRecords: List<SyncDeletedRecordPayload>? = null
+    @SerializedName("specific_advances") val specificAdvances: List<SyncSpecificAdvancePayload>? = null
 )

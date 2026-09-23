@@ -327,18 +327,7 @@ function ensureAccountDatabaseTables($pdo) {
         INDEX idx_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-    // 7. Deleted Records (Tombstone)
-    $pdo->exec("CREATE TABLE IF NOT EXISTS deleted_records (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        user_id VARCHAR(100) NOT NULL DEFAULT '',
-        collection_name VARCHAR(100) NOT NULL,
-        record_id VARCHAR(100) NOT NULL,
-        deleted_at BIGINT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_coll_record (collection_name, record_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-    // 8. Expenses
+    // 7. Expenses
     $pdo->exec("CREATE TABLE IF NOT EXISTS expenses (
         id BIGINT NOT NULL PRIMARY KEY,
         user_id VARCHAR(100) NOT NULL DEFAULT '',

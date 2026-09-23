@@ -46,13 +46,11 @@ fun ProfileScreen(
     var showDisablePinDialog by remember { mutableStateOf(false) }
     
     val prefs = remember { context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE) }
-    val hostingPrefs = remember { context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE) }
     var privacyModeEnabled by remember { mutableStateOf(prefs.getBoolean("privacy_mode", false)) }
     
     val userEmail = IspApplication.getUserEmail(context) ?: "Unknown"
     val currentUid = IspApplication.getUserId(context)
     val syncTimeKey = currentUid?.let { "last_cloud_sync_time_$it" }
-    val hostingSyncTimeKey = currentUid?.let { "last_sync_time_$it" }
 
     var showPasswordChangeDialog by remember { mutableStateOf(false) }
     var currentPassword by remember { mutableStateOf("") }
@@ -61,9 +59,7 @@ fun ProfileScreen(
 
     fun readLatestSyncTime(): Long {
         if (currentUid.isNullOrBlank()) return 0L
-        val t1 = prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
-        val t2 = hostingPrefs.getLong("last_sync_time_$currentUid", 0L)
-        return maxOf(t1, t2)
+        return prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
     }
 
     var syncTimeState by remember(currentUid) { 
@@ -84,20 +80,18 @@ fun ProfileScreen(
         syncTimeState = readLatestSyncTime()
     }
 
-    androidx.compose.runtime.DisposableEffect(prefs, hostingPrefs, currentUid) {
+    androidx.compose.runtime.DisposableEffect(prefs, currentUid) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
             when (key) {
                 "privacy_mode" -> privacyModeEnabled = sharedPreferences.getBoolean("privacy_mode", false)
-                syncTimeKey, hostingSyncTimeKey, "last_cloud_sync_time_$currentUid", "last_sync_time_$currentUid" -> {
+                syncTimeKey, "last_cloud_sync_time_$currentUid" -> {
                     syncTimeState = readLatestSyncTime()
                 }
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
-        hostingPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose {
             prefs.unregisterOnSharedPreferenceChangeListener(listener)
-            hostingPrefs.unregisterOnSharedPreferenceChangeListener(listener)
         }
     }
     

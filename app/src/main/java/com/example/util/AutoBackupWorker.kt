@@ -52,17 +52,6 @@ class AutoBackupWorker(
             return Result.success()
         }
 
-        // 2. Pull delta from hosting to keep local database fresh
-        val hostingPullSuccess = withTimeoutOrNull(45000L) {
-            if (!HostingSyncManager.isSessionValid(context, userId)) return@withTimeoutOrNull false
-            HostingSyncManager.pullDeltaFromHosting(context)
-        } ?: false
-
-        if (!HostingSyncManager.isSessionValid(context, userId)) {
-            Log.d(TAG, "Auto backup worker: Session invalidated during delta pull. Aborting.")
-            return Result.success()
-        }
-
         return if (backupSuccess) {
             Log.d(TAG, "Auto backup sync completed successfully.")
             Result.success()
