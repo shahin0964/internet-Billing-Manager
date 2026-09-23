@@ -874,20 +874,45 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val cloudBackupMutex = kotlinx.coroutines.sync.Mutex()
+    private val cloudRestoreMutex = kotlinx.coroutines.sync.Mutex()
+
     suspend fun backupToHosting(context: android.content.Context, userId: String): Pair<Boolean, String> {
-        val result = repository.backupToHosting(context, userId)
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-            _toastMessage.value = result.second
+        if (!cloudBackupMutex.tryLock()) {
+            val msg = "Cloud backup is already in progress"
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _toastMessage.value = msg
+            }
+            return Pair(false, msg)
         }
-        return result
+        try {
+            val result = repository.backupToHosting(context, userId)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _toastMessage.value = result.second
+            }
+            return result
+        } finally {
+            cloudBackupMutex.unlock()
+        }
     }
 
     suspend fun restoreFromHosting(context: android.content.Context, userId: String): Pair<Boolean, String> {
-        val result = repository.restoreFromHosting(context, userId)
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-            _toastMessage.value = result.second
+        if (!cloudRestoreMutex.tryLock()) {
+            val msg = "Cloud restore is already in progress"
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _toastMessage.value = msg
+            }
+            return Pair(false, msg)
         }
-        return result
+        try {
+            val result = repository.restoreFromHosting(context, userId)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _toastMessage.value = result.second
+            }
+            return result
+        } finally {
+            cloudRestoreMutex.unlock()
+        }
     }
 
     fun saveBill(bill: com.example.data.model.BillEntity) {

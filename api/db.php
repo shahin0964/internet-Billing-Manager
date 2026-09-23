@@ -166,6 +166,21 @@ function provisionUserDatabase($systemPdo, $userId) {
     ];
 }
 
+function getUserDatabaseName($systemPdo, $userId) {
+    $stmt = $systemPdo->prepare("SELECT db_name FROM users WHERE id = ? LIMIT 1");
+    $stmt->execute([$userId]);
+    $dbName = $stmt->fetchColumn();
+    if (empty($dbName)) {
+        $provision = provisionUserDatabase($systemPdo, $userId);
+        return $provision['db_name'];
+    }
+    return $dbName;
+}
+
+function getUserAccountPdo($systemPdo, $userId) {
+    return getAccountPdo($systemPdo, $userId);
+}
+
 function getAccountPdo($systemPdo, $userId) {
     global $dbHost, $dbUser, $dbPass, $pdoOptions;
     static $accountCache = [];

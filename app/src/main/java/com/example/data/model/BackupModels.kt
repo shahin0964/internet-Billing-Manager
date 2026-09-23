@@ -64,13 +64,42 @@ class BackupTimestampAdapter : TypeAdapter<Long>() {
     }
 }
 
+class FlexibleStringAdapter : TypeAdapter<String>() {
+    override fun write(out: JsonWriter, value: String?) {
+        out.value(value)
+    }
+
+    override fun read(reader: JsonReader): String {
+        return try {
+            when (reader.peek()) {
+                JsonToken.NULL -> {
+                    reader.nextNull()
+                    ""
+                }
+                JsonToken.NUMBER -> {
+                    try {
+                        reader.nextLong().toString()
+                    } catch (_: Exception) {
+                        reader.nextDouble().toString()
+                    }
+                }
+                JsonToken.BOOLEAN -> reader.nextBoolean().toString()
+                else -> reader.nextString() ?: ""
+            }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+}
+
 data class CloudBackupModel(
+    @field:JsonAdapter(FlexibleStringAdapter::class)
     @SerializedName("id")
-    val id: String,
+    val id: String = "",
     @SerializedName("user_id")
-    val userId: String,
+    val userId: String = "",
     @SerializedName("backup_name")
-    val backupName: String,
+    val backupName: String = "",
     @SerializedName("backup_data")
     val backupData: String? = null,
     @SerializedName("backup_size")
@@ -95,9 +124,10 @@ data class CloudBackupRequest(
 
 data class CloudBackupResponse(
     @SerializedName("status")
-    val status: Boolean,
+    val status: Boolean = false,
     @SerializedName("message")
     val message: String? = null,
+    @field:JsonAdapter(FlexibleStringAdapter::class)
     @SerializedName("backup_id")
     val backupId: String? = null
 )

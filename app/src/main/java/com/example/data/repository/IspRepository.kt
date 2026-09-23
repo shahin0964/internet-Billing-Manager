@@ -2417,9 +2417,13 @@ class IspRepository(
 
     suspend fun backupToHosting(context: Context, userId: String): Pair<Boolean, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            if (userId.isBlank() || !com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+            val activeToken = com.example.IspApplication.getAuthToken(context)
+            val activeUid = com.example.IspApplication.getUserId(context)
+            if (activeToken.isNullOrBlank() || activeUid.isNullOrBlank() || !com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {
                 return@withContext Pair(false, "Authentication required or session invalid")
             }
+            // Ensure ApiClient.authToken matches the authenticated session token
+            ApiClient.authToken = activeToken
 
             // Step 1 & 2: Sync dirty local records to active MySQL tables first
             val syncSuccess = try {
@@ -2429,19 +2433,19 @@ class IspRepository(
                 false
             }
 
-            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {
                 return@withContext Pair(false, "Cloud backup aborted: session invalidated")
             }
 
             // Step 3: Check if live sync succeeded
             if (!syncSuccess) {
                 val lastError = context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
-                    .getString("last_sync_error_$userId", "Live Hosting sync failed") ?: "Live Hosting sync failed"
+                    .getString("last_sync_error_$activeUid", "Live Hosting sync failed") ?: "Live Hosting sync failed"
                 return@withContext Pair(false, "Cloud backup failed: $lastError. Cloud backup was not created.")
             }
 
             // Step 4: After confirmed live sync success, generate snapshot and upload to cloud_backups
-            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {
                 return@withContext Pair(false, "Cloud backup aborted: session invalidated")
             }
             val rawJsonPayload = generateFullBackupJson(context)
@@ -2461,27 +2465,27 @@ class IspRepository(
             val timeStamp = java.text.SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", java.util.Locale.US).format(java.util.Date())
             val backupName = "ISP-Cloud-Backup-$timeStamp"
             val request = com.example.data.model.CloudBackupRequest(
-                userId = userId,
+                userId = activeUid,
                 backupName = backupName,
                 backupData = jsonPayload,
                 version = 1
             )
-            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {
                 return@withContext Pair(false, "Cloud backup aborted before upload: session invalidated")
             }
             val response = ApiClient.apiService.saveCloudBackup(request)
-            if (!com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+            if (!com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {
                 return@withContext Pair(false, "Cloud backup response discarded: session invalidated")
             }
             if (response.status) {
                 // Update the last cloud sync time and pending sync count so the UI updates immediately
                 try {
-                    if (com.example.util.HostingSyncManager.isSessionValid(context, userId)) {
+                    if (com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {
                         val remainingDirty = com.example.util.HostingSyncManager.getActualPendingDirtyCount(context)
                         context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
                             .edit()
-                            .putLong("last_cloud_sync_time_$userId", System.currentTimeMillis())
-                            .putInt("pending_sync_count_$userId", remainingDirty)
+                            .putLong("last_cloud_sync_time_$activeUid", System.currentTimeMillis())
+                            .putInt("pending_sync_count_$activeUid", remainingDirty)
                             .apply()
                     }
                 } catch (ex: Exception) {
@@ -2494,16 +2498,41 @@ class IspRepository(
             }
         } catch (e: Exception) {
             Log.e("IspRepository", "Backup to Hosting failed: ${e.message}", e)
-            Pair(false, e.localizedMessage ?: e.message ?: "Cloud backup failed")
+            val userFriendlyMsg = when (e) {
+                is retrofit2.HttpException -> {
+                    when (e.code()) {
+                        401 -> "Session expired. Please log in again."
+                        403 -> "Access denied."
+                        404 -> "Backup endpoint not found."
+                        500, 502, 503 -> "Server error (HTTP ${e.code()}). Please try again later."
+                        else -> "Server error (HTTP ${e.code()}). Please try again."
+                    }
+                }
+                is com.google.gson.JsonSyntaxException, is com.google.gson.stream.MalformedJsonException, is IllegalStateException -> {
+                    "Invalid server response format. Please try again later."
+                }
+                is java.net.UnknownHostException, is java.net.ConnectException, is java.net.SocketTimeoutException -> {
+                    "Unable to connect to hosting server. Please check your internet connection."
+                }
+                else -> {
+                    e.localizedMessage ?: e.message ?: "Cloud backup failed"
+                }
+            }
+            Pair(false, userFriendlyMsg)
         }
     }
 
     suspend fun restoreFromHosting(context: Context, userId: String): Pair<Boolean, String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            if (userId.isBlank()) {
-                return@withContext Pair(false, "Authentication required")
+            val activeToken = com.example.IspApplication.getAuthToken(context)
+            val activeUid = com.example.IspApplication.getUserId(context)
+            if (activeToken.isNullOrBlank() || activeUid.isNullOrBlank() || !com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {
+                return@withContext Pair(false, "Authentication required or session invalid")
             }
-            val response = ApiClient.apiService.getLatestCloudBackup(userId = userId, action = "latest")
+            // Ensure ApiClient.authToken matches the authenticated session token
+            ApiClient.authToken = activeToken
+
+            val response = ApiClient.apiService.getLatestCloudBackup(userId = activeUid, action = "latest")
             if (!response.status || response.data == null) {
                 return@withContext Pair(false, response.message ?: "No cloud backup found on Hosting")
             }
@@ -2519,7 +2548,27 @@ class IspRepository(
             }
         } catch (e: Exception) {
             Log.e("IspRepository", "Restore from Hosting failed: ${e.message}", e)
-            Pair(false, e.localizedMessage ?: e.message ?: "Cloud restore failed")
+            val userFriendlyMsg = when (e) {
+                is retrofit2.HttpException -> {
+                    when (e.code()) {
+                        401 -> "Session expired. Please log in again."
+                        403 -> "Access denied."
+                        404 -> "Backup endpoint not found."
+                        500, 502, 503 -> "Server error (HTTP ${e.code()}). Please try again later."
+                        else -> "Server error (HTTP ${e.code()}). Please try again."
+                    }
+                }
+                is com.google.gson.JsonSyntaxException, is com.google.gson.stream.MalformedJsonException, is IllegalStateException -> {
+                    "Invalid server response format. Please try again later."
+                }
+                is java.net.UnknownHostException, is java.net.ConnectException, is java.net.SocketTimeoutException -> {
+                    "Unable to connect to hosting server. Please check your internet connection."
+                }
+                else -> {
+                    e.localizedMessage ?: e.message ?: "Cloud restore failed"
+                }
+            }
+            Pair(false, userFriendlyMsg)
         }
     }
 
