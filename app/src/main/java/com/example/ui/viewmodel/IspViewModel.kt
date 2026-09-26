@@ -474,7 +474,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun importCustomers(
-        candidates: List<CustomerEntity>,
+        candidates: List<com.example.util.ImportedCustomerCandidate>,
         overwriteDuplicates: Boolean,
         onComplete: (importedCount: Int, updatedCount: Int, skippedCount: Int) -> Unit
     ) {
@@ -489,9 +489,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 val existingByPppoe = existingList.filter { it.pppoeUsername.isNotBlank() }
                     .associateBy { it.pppoeUsername.trim().lowercase(java.util.Locale.ROOT) }
 
-                val newToInsert = mutableListOf<CustomerEntity>()
+                for (candidateItem in candidates) {
+                    val candidate = candidateItem.customer
+                    val initialDue = candidateItem.initialDueAmount
+                    val rawMonth = candidateItem.billingMonth
 
-                for (candidate in candidates) {
                     val codeKey = candidate.customerCode.trim().lowercase(java.util.Locale.ROOT)
                     val pppoeKey = candidate.pppoeUsername.trim().lowercase(java.util.Locale.ROOT)
 
@@ -508,18 +510,26 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             val updatedEntity = candidate.copy(id = matchedExisting.id, status = finalStatus)
                             repository.updateCustomer(updatedEntity)
+
+                            if (initialDue > 0.0) {
+                                val resolvedMonth = if (rawMonth.isNotBlank()) rawMonth else com.example.util.BillingMonthUtils.formatStandardMonth()
+                                val prevItem = parseToPreviousDueItem(resolvedMonth, initialDue)
+                                repository.createPreviousDues(matchedExisting.id, updatedEntity, listOf(prevItem))
+                            }
                             updatedCount++
                         } else {
                             skippedCount++
                         }
                     } else {
-                        newToInsert.add(candidate)
+                        // New customer: save customer and if due > 0, create due bill
+                        val insertedId = repository.saveCustomer(candidate)
+                        if (initialDue > 0.0) {
+                            val resolvedMonth = if (rawMonth.isNotBlank()) rawMonth else com.example.util.BillingMonthUtils.formatStandardMonth()
+                            val prevItem = parseToPreviousDueItem(resolvedMonth, initialDue)
+                            repository.createPreviousDues(insertedId, candidate.copy(id = insertedId), listOf(prevItem))
+                        }
                         importedCount++
                     }
-                }
-
-                if (newToInsert.isNotEmpty()) {
-                    repository.saveCustomers(newToInsert)
                 }
 
                 onComplete(importedCount, updatedCount, skippedCount)
@@ -527,6 +537,37 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 android.util.Log.e("IspViewModel", "Failed to import customers: ${e.message}", e)
                 onComplete(0, 0, candidates.size)
             }
+        }
+    }
+
+    private fun parseToPreviousDueItem(rawMonth: String, amount: Double): com.example.data.model.PreviousDueItem {
+        val monthsList = listOf(
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        )
+        val cal = java.util.Calendar.getInstance()
+        val defaultYear = cal.get(java.util.Calendar.YEAR).toString()
+        val defaultMonth = monthsList[cal.get(java.util.Calendar.MONTH)]
+
+        val trimmed = rawMonth.trim()
+        if (trimmed.isBlank()) {
+            return com.example.data.model.PreviousDueItem(defaultMonth, defaultYear, amount)
+        }
+
+        val parts = trimmed.split(" ", "-", "/")
+        return if (parts.size >= 2) {
+            val yearPart = parts.find { it.length == 4 && it.toIntOrNull() != null } ?: defaultYear
+            val monthPartRaw = parts.find { it != yearPart } ?: defaultMonth
+            val monthNum = monthPartRaw.toIntOrNull()
+            val matchedMonth = if (monthNum != null && monthNum in 1..12) {
+                monthsList[monthNum - 1]
+            } else {
+                monthsList.find { it.equals(monthPartRaw, ignoreCase = true) || it.startsWith(monthPartRaw, ignoreCase = true) } ?: defaultMonth
+            }
+            com.example.data.model.PreviousDueItem(matchedMonth, yearPart, amount)
+        } else {
+            val matchedMonth = monthsList.find { it.equals(trimmed, ignoreCase = true) || it.startsWith(trimmed, ignoreCase = true) } ?: defaultMonth
+            com.example.data.model.PreviousDueItem(matchedMonth, defaultYear, amount)
         }
     }
 

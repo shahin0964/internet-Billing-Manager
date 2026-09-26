@@ -1059,6 +1059,8 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                     }
                 }
             }
+
+            item { Spacer(modifier = Modifier.height(48.dp)) }
         }
     }
 

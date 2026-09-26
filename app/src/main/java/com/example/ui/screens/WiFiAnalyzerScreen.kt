@@ -665,6 +665,8 @@ fun BestChannelsView(results: List<ScanResult>, band: WifiBand, wifiInfo: WifiIn
                 }
             }
         }
+
+        item { Spacer(modifier = Modifier.height(48.dp)) }
     }
 }
 
@@ -682,6 +684,7 @@ fun AccessPointsView(results: List<ScanResult>, wifiInfo: WifiInfo?, wifiManager
         items(results) { result ->
             NetworkScanResultCard(result, wifiInfo)
         }
+        item { Spacer(modifier = Modifier.height(48.dp)) }
     }
 }
 

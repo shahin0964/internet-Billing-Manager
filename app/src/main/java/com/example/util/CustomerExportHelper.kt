@@ -41,6 +41,7 @@ data class ExportedCustomerRow(
     val packageName: String,
     val monthlyBill: Double,
     val dueAmount: Double,
+    val billingMonth: String = "",
     val pppoeUsername: String,
     val password: String,
     val ipAddress: String,
@@ -69,16 +70,17 @@ enum class ExportCustomerField(
     val isDefaultSelected: Boolean = true
 ) {
     SERIAL("SL", "SL", true),
+    NAME("গ্রাহকের নাম (Name)", "Name", true),
+    CUSTOMER_CODE("গ্রাহক আইডি (ID)", "Customer ID", true),
+    PHONE("মোবাইল নম্বর (Phone)", "Phone Number", true),
+    PACKAGE("প্যাকেজ (Package)", "Package", true),
+    MONTHLY_BILL("মাসিক বিল (Bill)", "Monthly Bill", true),
+    DUE_AMOUNT("বকেয়া (Due)", "Due Amount", true),
+    BILLING_MONTH("বিলিং মাস (Month)", "Billing Month", true),
     PPPOE_USERNAME("PPPoE Username", "PPPoE Username", true),
     PASSWORD("PPPoE password", "PPPoE password", true),
-    PHONE("Number", "Number", true),
-    MONTHLY_BILL("Bill", "Bill", true),
-    NAME("গ্রাহকের নাম (Name)", "Name", false),
-    CUSTOMER_CODE("গ্রাহক আইডি (ID)", "Customer ID", false),
-    PACKAGE("প্যাকেজ (Package)", "Package", false),
-    DUE_AMOUNT("বকেয়া (Due)", "Due Amount", false),
-    STATUS("স্ট্যাটাস (Status)", "Status", false),
     ADDRESS("ঠিকানা (Address)", "Address", false),
+    STATUS("স্ট্যাটাস (Status)", "Status", false),
     IP_ADDRESS("আইপি (IP Address)", "IP Address", false),
     JOINING_DATE("যোগদানের তারিখ", "Joining Date", false),
     NOTES("নোট (Notes)", "Notes", false)
@@ -127,11 +129,19 @@ object CustomerExportHelper {
         filterStatus: CustomerFilterStatus = CustomerFilterStatus.ALL,
         searchQuery: String = ""
     ): List<ExportedCustomerRow> {
-        // Calculate due for each customer
+        // Calculate due and billing month for each customer
         val dueByCustomerId = bills
             .filter { it.status != "PAID" }
             .groupBy { it.customerId }
             .mapValues { entry -> entry.value.sumOf { it.dueAmount } }
+
+        val currentMonthStr = BillingMonthUtils.formatStandardMonth()
+        val latestBillMonthByCustomerId = bills
+            .groupBy { it.customerId }
+            .mapValues { entry ->
+                val unpaid = entry.value.filter { it.dueAmount > 0 }.maxByOrNull { it.id }
+                unpaid?.billingMonth ?: (entry.value.maxByOrNull { it.id }?.billingMonth ?: currentMonthStr)
+            }
 
         var filtered = customers.filter { cust ->
             when (filterStatus) {
@@ -177,6 +187,7 @@ object CustomerExportHelper {
                 packageName = cust.packageName.trim(),
                 monthlyBill = cust.monthlyFee,
                 dueAmount = dueByCustomerId[cust.id] ?: 0.0,
+                billingMonth = latestBillMonthByCustomerId[cust.id] ?: currentMonthStr,
                 pppoeUsername = cust.pppoeUsername.trim(),
                 password = extractPassword(cust),
                 ipAddress = cust.ipAddress.trim(),
@@ -226,6 +237,7 @@ object CustomerExportHelper {
                             ExportCustomerField.PACKAGE -> row.packageName
                             ExportCustomerField.MONTHLY_BILL -> String.format(Locale.US, "%.2f", row.monthlyBill)
                             ExportCustomerField.DUE_AMOUNT -> String.format(Locale.US, "%.2f", row.dueAmount)
+                            ExportCustomerField.BILLING_MONTH -> row.billingMonth
                             ExportCustomerField.PPPOE_USERNAME -> row.pppoeUsername
                             ExportCustomerField.PASSWORD -> row.password
                             ExportCustomerField.ADDRESS -> row.address
@@ -389,6 +401,7 @@ object CustomerExportHelper {
             ExportCustomerField.CUSTOMER_CODE -> 1.8f
             ExportCustomerField.PACKAGE -> 1.8f
             ExportCustomerField.DUE_AMOUNT -> 1.5f
+            ExportCustomerField.BILLING_MONTH -> 1.8f
             ExportCustomerField.STATUS -> 1.3f
             ExportCustomerField.ADDRESS -> 2.8f
             ExportCustomerField.IP_ADDRESS -> 2.0f
@@ -497,6 +510,7 @@ object CustomerExportHelper {
                     ExportCustomerField.CUSTOMER_CODE -> row.customerCode
                     ExportCustomerField.PACKAGE -> row.packageName
                     ExportCustomerField.DUE_AMOUNT -> String.format(Locale.US, "%.0f", row.dueAmount)
+                    ExportCustomerField.BILLING_MONTH -> row.billingMonth
                     ExportCustomerField.STATUS -> row.status
                     ExportCustomerField.ADDRESS -> row.address
                     ExportCustomerField.IP_ADDRESS -> row.ipAddress
@@ -599,6 +613,7 @@ object CustomerExportHelper {
             ExportCustomerField.CUSTOMER_CODE -> 1.8f
             ExportCustomerField.PACKAGE -> 1.8f
             ExportCustomerField.DUE_AMOUNT -> 1.5f
+            ExportCustomerField.BILLING_MONTH -> 1.8f
             ExportCustomerField.STATUS -> 1.3f
             ExportCustomerField.ADDRESS -> 2.8f
             ExportCustomerField.IP_ADDRESS -> 2.0f
@@ -739,6 +754,7 @@ object CustomerExportHelper {
                     ExportCustomerField.CUSTOMER_CODE -> row.customerCode
                     ExportCustomerField.PACKAGE -> row.packageName
                     ExportCustomerField.DUE_AMOUNT -> String.format(Locale.US, "%.0f", row.dueAmount)
+                    ExportCustomerField.BILLING_MONTH -> row.billingMonth
                     ExportCustomerField.STATUS -> row.status
                     ExportCustomerField.ADDRESS -> row.address
                     ExportCustomerField.IP_ADDRESS -> row.ipAddress
@@ -800,7 +816,177 @@ object CustomerExportHelper {
     }
 
     /**
-     * Saves a copy of CSV, PDF, or JPG to Public Downloads folder.
+     * Share exported XLSX file via Android Share sheet.
+     */
+    fun shareXlsxFile(context: Context, file: File) {
+        try {
+            val authority = "${context.packageName}.provider"
+            val uri: Uri = FileProvider.getUriForFile(context, authority, file)
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                putExtra(Intent.EXTRA_SUBJECT, "Customer Import Template")
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "টেমপ্লেট ফাইল শেয়ার বা ওপেন করুন"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "শেয়ার ব্যর্থ হয়েছে: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * Generates a standard OpenXML Spreadsheet (.xlsx) blank template for Customer Import.
+     * Contains all supported fields in header row, properly styled, without any dummy data.
+     */
+    fun generateCustomerImportTemplateXlsx(context: Context): File {
+        val fileName = "Customer_Import_Template.xlsx"
+        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val outputFile = File(exportDir, fileName)
+
+        val headers = listOf(
+            "Customer Name",
+            "Customer ID",
+            "Phone Number",
+            "Address",
+            "Package Name",
+            "Monthly Bill",
+            "Existing Due",
+            "Billing Month",
+            "PPPoE Username",
+            "IP Address",
+            "Joining Date",
+            "Status",
+            "Notes"
+        )
+
+        val contentTypesXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>""".trimIndent()
+
+        val relsXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""".trimIndent()
+
+        val workbookRelsXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>""".trimIndent()
+
+        val workbookXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <workbookPr date1904="false"/>
+  <sheets>
+    <sheet name="Customer Import" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>""".trimIndent()
+
+        val stylesXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font>
+      <sz val="11"/>
+      <name val="Calibri"/>
+      <family val="2"/>
+    </font>
+    <font>
+      <b/>
+      <sz val="11"/>
+      <color rgb="FFFFFFFF"/>
+      <name val="Calibri"/>
+      <family val="2"/>
+    </font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0891B2"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="1">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="2">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">
+      <alignment horizontal="center" vertical="center"/>
+    </xf>
+  </cellXfs>
+</styleSheet>""".trimIndent()
+
+        val sharedStringsSb = StringBuilder()
+        sharedStringsSb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+        sharedStringsSb.append("""<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${headers.size}" uniqueCount="${headers.size}">""")
+        headers.forEach { h ->
+            sharedStringsSb.append("<si><t>").append(escapeXml(h)).append("</t></si>")
+        }
+        sharedStringsSb.append("</sst>")
+        val sharedStringsXml = sharedStringsSb.toString()
+
+        val colWidths = listOf(22, 16, 18, 24, 20, 16, 16, 16, 20, 18, 16, 14, 24)
+        val sheetSb = StringBuilder()
+        sheetSb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+        sheetSb.append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">""")
+        sheetSb.append("<cols>")
+        colWidths.forEachIndexed { i, w ->
+            sheetSb.append("""<col min="${i + 1}" max="${i + 1}" width="$w" customWidth="1"/>""")
+        }
+        sheetSb.append("</cols>")
+        sheetSb.append("<sheetData>")
+        sheetSb.append("""<row r="1" ht="28" customHeight="1">""")
+        headers.forEachIndexed { i, _ ->
+            val colLetter = ('A' + i).toString()
+            sheetSb.append("""<c r="${colLetter}1" t="s" s="1"><v>$i</v></c>""")
+        }
+        sheetSb.append("</row>")
+        sheetSb.append("</sheetData>")
+        sheetSb.append("</worksheet>")
+        val sheetXml = sheetSb.toString()
+
+        FileOutputStream(outputFile).use { fos ->
+            java.util.zip.ZipOutputStream(fos).use { zos ->
+                fun addZipEntry(path: String, content: String) {
+                    val entry = java.util.zip.ZipEntry(path)
+                    zos.putNextEntry(entry)
+                    zos.write(content.toByteArray(StandardCharsets.UTF_8))
+                    zos.closeEntry()
+                }
+                addZipEntry("[Content_Types].xml", contentTypesXml)
+                addZipEntry("_rels/.rels", relsXml)
+                addZipEntry("xl/_rels/workbook.xml.rels", workbookRelsXml)
+                addZipEntry("xl/workbook.xml", workbookXml)
+                addZipEntry("xl/styles.xml", stylesXml)
+                addZipEntry("xl/sharedStrings.xml", sharedStringsXml)
+                addZipEntry("xl/worksheets/sheet1.xml", sheetXml)
+            }
+        }
+
+        return outputFile
+    }
+
+    private fun escapeXml(text: String): String {
+        return text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
+    }
+
+    /**
+     * Saves a copy of CSV, XLSX, PDF, or JPG to Public Downloads folder.
      */
     fun saveToDownloads(context: Context, sourceFile: File): File? {
         return try {
@@ -808,6 +994,7 @@ object CustomerExportHelper {
             val mimeType = when {
                 fileNameLower.endsWith(".pdf") -> "application/pdf"
                 fileNameLower.endsWith(".jpg") || fileNameLower.endsWith(".jpeg") -> "image/jpeg"
+                fileNameLower.endsWith(".xlsx") -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 else -> "text/csv"
             }
 
@@ -1008,6 +1195,7 @@ object CustomerExportHelper {
                         val color = if (row.dueAmount > 0) "#dc2626" else "#16a34a"
                         sb.append("""<td class="text-right" style="color: $color; font-weight: bold;">$currencySymbol ${String.format(Locale.US, "%.2f", row.dueAmount)}</td>""")
                     }
+                    ExportCustomerField.BILLING_MONTH -> sb.append("""<td>${row.billingMonth.ifBlank { "-" }}</td>""")
                     ExportCustomerField.PPPOE_USERNAME -> sb.append("""<td><code>${row.pppoeUsername}</code></td>""")
                     ExportCustomerField.PASSWORD -> sb.append("""<td><code>${row.password.ifBlank { "-" }}</code></td>""")
                     ExportCustomerField.ADDRESS -> sb.append("""<td>${row.address.ifBlank { "-" }}</td>""")

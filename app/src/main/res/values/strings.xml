@@ -219,8 +219,13 @@
     <string name="receipt_footer_label">Footer / Thank You Note</string>
     <string name="receipt_custom_notes_label">Special Notes / Terms</string>
     <string name="receipt_paper_size">Receipt Format &amp; Paper Size</string>
-    <string name="receipt_paper_standard">Standard / Full Page (A4)</string>
+    <string name="receipt_paper_money_receipt">Money Receipt (মানি রশিদ)</string>
+    <string name="receipt_paper_standard">Standard Invoice (A4)</string>
     <string name="receipt_paper_thermal">Thermal POS Slip (80mm)</string>
+    <string name="receipt_tab_digital">Digital View</string>
+    <string name="receipt_tab_pdf_preview">PDF Preview</string>
+    <string name="receipt_auth_signature">Authorized Signature</string>
+    <string name="receipt_customer_signature">Customer Signature</string>
     <string name="receipt_visible_fields">Visible Information Fields</string>
     <string name="receipt_show_phone">Customer Phone Number</string>
     <string name="receipt_show_pppoe">PPPoE Username</string>
@@ -579,4 +584,6 @@
     <string name="export_success_saved">File saved to Downloads: %1$s</string>
     <string name="export_success_generated">CSV generated successfully (%1$d customers)</string>
     <string name="export_no_customers">No customer records found to export.</string>
+    <string name="download_template_btn">Download Template</string>
+    <string name="download_template_subtitle">Download blank Excel (.xlsx) import template</string>
 </resources>

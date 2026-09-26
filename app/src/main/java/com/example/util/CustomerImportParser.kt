@@ -23,11 +23,19 @@ enum class CustomerField(val key: String, val displayNameEn: String, val display
     PPPOE("pppoe", "PPPoE Username", "পিপিপিওই ইউজারনেম", false),
     IP_ADDRESS("ip", "IP Address", "আইপি অ্যাড্রেস", false),
     PACKAGE_NAME("package", "Package Name", "প্যাকেজের নাম", false),
-    MONTHLY_FEE("fee", "Monthly Fee", "মাসিক ফি", false),
+    MONTHLY_FEE("fee", "Monthly Fee / Bill", "মাসিক ফি / বিল", false),
+    DUE_AMOUNT("due", "Existing Due", "বিদ্যমান বকেয়া", false),
+    BILLING_MONTH("month", "Billing Month", "বিলিং মাস", false),
     JOINING_DATE("date", "Joining Date", "যোগদানের তারিখ", false),
     STATUS("status", "Status (Active/Suspended/Inactive)", "স্ট্যাটাস (সক্রিয়/সাসপেন্ড/নিষ্ক্রিয়)", false),
     NOTES("notes", "Notes", "নোট", false)
 }
+
+data class ImportedCustomerCandidate(
+    val customer: CustomerEntity,
+    val initialDueAmount: Double = 0.0,
+    val billingMonth: String = ""
+)
 
 data class ParseResult(
     val headers: List<String>,
@@ -39,6 +47,8 @@ data class ParseResult(
 data class RowValidationDetail(
     val rowIndex: Int,
     val candidate: CustomerEntity?,
+    val initialDueAmount: Double = 0.0,
+    val billingMonth: String = "",
     val isValid: Boolean,
     val isDuplicate: Boolean,
     val duplicateCustomerName: String? = null,
@@ -341,15 +351,17 @@ object CustomerImportParser {
                 when (field) {
                     CustomerField.NAME -> normalized.contains("name") || normalized.contains("নাম") || normalized.contains("subscriber") || normalized.contains("client")
                     CustomerField.CODE -> normalized.contains("code") || normalized.contains("id") || normalized.contains("কোড") || normalized.contains("আইডি")
-                    CustomerField.PHONE -> normalized.contains("phone") || normalized.contains("mobile") || normalized.contains("contact") || normalized.contains("ফোন") || normalized.contains("মোবাইল")
+                    CustomerField.PHONE -> normalized.contains("phone") || normalized.contains("mobile") || normalized.contains("contact") || normalized.contains("number") || normalized.contains("ফোন") || normalized.contains("মোবাইল") || normalized.contains("নম্বর")
                     CustomerField.ADDRESS -> normalized.contains("address") || normalized.contains("location") || normalized.contains("ঠিকানা")
                     CustomerField.PPPOE -> normalized.contains("pppoe") || normalized.contains("username") || normalized.contains("ইউজারনেম")
                     CustomerField.IP_ADDRESS -> normalized.contains("ip") || normalized.contains("আইপি")
                     CustomerField.PACKAGE_NAME -> normalized.contains("package") || normalized.contains("plan") || normalized.contains("প্যাকেজ")
-                    CustomerField.MONTHLY_FEE -> normalized.contains("fee") || normalized.contains("price") || normalized.contains("amount") || normalized.contains("bill") || normalized.contains("ফি") || normalized.contains("টাকা")
-                    CustomerField.JOINING_DATE -> normalized.contains("date") || normalized.contains("joining") || normalized.contains("তারিখ")
+                    CustomerField.MONTHLY_FEE -> (normalized.contains("bill") || normalized.contains("fee") || normalized.contains("price") || normalized.contains("amount") || normalized.contains("ফি") || normalized.contains("বিল") || normalized.contains("টাকা")) && !normalized.contains("due") && !normalized.contains("বকেয়া") && !normalized.contains("month") && !normalized.contains("মাস")
+                    CustomerField.DUE_AMOUNT -> normalized.contains("due") || normalized.contains("বকেয়া") || normalized.contains("বকেয়া") || normalized.contains("arrear") || normalized.contains("outstanding")
+                    CustomerField.BILLING_MONTH -> normalized.contains("month") || normalized.contains("billing month") || normalized.contains("বিলিং মাস") || (normalized.contains("মাস") && !normalized.contains("মাসিক"))
+                    CustomerField.JOINING_DATE -> normalized.contains("joining") || normalized.contains("date") || normalized.contains("তারিখ")
                     CustomerField.STATUS -> normalized.contains("status") || normalized.contains("স্ট্যাটাস") || normalized.contains("অবস্থা") || normalized.contains("state") || normalized.contains("condition")
-                    CustomerField.NOTES -> normalized.contains("note") || normalized.contains("remark") || normalized.contains("নোট")
+                    CustomerField.NOTES -> normalized.contains("note") || normalized.contains("remark") || normalized.contains("নোট") || normalized.contains("comment")
                 }
             }
             if (matchedIndex != -1) {
@@ -402,6 +414,8 @@ object CustomerImportParser {
             val ip = getVal(CustomerField.IP_ADDRESS)
             val packageNameRaw = getVal(CustomerField.PACKAGE_NAME)
             val monthlyFeeRaw = getVal(CustomerField.MONTHLY_FEE)
+            val dueAmountRaw = getVal(CustomerField.DUE_AMOUNT)
+            val billingMonthRaw = getVal(CustomerField.BILLING_MONTH)
             val joiningDateRaw = getVal(CustomerField.JOINING_DATE)
             val statusRaw = getVal(CustomerField.STATUS)
             val notes = getVal(CustomerField.NOTES)
@@ -413,13 +427,6 @@ object CustomerImportParser {
                 else -> "ACTIVE"
             }
 
-            val rawSummary = listOfNotNull(
-                name.takeIf { it.isNotBlank() },
-                code.takeIf { it.isNotBlank() },
-                phone.takeIf { it.isNotBlank() },
-                pppoe.takeIf { it.isNotBlank() }
-            ).joinToString(" • ")
-
             // Check required fields
             if (name.isBlank()) {
                 invalidCount++
@@ -427,11 +434,13 @@ object CustomerImportParser {
                     RowValidationDetail(
                         rowIndex = rowIndex,
                         candidate = null,
+                        initialDueAmount = 0.0,
+                        billingMonth = "",
                         isValid = false,
                         isDuplicate = false,
                         errorReasonEn = "Missing Customer Name",
                         errorReasonBn = "গ্রাহকের নাম নেই",
-                        rawSummary = rawSummary.ifBlank { "Row #$rowIndex" }
+                        rawSummary = "Row #$rowIndex"
                     )
                 )
                 continue
@@ -446,9 +455,18 @@ object CustomerImportParser {
                 autoCodeIndex++
             }
 
-            var monthlyFee = monthlyFeeRaw.replace(",", ".").toDoubleOrNull() ?: 0.0
+            var monthlyFee = monthlyFeeRaw.replace(",", ".").replace("৳", "").replace("$", "").trim().toDoubleOrNull() ?: 0.0
+            val parsedDue = dueAmountRaw.replace(",", ".").replace("৳", "").replace("$", "").trim().toDoubleOrNull() ?: 0.0
+            val parsedMonth = billingMonthRaw.trim()
+
+            // Match package by name first
             var matchedPackage = existingPackages.find {
-                it.name.equals(packageNameRaw, ignoreCase = true)
+                it.name.trim().equals(packageNameRaw.trim(), ignoreCase = true)
+            }
+
+            // If not matched by name, check if monthly fee matches a package price and package name was blank
+            if (matchedPackage == null && packageNameRaw.isBlank() && monthlyFee > 0.0) {
+                matchedPackage = existingPackages.find { it.monthlyPrice == monthlyFee }
             }
 
             if (matchedPackage != null) {
@@ -457,6 +475,9 @@ object CustomerImportParser {
                 matchedPackage = defaultPackage
                 if (monthlyFee <= 0) monthlyFee = defaultPackage.monthlyPrice
             }
+
+            val finalPackageName = if (packageNameRaw.isNotBlank()) packageNameRaw.trim() else matchedPackage.name
+            val finalPackageId = matchedPackage.id
 
             val joiningDate = if (joiningDateRaw.isNotBlank()) joiningDateRaw else todayStr
 
@@ -467,13 +488,21 @@ object CustomerImportParser {
                 address = address,
                 pppoeUsername = pppoe,
                 ipAddress = ip,
-                packageId = matchedPackage.id,
-                packageName = if (packageNameRaw.isNotBlank()) packageNameRaw else matchedPackage.name,
+                packageId = finalPackageId,
+                packageName = finalPackageName,
                 monthlyFee = monthlyFee,
                 status = parsedStatus,
                 joiningDate = joiningDate,
                 notes = notes
             )
+
+            val rawSummary = listOfNotNull(
+                name.takeIf { it.isNotBlank() },
+                code.takeIf { it.isNotBlank() },
+                finalPackageName.takeIf { it.isNotBlank() },
+                if (monthlyFee > 0) "৳${String.format(Locale.US, "%.0f", monthlyFee)}" else null,
+                if (parsedDue > 0) "Due: ৳${String.format(Locale.US, "%.0f", parsedDue)}" else null
+            ).joinToString(" • ")
 
             // Check duplicates
             val codeKey = code.trim().lowercase(Locale.ROOT)
@@ -488,10 +517,12 @@ object CustomerImportParser {
                     RowValidationDetail(
                         rowIndex = rowIndex,
                         candidate = candidate,
+                        initialDueAmount = parsedDue,
+                        billingMonth = parsedMonth,
                         isValid = true,
                         isDuplicate = true,
                         duplicateCustomerName = matchedExisting.name,
-                        rawSummary = "$name ($code)"
+                        rawSummary = rawSummary
                     )
                 )
             } else {
@@ -500,9 +531,11 @@ object CustomerImportParser {
                     RowValidationDetail(
                         rowIndex = rowIndex,
                         candidate = candidate,
+                        initialDueAmount = parsedDue,
+                        billingMonth = parsedMonth,
                         isValid = true,
                         isDuplicate = false,
-                        rawSummary = "$name ($code)"
+                        rawSummary = rawSummary
                     )
                 )
             }

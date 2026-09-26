@@ -73,9 +73,10 @@ fun CustomerExportContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp)
+        contentPadding = PaddingValues(top = 12.dp, bottom = 80.dp)
     ) {
         // Description Card
         item {

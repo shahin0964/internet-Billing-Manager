@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.data.model.CustomerEntity
 import com.example.ui.viewmodel.IspViewModel
+import com.example.util.CustomerExportHelper
 import com.example.util.CustomerField
 import com.example.util.CustomerImportParser
 import com.example.util.ImportValidationSummary
@@ -156,8 +157,10 @@ fun ImportCustomersScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp)
                 ) {
             // STEP 1: FILE SELECTION CARD
             item {
@@ -212,9 +215,12 @@ fun ImportCustomersScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
+                        var isDownloadingTemplate by remember { mutableStateOf(false) }
+
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Button(
                                 onClick = {
@@ -229,15 +235,74 @@ fun ImportCustomersScreen(
                                     )
                                 },
                                 enabled = !isParsing && !isImporting,
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.FolderOpen,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = stringResource(R.string.select_import_file))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.select_import_file),
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    isDownloadingTemplate = true
+                                    scope.launch(Dispatchers.IO) {
+                                        try {
+                                            val templateFile = CustomerExportHelper.generateCustomerImportTemplateXlsx(context)
+                                            val savedFile = CustomerExportHelper.saveToDownloads(context, templateFile)
+                                            withContext(Dispatchers.Main) {
+                                                isDownloadingTemplate = false
+                                                val savedPath = savedFile?.name ?: templateFile.name
+                                                Toast.makeText(
+                                                    context,
+                                                    "এক্সেল টেমপ্লেট ডাউনলোড সফল হয়েছে ($savedPath)",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                                CustomerExportHelper.shareXlsxFile(context, savedFile ?: templateFile)
+                                            }
+                                        } catch (e: Exception) {
+                                            withContext(Dispatchers.Main) {
+                                                isDownloadingTemplate = false
+                                                Toast.makeText(context, "টেমপ্লেট তৈরি ব্যর্থ: ${e.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isDownloadingTemplate && !isParsing && !isImporting,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.primary
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isDownloadingTemplate) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.FileDownload,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.download_template_btn),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
 
                             if (isParsing) {
@@ -431,7 +496,15 @@ fun ImportCustomersScreen(
                             // BUTTON TO IMPORT
                             val candidatesToImport = summary.details
                                 .filter { it.isValid && it.candidate != null }
-                                .mapNotNull { it.candidate }
+                                .mapNotNull { detail ->
+                                    detail.candidate?.let {
+                                        com.example.util.ImportedCustomerCandidate(
+                                            customer = it,
+                                            initialDueAmount = detail.initialDueAmount,
+                                            billingMonth = detail.billingMonth
+                                        )
+                                    }
+                                }
 
                             Button(
                                 onClick = {

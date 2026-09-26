@@ -579,6 +579,8 @@ private fun ExpenseDashboardTab(
                 }
             }
         }
+
+        item { Spacer(modifier = Modifier.height(48.dp)) }
     }
 }
 
@@ -745,6 +747,7 @@ private fun ExpenseListTab(
                         onDelete = { onDeleteExpense(exp) }
                     )
                 }
+                item { Spacer(modifier = Modifier.height(48.dp)) }
             }
         }
     }
@@ -1027,6 +1030,8 @@ private fun ExpenseAnalyticsTab(
                 }
             }
         }
+
+        item { Spacer(modifier = Modifier.height(48.dp)) }
     }
 }
 

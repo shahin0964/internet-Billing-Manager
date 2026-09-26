@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Preview
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Share
@@ -29,32 +32,50 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.R
 import com.example.data.model.BillEntity
 import com.example.data.model.BusinessSettingsEntity
 import com.example.data.model.CustomerEntity
 import com.example.data.model.PaymentEntity
 import com.example.ui.theme.EmeraldSuccess
+import com.example.util.ReceiptCustomizationManager
 import com.example.util.ReceiptPrintUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Post-payment confirmation popup dialog.
@@ -71,7 +92,6 @@ fun PostPaymentReceiptPromptDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val htmlContent = ReceiptPrintUtils.generateReceiptHtml(payment, bill, customer, settings, isBn)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -208,7 +228,7 @@ fun PostPaymentReceiptPromptDialog(
 }
 
 /**
- * On-screen printable receipt view modal dialog.
+ * On-screen printable receipt view modal dialog with interactive PDF Preview & Digital Card.
  */
 @Composable
 fun PaymentReceiptModal(
@@ -220,8 +240,7 @@ fun PaymentReceiptModal(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val config = androidx.compose.runtime.remember { com.example.util.ReceiptCustomizationManager.getConfig(context) }
-    val htmlContent = ReceiptPrintUtils.generateReceiptHtml(payment, bill, customer, settings, isBn, config, context)
+    val config = remember { ReceiptCustomizationManager.getConfig(context) }
 
     val ispName = settings.ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
     val hotline = settings.hotline.ifBlank { if (isBn) "০১৭০০-০০০০০০" else "01700-000000" }
@@ -238,9 +257,9 @@ fun PaymentReceiptModal(
     val invNo = bill?.billNumber ?: "INV-${payment.billId}"
     val receiptNo = payment.paymentReceiptNo
     val billMonth = bill?.billingMonth ?: payment.paymentDate.take(7)
-    val billAmt = String.format("%.2f", bill?.amount ?: payment.amount)
-    val paidAmt = String.format("%.2f", payment.amount)
-    val dueAmt = String.format("%.2f", bill?.dueAmount ?: 0.0)
+    val billAmt = String.format(java.util.Locale.US, "%.2f", bill?.amount ?: payment.amount)
+    val paidAmt = String.format(java.util.Locale.US, "%.2f", payment.amount)
+    val dueAmt = String.format(java.util.Locale.US, "%.2f", bill?.dueAmount ?: 0.0)
 
     val displayTitle = config.receiptTitle.ifBlank {
         if (isBn) "পেমেন্ট রশিদ" else "OFFICIAL PAYMENT RECEIPT"
@@ -249,14 +268,39 @@ fun PaymentReceiptModal(
         if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহারের জন্য ধন্যবাদ!" else "Thank you for using our internet service!"
     }
 
+    // Tabs: 0 -> Digital View, 1 -> PDF Preview
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var pdfBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isRenderingPdf by remember { mutableStateOf(false) }
+
+    LaunchedEffect(payment.id, selectedTab) {
+        if (selectedTab == 1 && pdfBitmap == null) {
+            isRenderingPdf = true
+            withContext(Dispatchers.IO) {
+                try {
+                    val pdfFile = ReceiptPrintUtils.generateReceiptPdfFile(context, payment, bill, customer, settings, isBn)
+                    val bmp = ReceiptPrintUtils.renderPdfPageToBitmap(pdfFile)
+                    withContext(Dispatchers.Main) {
+                        pdfBitmap = bmp
+                        isRenderingPdf = false
+                    }
+                } catch (e: Throwable) {
+                    withContext(Dispatchers.Main) {
+                        isRenderingPdf = false
+                    }
+                }
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .padding(vertical = 16.dp),
+                .fillMaxWidth(0.95f)
+                .padding(vertical = 12.dp),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
@@ -265,181 +309,310 @@ fun PaymentReceiptModal(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(14.dp)
             ) {
-                // Modal Header
+                // Modal Top Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (isBn) "পেমেন্ট রশিদ (Receipt)" else "Payment Receipt",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Column {
+                        Text(
+                            text = if (isBn) "পেমেন্ট রশিদ (Receipt)" else "Payment Receipt",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "${if (isBn) "রশিদ নং:" else "Receipt #:"} $receiptNo",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = onDismiss) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
                     }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // Receipt Content (Scrollable Paper view)
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState()),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                    shape = RoundedCornerShape(12.dp)
+                // Tab Selector: Digital View vs Crisp PDF Preview
+                TabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    indicator = { tabPositions ->
+                        if (selectedTab < tabPositions.size) {
+                            TabRowDefaults.SecondaryIndicator(
+                                Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    },
+                    divider = {}
                 ) {
-                    Column(
+                    Tab(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = if (isBn) "ডিজিটাল রশিদ" else "Digital View", fontSize = 12.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+                    )
+                    Tab(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.Preview, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(text = if (isBn) "পিডিএফ প্রিভিউ" else "PDF Preview", fontSize = 12.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Tab 0: Digital Receipt View
+                if (selectedTab == 0) {
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        // ISP Header
-                        Text(
-                            text = ispName,
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF1E3A8A),
-                            textAlign = TextAlign.Center
-                        )
-                        if (address.isNotBlank()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // ISP Header
                             Text(
-                                text = address,
-                                style = MaterialTheme.typography.bodySmall,
+                                text = ispName,
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFF1E3A8A),
+                                textAlign = TextAlign.Center
+                            )
+                            if (address.isNotBlank()) {
+                                Text(
+                                    text = address,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF475569),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                            Text(
+                                text = "${if (isBn) "হটলাইন:" else "Hotline:"} $hotline",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                                 color = Color(0xFF475569),
                                 textAlign = TextAlign.Center
                             )
-                        }
-                        Text(
-                            text = "${if (isBn) "হটলাইন:" else "Hotline:"} $hotline",
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                            color = Color(0xFF475569),
-                            textAlign = TextAlign.Center
-                        )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                        // Title Badge
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF2563EB)
-                        ) {
-                            Text(
-                                text = displayTitle,
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                            )
-                        }
+                            // Title Badge
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF2563EB)
+                            ) {
+                                Text(
+                                    text = displayTitle,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
+                                )
+                            }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                        // Customer Details Table
-                        ReceiptSectionHeader(title = if (isBn) "গ্রাহকের তথ্য" else "CUSTOMER DETAILS")
-                        ReceiptDataRow(label = if (isBn) "গ্রাহকের নাম:" else "Customer Name:", value = "$custName ($custCode)", isBold = true)
-                        if (config.showCustomerPhone) {
-                            ReceiptDataRow(label = if (isBn) "মোবাইল:" else "Phone:", value = custPhone)
-                        }
-                        if (config.showCustomerPppoe) {
-                            ReceiptDataRow(label = if (isBn) "ইউজারনেম:" else "PPPoE Username:", value = pppoeUser)
-                        }
-                        if (config.showPackageName) {
-                            ReceiptDataRow(label = if (isBn) "প্যাকেজ:" else "Package:", value = packageName)
-                        }
-                        if (config.showCustomerAddress) {
-                            ReceiptDataRow(label = if (isBn) "ঠিকানা:" else "Address:", value = custAddress)
-                        }
+                            // Customer Details Table
+                            ReceiptSectionHeader(title = if (isBn) "গ্রাহকের তথ্য (CUSTOMER DETAILS)" else "CUSTOMER DETAILS")
+                            ReceiptDataRow(label = if (isBn) "গ্রাহকের নাম:" else "Customer Name:", value = "$custName ($custCode)", isBold = true)
+                            if (config.showCustomerPhone) {
+                                ReceiptDataRow(label = if (isBn) "মোবাইল:" else "Phone:", value = custPhone)
+                            }
+                            if (config.showCustomerPppoe) {
+                                ReceiptDataRow(label = if (isBn) "ইউজারনেম:" else "PPPoE Username:", value = pppoeUser)
+                            }
+                            if (config.showPackageName) {
+                                ReceiptDataRow(label = if (isBn) "প্যাকেজ:" else "Package:", value = packageName)
+                            }
+                            if (config.showCustomerAddress) {
+                                ReceiptDataRow(label = if (isBn) "ঠিকানা:" else "Address:", value = custAddress)
+                            }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                        // Payment & Bill Info
-                        ReceiptSectionHeader(title = if (isBn) "পেমেন্ট তথ্য" else "PAYMENT DETAILS")
-                        ReceiptDataRow(label = if (isBn) "রশিদ নং:" else "Receipt No:", value = receiptNo, valueColor = Color(0xFF1E3A8A), isBold = true)
-                        ReceiptDataRow(label = if (isBn) "ইনভয়েস নং:" else "Invoice No:", value = invNo)
-                        ReceiptDataRow(label = if (isBn) "তারিখ:" else "Payment Date:", value = payment.paymentDate)
-                        ReceiptDataRow(label = if (isBn) "বিলিং মাস:" else "Bill Month:", value = billMonth)
+                            // Payment & Bill Info
+                            ReceiptSectionHeader(title = if (isBn) "পেমেন্ট তথ্য (PAYMENT DETAILS)" else "PAYMENT DETAILS")
+                            ReceiptDataRow(label = if (isBn) "রশিদ নং:" else "Receipt No:", value = receiptNo, valueColor = Color(0xFF1E3A8A), isBold = true)
+                            ReceiptDataRow(label = if (isBn) "ইনভয়েস নং:" else "Invoice No:", value = invNo)
+                            ReceiptDataRow(label = if (isBn) "তারিখ:" else "Payment Date:", value = payment.paymentDate)
+                            ReceiptDataRow(label = if (isBn) "বিলিং মাস:" else "Bill Month:", value = billMonth)
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                        // Amount Breakdown Box
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFF8FAFC),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                ReceiptDataRow(label = if (isBn) "মোট বিল:" else "Total Bill:", value = "$currency $billAmt")
-                                ReceiptDataRow(label = if (isBn) "পরিশোধিত:" else "Paid Amount:", value = "$currency $paidAmt", valueColor = Color(0xFF16A34A), isBold = true)
-                                if (config.showRemainingDue) {
-                                    ReceiptDataRow(label = if (isBn) "অবশিষ্ট বকেয়া:" else "Remaining Due:", value = "$currency $dueAmt")
-                                }
-                                if (config.showPaymentMethod) {
-                                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = Color(0xFFCBD5E1))
-                                    ReceiptDataRow(label = if (isBn) "পেমেন্ট মেথড:" else "Method:", value = payment.paymentMethod, isBold = true)
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(text = if (isBn) "পেমেন্ট স্ট্যাটাস:" else "Status:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF475569))
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color(0xFFDCFCE7)
+                            // Amount Breakdown Box
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    ReceiptDataRow(label = if (isBn) "মোট বিল:" else "Total Bill:", value = "$currency $billAmt")
+                                    ReceiptDataRow(label = if (isBn) "পরিশোধিত:" else "Paid Amount:", value = "$currency $paidAmt", valueColor = Color(0xFF16A34A), isBold = true)
+                                    if (config.showRemainingDue) {
+                                        ReceiptDataRow(label = if (isBn) "অবশিষ্ট বকেয়া:" else "Remaining Due:", value = "$currency $dueAmt")
+                                    }
+                                    if (config.showPaymentMethod) {
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = Color(0xFFCBD5E1))
+                                        ReceiptDataRow(label = if (isBn) "পেমেন্ট মেথড:" else "Method:", value = payment.paymentMethod, isBold = true)
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = if (isBn) "PAID (পরিশোধিত)" else "PAID",
-                                            color = Color(0xFF15803D),
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                        )
+                                        Text(text = if (isBn) "পেমেন্ট স্ট্যাটাস:" else "Status:", style = MaterialTheme.typography.bodySmall, color = Color(0xFF475569))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFFDCFCE7)
+                                        ) {
+                                            Text(
+                                                text = if (isBn) "PAID (পরিশোধিত)" else "PAID",
+                                                color = Color(0xFF15803D),
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        if (config.customNotes.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color(0xFFF1F5F9),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = config.customNotes,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF475569),
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(8.dp)
-                                )
+                            if (config.customNotes.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFF1F5F9),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = config.customNotes,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF475569),
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                            }
+
+                            if (config.paperSize != "THERMAL_80MM") {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Bottom
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("________________________", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                                        Text(if (isBn) "গ্রাহকের স্বাক্ষর" else "Customer Signature", fontSize = 9.sp, color = Color(0xFF64748B))
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("________________________", fontSize = 9.sp, color = Color(0xFF1E3A8A))
+                                        Text(if (isBn) "কর্তৃপক্ষের স্বাক্ষর" else "Authorized Signature", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Footer Note
+                            Text(
+                                text = displayFooter,
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFF334155),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    // Tab 1: Crisp PDF Preview View
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F5F9)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isRenderingPdf) {
+                                Column(
+                                    modifier = Modifier.padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = if (isBn) "পিডিএফ রেন্ডার হচ্ছে..." else "Rendering crisp PDF preview...",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else if (pdfBitmap != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    shadowElevation = 4.dp,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF94A3B8)),
+                                    color = Color.White
+                                ) {
+                                    Image(
+                                        bitmap = pdfBitmap!!.asImageBitmap(),
+                                        contentDescription = "PDF Preview",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp)),
+                                        contentScale = ContentScale.FillWidth
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = if (isBn) "প্রিভিউ লোড করতে পুনরায় চেষ্টা করুন" else "Unable to load PDF preview",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Footer Note
-                        Text(
-                            text = displayFooter,
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color(0xFF334155),
-                            textAlign = TextAlign.Center
-                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Bottom Buttons
+                // Bottom Action Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)

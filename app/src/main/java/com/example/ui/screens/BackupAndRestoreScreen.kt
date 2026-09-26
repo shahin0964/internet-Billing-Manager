@@ -546,6 +546,8 @@ fun BackupAndRestoreScreen(
                         )
                     }
                 }
+
+                item { Spacer(modifier = Modifier.height(48.dp)) }
             }
 
             if (isProcessing) {

@@ -441,7 +441,7 @@ tonalElevation = 2.dp,
             }
         }
 
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+        item { Spacer(modifier = Modifier.height(88.dp)) }
     }
 }
 

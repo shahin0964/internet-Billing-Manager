@@ -80,112 +80,36 @@ fun ReceiptCustomizationScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
+                    IconButton(onClick = {
+                        ReceiptCustomizationManager.saveConfig(context, config)
+                        hasChanges = false
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.receipt_save_success),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = stringResource(R.string.save),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        },
-        bottomBar = {
-            Surface(
-                tonalElevation = 6.dp,
-                shadowElevation = 8.dp,
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                            val samplePayment = PaymentEntity(
-                                id = 1,
-                                paymentReceiptNo = "RCP-${System.currentTimeMillis().toString().takeLast(6)}",
-                                billId = 1,
-                                customerId = 1,
-                                customerName = "মোঃ আরিফুল ইসলাম",
-                                amount = 800.0,
-                                paymentDate = today,
-                                paymentMethod = "bKash (01700-112233)",
-                                notes = "Sample test payment"
-                            )
-                            val sampleBill = BillEntity(
-                                id = 1,
-                                billNumber = "INV-SAMPLE",
-                                customerId = 1,
-                                customerName = "মোঃ আরিফুল ইসলাম",
-                                customerCode = "CUST-101",
-                                billingMonth = today.take(7),
-                                amount = 800.0,
-                                paidAmount = 800.0,
-                                dueAmount = 0.0,
-                                status = "PAID",
-                                generatedDate = today,
-                                dueDate = today
-                            )
-                            val sampleCust = CustomerEntity(
-                                id = 1,
-                                customerCode = "CUST-101",
-                                name = "মোঃ আরিফুল ইসলাম",
-                                phone = "01712-345678",
-                                address = "বাড়ি # ১২, রোড # ৪, মিরপুর-১০, ঢাকা",
-                                pppoeUsername = "ariful_net",
-                                packageId = 1,
-                                packageName = "Standard 20 Mbps",
-                                monthlyFee = 800.0,
-                                joiningDate = today
-                            )
-                            ReceiptPrintUtils.printReceipt(
-                                context = context,
-                                payment = samplePayment,
-                                bill = sampleBill,
-                                customer = sampleCust,
-                                settings = settings,
-                                isBn = true
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = stringResource(R.string.receipt_test_print), fontSize = 13.sp)
-                    }
-
-                    Button(
-                        onClick = {
-                            ReceiptCustomizationManager.saveConfig(context, config)
-                            hasChanges = false
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.receipt_save_success),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(imageVector = Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = stringResource(R.string.save), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
         }
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)
+            contentPadding = PaddingValues(top = 12.dp, bottom = 80.dp)
         ) {
             // Section 1: Auto Popup on Bill Payment
             item {
@@ -253,8 +177,18 @@ fun ReceiptCustomizationScreen(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            FormatOptionCard(
+                                title = stringResource(R.string.receipt_paper_money_receipt),
+                                icon = Icons.Default.Receipt,
+                                isSelected = config.paperSize == "MONEY_RECEIPT",
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    updateConfig(config.copy(paperSize = "MONEY_RECEIPT"))
+                                }
+                            )
+
                             FormatOptionCard(
                                 title = stringResource(R.string.receipt_paper_standard),
                                 icon = Icons.Default.Article,
@@ -434,12 +368,24 @@ fun ReceiptCustomizationScreen(
                             }
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer
+                                color = when (config.paperSize) {
+                                    "THERMAL_80MM" -> Color(0xFFFEF3C7)
+                                    "A4" -> Color(0xFFE0E7FF)
+                                    else -> MaterialTheme.colorScheme.primaryContainer
+                                }
                             ) {
                                 Text(
-                                    text = if (config.paperSize == "THERMAL_80MM") "থার্মাল 80mm" else "A4 সাইজ",
+                                    text = when (config.paperSize) {
+                                        "THERMAL_80MM" -> "থার্মাল ৮০মিমি (POS Slip)"
+                                        "A4" -> "এ৪ স্ট্যান্ডার্ড ইনভয়েস (A4 Invoice)"
+                                        else -> "মানি রশিদ ভাউচার (Money Receipt)"
+                                    },
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    color = when (config.paperSize) {
+                                        "THERMAL_80MM" -> Color(0xFF92400E)
+                                        "A4" -> Color(0xFF3730A3)
+                                        else -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    },
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
@@ -447,102 +393,130 @@ fun ReceiptCustomizationScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Simulated Mini Paper
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.White,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                            modifier = Modifier.fillMaxWidth()
+                        // Dynamic preview corresponding to the selected receipt format
+                        when (config.paperSize) {
+                            "THERMAL_80MM" -> ThermalReceiptLivePreview(config = config, settings = settings)
+                            "A4" -> A4InvoiceLivePreview(config = config, settings = settings)
+                            else -> MoneyReceiptLivePreview(config = config, settings = settings)
+                        }
+                    }
+                }
+            }
+
+            // Section 8: Action Controls (Test Print Receipt & Save)
+            item {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    shadowElevation = 3.dp,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                                val samplePayment = PaymentEntity(
+                                    id = 1,
+                                    paymentReceiptNo = "RCP-${System.currentTimeMillis().toString().takeLast(6)}",
+                                    billId = 1,
+                                    customerId = 1,
+                                    customerName = "মোঃ আরিফুল ইসলাম",
+                                    amount = 800.0,
+                                    paymentDate = today,
+                                    paymentMethod = "bKash (01700-112233)",
+                                    notes = "Sample test payment"
+                                )
+                                val sampleBill = BillEntity(
+                                    id = 1,
+                                    billNumber = "INV-SAMPLE",
+                                    customerId = 1,
+                                    customerName = "মোঃ আরিফুল ইসলাম",
+                                    customerCode = "CUST-101",
+                                    billingMonth = today.take(7),
+                                    amount = 800.0,
+                                    paidAmount = 800.0,
+                                    dueAmount = 0.0,
+                                    status = "PAID",
+                                    generatedDate = today,
+                                    dueDate = today
+                                )
+                                val sampleCust = CustomerEntity(
+                                    id = 1,
+                                    customerCode = "CUST-101",
+                                    name = "মোঃ আরিফুল ইসলাম",
+                                    phone = "01712-345678",
+                                    address = "বাড়ি # ১২, রোড # ৪, মিরপুর-১০, ঢাকা",
+                                    pppoeUsername = "ariful_net",
+                                    packageId = 1,
+                                    packageName = "Standard 20 Mbps",
+                                    monthlyFee = 800.0,
+                                    joiningDate = today
+                                )
+                                ReceiptPrintUtils.printReceipt(
+                                    context = context,
+                                    payment = samplePayment,
+                                    bill = sampleBill,
+                                    customer = sampleCust,
+                                    settings = settings,
+                                    isBn = true
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = settings.ispName.ifBlank { "আইএসপি ডিজিটাল নেটওয়ার্ক" },
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = Color(0xFF1E3A8A),
-                                    textAlign = TextAlign.Center
-                                )
-                                Text(
-                                    text = "হটলাইন: ${settings.hotline.ifBlank { "০১৭০০-০০০০০০" }}",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF64748B),
-                                    textAlign = TextAlign.Center
-                                )
+                            Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.receipt_test_print),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFF2563EB)
-                                ) {
-                                    Text(
-                                        text = config.receiptTitle.ifBlank { "পেমেন্ট রশিদ" },
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    PreviewItemRow("গ্রাহকের নাম:", "মোঃ আরিফুল ইসলাম (CUST-101)")
-                                    if (config.showCustomerPhone) PreviewItemRow("মোবাইল নম্বর:", "01712-345678")
-                                    if (config.showCustomerPppoe) PreviewItemRow("ইউজারনেম:", "ariful_net")
-                                    if (config.showPackageName) PreviewItemRow("প্যাকেজ:", "Standard 20 Mbps")
-                                    if (config.showCustomerAddress) PreviewItemRow("ঠিকানা:", "মিরপুর-১০, ঢাকা")
-                                    PreviewItemRow("রশিদ নং:", "RCP-889201")
-                                    PreviewItemRow("তারিখ:", "আজকের তারিখ")
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFFF8FAFC),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        PreviewItemRow("মোট বিল:", "${settings.currencySymbol} 800.00")
-                                        PreviewItemRow("পরিশোধিত:", "${settings.currencySymbol} 800.00", isSuccess = true)
-                                        if (config.showRemainingDue) PreviewItemRow("অবশিষ্ট বকেয়া:", "${settings.currencySymbol} 0.00")
-                                        if (config.showPaymentMethod) PreviewItemRow("পেমেন্ট মাধ্যম:", "bKash")
-                                    }
-                                }
-
-                                if (config.customNotes.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = config.customNotes,
-                                        fontSize = 10.sp,
-                                        color = Color(0xFF64748B),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    text = config.footerMessage.ifBlank { "আমাদের ইন্টারনেট সেবা ব্যবহারের জন্য ধন্যবাদ!" },
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF334155),
-                                    textAlign = TextAlign.Center
-                                )
-                            }
+                        Button(
+                            onClick = {
+                                ReceiptCustomizationManager.saveConfig(context, config)
+                                hasChanges = false
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.receipt_save_success),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(imageVector = Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.save),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -573,6 +547,667 @@ fun ReceiptCustomizationScreen(
                     Text(text = stringResource(R.string.cancel))
                 }
             }
+        )
+    }
+}
+
+/**
+ * 1. Money Receipt Live Preview - Classic Voucher / Counterfoil format with ornate frame & dual-column layout
+ */
+@Composable
+private fun MoneyReceiptLivePreview(
+    config: ReceiptCustomizationConfig,
+    settings: com.example.data.model.BusinessSettingsEntity
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFCBD5E1)),
+        shadowElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header Banner
+            Surface(
+                shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+                color = Color(0xFF1E3A8A),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = settings.ispName.ifBlank { "আইএসপি ডিজিটাল নেটওয়ার্ক" },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "হটলাইন: ${settings.hotline.ifBlank { "০১৭০০-০০০০০০" }}",
+                            fontSize = 10.sp,
+                            color = Color(0xFFBFDBFE)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF2563EB)
+                    ) {
+                        Text(
+                            text = config.receiptTitle.ifBlank { "মানি রশিদ" },
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+
+            // Sub-header metadata strip
+            Surface(
+                color = Color(0xFFF1F5F9),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "রশিদ নং: RCP-889201", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    Text(text = "মাস: সেপ্টেম্বর ২০২৬", fontSize = 9.sp, color = Color(0xFF475569))
+                    Text(text = "তারিখ: আজকের তারিখ", fontSize = 9.sp, color = Color(0xFF475569))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Two-column section
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Left Column: Customer Details
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFF8FAFC),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = "গ্রাহক তথ্য",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E3A8A)
+                        )
+                        HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
+                        PreviewItemRow("নাম:", "মোঃ আরিফুল ইসলাম")
+                        PreviewItemRow("আইডি:", "CUST-101")
+                        if (config.showCustomerPhone) PreviewItemRow("মোবাইল:", "01712-345678")
+                        if (config.showCustomerPppoe) PreviewItemRow("ইউজার:", "ariful_net")
+                        if (config.showPackageName) PreviewItemRow("প্যাকেজ:", "20 Mbps")
+                        if (config.showCustomerAddress) PreviewItemRow("ঠিকানা:", "মিরপুর-১০, ঢাকা")
+                    }
+                }
+
+                // Right Column: Payment Details
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFF8FAFC),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = "পরিশোধ বিবরণ",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF16A34A)
+                        )
+                        HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
+                        PreviewItemRow("মোট বিল:", "${settings.currencySymbol} 800.00")
+                        PreviewItemRow("পরিশোধ:", "${settings.currencySymbol} 800.00", isSuccess = true)
+                        if (config.showRemainingDue) PreviewItemRow("বকেয়া:", "${settings.currencySymbol} 0.00")
+                        if (config.showPaymentMethod) PreviewItemRow("মাধ্যম:", "bKash")
+                        PreviewItemRow("অবস্থা:", "PAID", isSuccess = true)
+                    }
+                }
+            }
+
+            if (config.customNotes.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFFFFFBEB),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFFDE68A)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "নোট: ${config.customNotes}",
+                        fontSize = 9.sp,
+                        color = Color(0xFF92400E),
+                        modifier = Modifier.padding(6.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Signature Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("__________________", fontSize = 8.sp, color = Color(0xFF94A3B8))
+                    Text("গ্রাহকের স্বাক্ষর", fontSize = 8.sp, color = Color(0xFF64748B))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("__________________", fontSize = 8.sp, color = Color(0xFF1E3A8A))
+                    Text("কর্তৃপক্ষের স্বাক্ষর", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = config.footerMessage.ifBlank { "আমাদের ইন্টারনেট সেবা ব্যবহারের জন্য ধন্যবাদ!" },
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF475569),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/**
+ * 2. A4 Standard Corporate Invoice Live Preview - Full structured invoice with header box, billed-to section, item table, and terms
+ */
+@Composable
+private fun A4InvoiceLivePreview(
+    config: ReceiptCustomizationConfig,
+    settings: com.example.data.model.BusinessSettingsEntity
+) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = Color.White,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF94A3B8)),
+        shadowElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            // Corporate Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1.3f)) {
+                    Text(
+                        text = settings.ispName.ifBlank { "আইএসপি ডিজিটাল নেটওয়ার্ক" },
+                        fontWeight = FontWeight.Black,
+                        fontSize = 15.sp,
+                        color = Color(0xFF0F172A)
+                    )
+                    Text(
+                        text = settings.address.ifBlank { "হেড অফিস, ঢাকা, বাংলাদেশ" },
+                        fontSize = 9.sp,
+                        color = Color(0xFF64748B)
+                    )
+                    Text(
+                        text = "হটলাইন: ${settings.hotline.ifBlank { "০১৭০০-০০০০০০" }}",
+                        fontSize = 9.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFF1F5F9),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(6.dp),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text(
+                            text = config.receiptTitle.ifBlank { "ইনভয়েস চালান" },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E3A8A)
+                        )
+                        Text(text = "ইনভয়েস #: INV-2026-0901", fontSize = 8.sp, color = Color(0xFF334155))
+                        Text(text = "রশিদ #: RCP-889201", fontSize = 8.sp, color = Color(0xFF334155))
+                        Text(text = "তারিখ: আজকের তারিখ", fontSize = 8.sp, color = Color(0xFF64748B))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = Color(0xFF1E3A8A), thickness = 2.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Bill To Box
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = Color(0xFFF8FAFC),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text(
+                        text = "বিল প্রাপক (BILLED TO):",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF475569)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "মোঃ আরিফুল ইসলাম [ আইডি: CUST-101 ]",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (config.showCustomerPhone) {
+                            Text(text = "ফোন: 01712-345678", fontSize = 8.5.sp, color = Color(0xFF475569))
+                        }
+                        if (config.showCustomerPppoe) {
+                            Text(text = "PPPoE: ariful_net", fontSize = 8.5.sp, color = Color(0xFF475569))
+                        }
+                        if (config.showPackageName) {
+                            Text(text = "প্যাকেজ: 20 Mbps", fontSize = 8.5.sp, color = Color(0xFF475569))
+                        }
+                    }
+                    if (config.showCustomerAddress) {
+                        Text(text = "ঠিকানা: বাড়ি # ১২, রোড # ৪, মিরপুর-১০, ঢাকা", fontSize = 8.5.sp, color = Color(0xFF64748B))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Itemized Table Header
+            Surface(
+                color = Color(0xFF1E3A8A),
+                shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "নং", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(0.3f))
+                    Text(text = "সেবার বিবরণ", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1.5f))
+                    Text(text = "মাস", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(0.7f))
+                    Text(text = "মূল্য (${settings.currencySymbol})", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                }
+            }
+
+            // Table Row 1
+            Surface(
+                color = Color(0xFFFFFFFF),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFCBD5E1)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "০১", fontSize = 8.5.sp, color = Color(0xFF0F172A), modifier = Modifier.weight(0.3f))
+                    Column(modifier = Modifier.weight(1.5f)) {
+                        Text(text = "ব্রডব্যান্ড ইন্টারনেট মাসিক ফি", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+                        if (config.showPackageName) Text(text = "প্যাকেজ: Standard 20 Mbps Unlimited", fontSize = 7.5.sp, color = Color(0xFF64748B))
+                    }
+                    Text(text = "সেপ্টেম্বর ২০২৬", fontSize = 8.5.sp, color = Color(0xFF475569), modifier = Modifier.weight(0.7f))
+                    Text(text = "800.00", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                }
+            }
+
+            // Subtotal & Summary Rows
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                Surface(
+                    color = Color(0xFFF8FAFC),
+                    shape = RoundedCornerShape(4.dp),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.width(180.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("মোট বিল:", fontSize = 8.5.sp, color = Color(0xFF475569))
+                            Text("${settings.currencySymbol} 800.00", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("পরিশোধিত:", fontSize = 8.5.sp, color = Color(0xFF16A34A), fontWeight = FontWeight.Bold)
+                            Text("${settings.currencySymbol} 800.00", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+                        }
+                        if (config.showRemainingDue) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("অবশিষ্ট বকেয়া:", fontSize = 8.5.sp, color = Color(0xFFDC2626))
+                                Text("${settings.currencySymbol} 0.00", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                            }
+                        }
+                        if (config.showPaymentMethod) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("পেমেন্ট মাধ্যম:", fontSize = 8.sp, color = Color(0xFF64748B))
+                                Text("bKash Online", fontSize = 8.sp, color = Color(0xFF0F172A))
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (config.customNotes.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "শর্তাবলী ও নোট: ${config.customNotes}",
+                    fontSize = 8.5.sp,
+                    color = Color(0xFF64748B)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Signature Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("_____________________", fontSize = 8.sp, color = Color(0xFF94A3B8))
+                    Text("গ্রাহকের স্বাক্ষর ও তারিখ", fontSize = 8.sp, color = Color(0xFF64748B))
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("_____________________", fontSize = 8.sp, color = Color(0xFF1E3A8A))
+                    Text("অনুমোদিত কর্মকর্তার স্বাক্ষর ও সিল", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = config.footerMessage.ifBlank { "আমাদের ইন্টারনেট সেবা ব্যবহার করার জন্য ধন্যবাদ!" },
+                fontSize = 8.5.sp,
+                color = Color(0xFF64748B),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/**
+ * 3. Thermal 80mm POS Slip Live Preview - Monospaced roll slip receipt format with dashed line dividers and compact style
+ */
+@Composable
+private fun ThermalReceiptLivePreview(
+    config: ReceiptCustomizationConfig,
+    settings: com.example.data.model.BusinessSettingsEntity
+) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = Color(0xFFFFFDF7),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD1D5DB)),
+        shadowElevation = 2.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Receipt Header
+            Text(
+                text = settings.ispName.ifBlank { "আইএসপি ডিজিটাল নেটওয়ার্ক" }.uppercase(),
+                fontWeight = FontWeight.Black,
+                fontSize = 13.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Black,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = settings.address.ifBlank { "হেড অফিস, ঢাকা, বাংলাদেশ" },
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.DarkGray,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "TEL: ${settings.hotline.ifBlank { "০১৭০০-০০০০০০" }}",
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.DarkGray,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "------------------------------------------",
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Gray,
+                maxLines = 1
+            )
+
+            // Receipt Title badge in thermal style
+            Surface(
+                shape = RoundedCornerShape(2.dp),
+                color = Color.Black,
+                modifier = Modifier.padding(vertical = 2.dp)
+            ) {
+                Text(
+                    text = " [ ${config.receiptTitle.ifBlank { "পেমেন্ট রশিদ" }} ] ",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+
+            Text(
+                text = "------------------------------------------",
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Gray,
+                maxLines = 1
+            )
+
+            // Monospace Metadata Lines
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                ThermalRow("রশিদ নং / REC #:", "RCP-889201")
+                ThermalRow("তারিখ / DATE:", "2026-09-26")
+                ThermalRow("বিলিং মাস / MONTH:", "2026-09")
+                ThermalRow("গ্রাহক / CUSTOMER:", "মোঃ আরিফুল ইসলাম")
+                ThermalRow("আইডি / CODE:", "CUST-101")
+                if (config.showCustomerPhone) ThermalRow("ফোন / TEL:", "01712-345678")
+                if (config.showCustomerPppoe) ThermalRow("PPPoE USER:", "ariful_net")
+                if (config.showPackageName) ThermalRow("প্যাকেজ / PLAN:", "20 Mbps")
+                if (config.showCustomerAddress) ThermalRow("ঠিকানা / ADDR:", "মিরপুর-১০, ঢাকা")
+            }
+
+            Text(
+                text = "------------------------------------------",
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Gray,
+                maxLines = 1
+            )
+
+            // Item Details
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "1x Monthly Internet Bill",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    color = Color.Black
+                )
+                Text(
+                    text = "800.00",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    color = Color.Black
+                )
+            }
+
+            Text(
+                text = "==========================================",
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Black,
+                maxLines = 1
+            )
+
+            // Total Calculations
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                ThermalRow("মোট বিল / TOTAL:", "${settings.currencySymbol} 800.00", isBold = true)
+                ThermalRow("পরিশোধ / PAID:", "${settings.currencySymbol} 800.00", isBold = true)
+                if (config.showRemainingDue) {
+                    ThermalRow("বকেয়া / DUE:", "${settings.currencySymbol} 0.00", isBold = true)
+                }
+                if (config.showPaymentMethod) {
+                    ThermalRow("পেমেন্ট মাধ্যম / METHOD:", "bKash (01700-112233)")
+                }
+            }
+
+            Text(
+                text = "------------------------------------------",
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Gray,
+                maxLines = 1
+            )
+
+            if (config.customNotes.isNotBlank()) {
+                Text(
+                    text = "* ${config.customNotes}",
+                    fontSize = 8.5.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    color = Color.DarkGray,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            // Simulated Barcode / Cut line
+            Text(
+                text = "|||| ||||| |||| ||||| ||||||| ||||",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                letterSpacing = 2.sp,
+                color = Color.Black
+            )
+            Text(
+                text = "* RCP889201 *",
+                fontSize = 8.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Gray
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = config.footerMessage.ifBlank { "ধন্যবাদ! আবার আসবেন।" },
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                color = Color.Black,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "*** PAID - THANK YOU ***",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color.Black,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThermalRow(
+    label: String,
+    value: String,
+    isBold: Boolean = false
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            fontSize = 9.sp,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+            color = if (isBold) Color.Black else Color.DarkGray
+        )
+        Text(
+            text = value,
+            fontSize = 9.sp,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+            color = Color.Black
         )
     }
 }

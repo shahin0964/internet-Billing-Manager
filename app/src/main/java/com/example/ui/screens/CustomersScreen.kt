@@ -368,7 +368,7 @@ tonalElevation = 3.dp,
                                         onToggleStatusClick = { onToggleStatusClick(customer) }
                                     )
                                 }
-                                item { Spacer(modifier = Modifier.height(80.dp)) }
+                                item { Spacer(modifier = Modifier.height(96.dp)) }
                             }
 
                             AlphabetIndexSidebar(
@@ -1185,7 +1185,7 @@ tonalElevation = 3.dp,
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(88.dp))
         }
     }
 }

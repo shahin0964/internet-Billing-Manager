@@ -14,7 +14,7 @@ data class ReceiptCustomizationConfig(
     val showCustomerAddress: Boolean = true,
     val showRemainingDue: Boolean = true,
     val showPaymentMethod: Boolean = true,
-    val paperSize: String = "A4" // "A4" or "THERMAL_80MM"
+    val paperSize: String = "MONEY_RECEIPT" // "MONEY_RECEIPT", "A4", or "THERMAL_80MM"
 )
 
 object ReceiptCustomizationManager {

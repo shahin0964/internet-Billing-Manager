@@ -341,7 +341,7 @@ fun ProfileScreen(
                 Text(stringResource(R.string.logout), fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(56.dp))
         }
 
         if (showPinSetupDialog) {

@@ -295,7 +295,7 @@ fun DailyBillEntryScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         start = 16.dp,
                         end = 16.dp,
-                        bottom = 24.dp
+                        bottom = 72.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
