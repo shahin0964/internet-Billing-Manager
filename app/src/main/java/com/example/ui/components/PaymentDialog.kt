@@ -55,6 +55,7 @@ fun PaymentDialog(
     var selectedBill by remember { mutableStateOf(preSelectedBill ?: unpaidBills.firstOrNull()) }
     var billDropdownExpanded by remember { mutableStateOf(false) }
 
+    var discountStr by remember { mutableStateOf("") }
     var amountStr by remember { mutableStateOf(selectedBill?.dueAmount?.formatAmount() ?: "0") }
     val defaultPaymentMethod = androidx.compose.ui.res.stringResource(com.example.R.string.cash)
     var paymentMethod by remember { mutableStateOf(defaultPaymentMethod) }
@@ -145,6 +146,7 @@ fun PaymentDialog(
                                 text = { Text(displayText) },
                                 onClick = {
                                     selectedBill = bill
+                                    discountStr = ""
                                     amountStr = bill.dueAmount.formatAmount()
                                     billDropdownExpanded = false
                                 }
@@ -426,6 +428,32 @@ fun PaymentDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
+                    // 4. Discount Field (Separate field, direct Taka amount)
+                    OutlinedTextField(
+                        value = discountStr,
+                        onValueChange = { input ->
+                            discountStr = input
+                            val disc = input.replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                            val baseDue = selectedBill?.dueAmount ?: 0.0
+                            val netPayable = (baseDue - disc).coerceAtLeast(0.0)
+                            amountStr = netPayable.formatAmount()
+                        },
+                        label = { Text("Discount") },
+                        placeholder = { Text("0") },
+                        prefix = {
+                            Text(
+                                text = currencySymbol,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     // 5. Payment Amount Input (ALWAYS VISIBLE if not advance payment)
                     OutlinedTextField(
                         value = amountStr,
@@ -437,16 +465,18 @@ fun PaymentDialog(
 
                     // 6. Quick Amount Chips (Full / Half) if not advance payment
                     selectedBill?.let { bill ->
+                        val disc = discountStr.replace(",", "").trim().toDoubleOrNull() ?: 0.0
+                        val effectiveDue = (bill.dueAmount - disc).coerceAtLeast(0.0)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
-                                selected = amountStr == bill.dueAmount.formatAmount(),
-                                onClick = { amountStr = bill.dueAmount.formatAmount() },
-                                label = { Text("Full ($currencySymbol${bill.dueAmount.formatAmount()})") }
+                                selected = amountStr == effectiveDue.formatAmount(),
+                                onClick = { amountStr = effectiveDue.formatAmount() },
+                                label = { Text("Full ($currencySymbol${effectiveDue.formatAmount()})") }
                             )
-                            val half = (bill.dueAmount / 2.0)
+                            val half = (effectiveDue / 2.0)
                             if (half > 0) {
                                 FilterChip(
                                     selected = amountStr == half.formatAmount(),

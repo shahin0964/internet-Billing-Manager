@@ -273,6 +273,8 @@ fun MainAppContent(
     var isAuthChosen by remember { mutableStateOf(initialAuthUser != null) }
     var isGuestMode by remember { mutableStateOf(false) }
     var authModeSignUp by remember { mutableStateOf(false) }
+    var authModeForgotPassword by remember { mutableStateOf(false) }
+    var forgotPasswordEmailPrefill by remember { mutableStateOf("") }
     var showLoginRequiredDialog by remember { mutableStateOf(false) }
     var isAppLocked by remember {
         mutableStateOf(
@@ -373,7 +375,14 @@ fun MainAppContent(
     }
 
     if (!isAuthChosen) {
-        if (authModeSignUp) {
+        if (authModeForgotPassword) {
+            com.example.ui.screens.ForgotPasswordScreen(
+                initialEmail = forgotPasswordEmailPrefill,
+                onNavigateToLogin = {
+                    authModeForgotPassword = false
+                }
+            )
+        } else if (authModeSignUp) {
             com.example.ui.screens.SignUpScreen(
                 onSignUpClick = { name, email, phone, pass, onError, onSuccess ->
                     try {
@@ -494,6 +503,12 @@ fun MainAppContent(
                 },
                 onNavigateToSignUp = {
                     authModeSignUp = true
+                    authModeForgotPassword = false
+                },
+                onNavigateToForgotPassword = { initialEmail ->
+                    forgotPasswordEmailPrefill = initialEmail
+                    authModeForgotPassword = true
+                    authModeSignUp = false
                 },
                 onContinueAsGuest = {
                     coroutineScope.launch {
@@ -517,9 +532,6 @@ fun MainAppContent(
                             isAuthChosen = true
                         }
                     }
-                },
-                onForgotPasswordClick = { identifier, onError, onSuccess ->
-                    onError("Password reset is not supported directly. Please contact your system administrator.")
                 }
             )
         }
@@ -883,6 +895,7 @@ fun MainAppContent(
                         },
                         onOpenLogin = {
                             authModeSignUp = false
+                            authModeForgotPassword = false
                             isAuthChosen = false
                         },
                         onSignOut = {
@@ -1021,6 +1034,7 @@ fun MainAppContent(
                     onClick = {
                         showLoginRequiredDialog = false
                         authModeSignUp = false
+                        authModeForgotPassword = false
                         isAuthChosen = false
                     }
                 ) {
@@ -1032,6 +1046,7 @@ fun MainAppContent(
                     onClick = {
                         showLoginRequiredDialog = false
                         authModeSignUp = true
+                        authModeForgotPassword = false
                         isAuthChosen = false
                     }
                 ) {

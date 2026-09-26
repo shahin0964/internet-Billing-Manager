@@ -393,6 +393,7 @@
     <string name="about_section_privacy">Data &amp; Privacy</string>
     <string name="about_section_support">Support</string>
     <string name="about_section_licenses">Open Source Licenses</string>
+    <string name="about_label_name">Name</string>
     <string name="about_app_name">Internet Billing Management</string>
     <string name="about_version">Version</string>
     <string name="about_build">Build</string>

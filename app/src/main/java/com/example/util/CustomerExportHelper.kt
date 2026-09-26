@@ -1,5 +1,6 @@
 package com.example.util
 
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -274,18 +275,39 @@ object CustomerExportHelper {
     }
 
     /**
-     * Share exported PDF file via Android Share sheet.
+     * Share exported PDF file via Android Share sheet along with an inline visual thumbnail preview.
      */
     fun sharePdfFile(context: Context, file: File) {
         try {
             val authority = "${context.packageName}.provider"
             val uri: Uri = FileProvider.getUriForFile(context, authority, file)
+            val thumbFile = ReceiptPrintUtils.generatePdfThumbnailFile(context, file)
+            val thumbUri: Uri? = thumbFile?.let {
+                try {
+                    FileProvider.getUriForFile(context, authority, it)
+                } catch (e: Exception) {
+                    null
+                }
+            }
 
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_SUBJECT, "Customer List PDF Export")
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val shareIntent = if (thumbUri != null) {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "*/*"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(thumbUri, uri))
+                    putExtra(Intent.EXTRA_SUBJECT, file.name)
+                    putExtra(Intent.EXTRA_TEXT, "📄 গ্রাহক তালিকা (PDF ও প্রিভিউ)")
+                    clipData = ClipData.newUri(context.contentResolver, "PDF Preview", thumbUri).apply {
+                        addItem(ClipData.Item(uri))
+                    }
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            } else {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_SUBJECT, "Customer List PDF Export")
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
             }
             context.startActivity(Intent.createChooser(shareIntent, "গ্রাহক তালিকা PDF শেয়ার করুন"))
         } catch (e: Exception) {

@@ -208,7 +208,60 @@ interface ApiService {
     suspend fun signup(
         @Body request: SignupRequest
     ): SignupResponse
+
+    @POST("api/forgot_password.php?action=send_code")
+    suspend fun sendPasswordResetCode(
+        @Body request: ForgotPasswordRequest
+    ): AuthActionResult
+
+    @POST("api/forgot_password.php?action=verify_code")
+    suspend fun verifyPasswordResetCode(
+        @Body request: VerifyOtpRequest
+    ): AuthActionResult
+
+    @POST("api/forgot_password.php?action=reset_password")
+    suspend fun resetPassword(
+        @Body request: ResetPasswordRequest
+    ): AuthActionResult
 }
+
+data class ForgotPasswordRequest(
+    @SerializedName("email")
+    val email: String,
+    @SerializedName("action")
+    val action: String = "send_code"
+)
+
+data class VerifyOtpRequest(
+    @SerializedName("email")
+    val email: String,
+    @SerializedName("code")
+    val code: String,
+    @SerializedName("action")
+    val action: String = "verify_code"
+)
+
+data class ResetPasswordRequest(
+    @SerializedName("email")
+    val email: String,
+    @SerializedName("code")
+    val code: String,
+    @SerializedName("reset_token")
+    val resetToken: String? = null,
+    @SerializedName("new_password")
+    val newPassword: String,
+    @SerializedName("action")
+    val action: String = "reset_password"
+)
+
+data class AuthActionResult(
+    @SerializedName("status")
+    val status: Boolean,
+    @SerializedName("message")
+    val message: String? = null,
+    @SerializedName("reset_token")
+    val resetToken: String? = null
+)
 
 data class LoginRequest(
     val email: String,

@@ -52,8 +52,9 @@ import com.example.R
 fun LoginScreen(
     onLoginClick: (identifier: String, pass: String, rememberMe: Boolean, onError: (String) -> Unit, onSuccess: () -> Unit) -> Unit,
     onNavigateToSignUp: () -> Unit,
+    onNavigateToForgotPassword: (initialEmail: String) -> Unit,
     onContinueAsGuest: () -> Unit,
-    onForgotPasswordClick: (identifier: String, onError: (String) -> Unit, onSuccess: (String) -> Unit) -> Unit,
+    onForgotPasswordClick: ((identifier: String, onError: (String) -> Unit, onSuccess: (String) -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var identifier by remember { mutableStateOf("") }
@@ -181,23 +182,8 @@ fun LoginScreen(
 
                 TextButton(
                     onClick = {
-                        if (identifier.isBlank()) {
-                            errorMessage = "Please enter your Gmail / Email to reset password"
-                        } else {
-                            errorMessage = null
-                            isLoading = true
-                            onForgotPasswordClick(
-                                identifier.trim(),
-                                { err ->
-                                    isLoading = false
-                                    errorMessage = err
-                                },
-                                { msg ->
-                                    isLoading = false
-                                    successMessage = msg
-                                }
-                            )
-                        }
+                        errorMessage = null
+                        onNavigateToForgotPassword(identifier.trim())
                     },
                     modifier = Modifier.testTag("forgot_password_button")
                 ) {

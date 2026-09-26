@@ -146,7 +146,7 @@ fun AboutScreen(
                                 24
                             }
 
-                            InfoRow(label = stringResource(R.string.about_app_name), value = stringResource(R.string.about_app_name))
+                            InfoRow(label = stringResource(R.string.about_label_name), value = stringResource(R.string.about_app_name))
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                             InfoRow(label = stringResource(R.string.about_version), value = BuildConfig.VERSION_NAME)

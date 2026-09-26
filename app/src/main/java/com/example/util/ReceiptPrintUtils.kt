@@ -1,16 +1,19 @@
 package com.example.util
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -577,29 +580,121 @@ object ReceiptPrintUtils {
     }
 
     /**
-     * Shares the generated PDF file.
+     * Renders the first page of a generated PDF file as a high-resolution JPEG thumbnail image.
+     */
+    fun renderPdfPageToBitmap(pdfFile: File, pageIndex: Int = 0): Bitmap? {
+        if (!pdfFile.exists() || pdfFile.length() == 0L) return null
+        return try {
+            val pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(pfd)
+            if (renderer.pageCount <= pageIndex) {
+                renderer.close()
+                pfd.close()
+                return null
+            }
+            val page = renderer.openPage(pageIndex)
+            val targetWidth = (page.width * 2).coerceAtLeast(600)
+            val targetHeight = (page.height * 2).coerceAtLeast(800)
+            val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(AndroidColor.WHITE)
+            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.close()
+            renderer.close()
+            pfd.close()
+            bitmap
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error rendering PDF thumbnail bitmap: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Generates a preview image file (.jpg) corresponding to the given PDF file.
+     */
+    fun generatePdfThumbnailFile(context: Context, pdfFile: File): File? {
+        return try {
+            val bitmap = renderPdfPageToBitmap(pdfFile) ?: return null
+            val thumbDir = File(context.cacheDir, "pdf_previews").apply { mkdirs() }
+            val thumbFile = File(thumbDir, "${pdfFile.nameWithoutExtension}_preview.jpg")
+            FileOutputStream(thumbFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            bitmap.recycle()
+            thumbFile
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to save PDF thumbnail file: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Shares the generated PDF file along with an inline visual preview/thumbnail.
      */
     fun sharePdfFile(context: Context, pdfFile: File, isBn: Boolean = true) {
         try {
-            val uri: Uri = FileProvider.getUriForFile(
+            val authority = "${context.packageName}.provider"
+            val pdfUri: Uri = FileProvider.getUriForFile(
                 context,
-                "${context.packageName}.provider",
+                authority,
                 pdfFile
             )
+            val thumbFile = generatePdfThumbnailFile(context, pdfFile)
+            val thumbUri: Uri? = thumbFile?.let {
+                try {
+                    FileProvider.getUriForFile(context, authority, it)
+                } catch (e: Exception) {
+                    null
+                }
+            }
 
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, pdfFile.name)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val shareIntent = if (thumbUri != null) {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "*/*"
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, arrayListOf(thumbUri, pdfUri))
+                    putExtra(Intent.EXTRA_SUBJECT, pdfFile.name)
+                    putExtra(Intent.EXTRA_TEXT, if (isBn) "🧾 পেমেন্ট রশিদ (PDF ও প্রিভিউ)" else "🧾 Payment Receipt (PDF & Preview)")
+                    clipData = ClipData.newUri(context.contentResolver, "Receipt Preview", thumbUri).apply {
+                        addItem(ClipData.Item(pdfUri))
+                    }
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            } else {
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, pdfUri)
+                    putExtra(Intent.EXTRA_SUBJECT, pdfFile.name)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
             }
 
             val chooser = Intent.createChooser(shareIntent, if (isBn) "রশিদ শেয়ার করুন" else "Share Receipt PDF")
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(chooser)
         } catch (e: Exception) {
-            Toast.makeText(context, "শেয়ার করতে ব্যর্থ হয়েছে: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            Log.w(TAG, "Multi-share failed, falling back to direct PDF share: ${e.message}")
+            try {
+                val authority = "${context.packageName}.provider"
+                val pdfUri: Uri = FileProvider.getUriForFile(
+                    context,
+                    authority,
+                    pdfFile
+                )
+                val fallbackIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, pdfUri)
+                    putExtra(Intent.EXTRA_SUBJECT, pdfFile.name)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val chooser = Intent.createChooser(fallbackIntent, if (isBn) "রশিদ শেয়ার করুন" else "Share Receipt PDF")
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(chooser)
+            } catch (ex: Exception) {
+                Toast.makeText(context, "শেয়ার করতে ব্যর্থ হয়েছে: ${ex.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

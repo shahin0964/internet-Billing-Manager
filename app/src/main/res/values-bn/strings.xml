@@ -374,6 +374,7 @@
     <string name="about_section_privacy">তথ্য ও গোপনীয়তা</string>
     <string name="about_section_support">সহায়তা</string>
     <string name="about_section_licenses">ওপেন সোর্স লাইসেন্স</string>
+    <string name="about_label_name">নাম</string>
     <string name="about_app_name">ইন্টারনেট বিলিং ম্যানেজমেন্ট</string>
     <string name="about_version">ভার্সন</string>
     <string name="about_build">বিল্ড</string>
