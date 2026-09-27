@@ -284,36 +284,64 @@ object HostingSyncManager {
                     val custIds = synced.customers?.mapNotNull { it.toLongOrNull() }
                     if (!custIds.isNullOrEmpty()) {
                         db.customerDao().markCustomersSynced(custIds)
+                    } else if (dirtyCustomers.isNotEmpty()) {
+                        db.customerDao().markCustomersSynced(dirtyCustomers.map { it.id })
                     }
+
                     val pkgIds = synced.packages?.mapNotNull { it.toLongOrNull() }
                     if (!pkgIds.isNullOrEmpty()) {
                         db.packageDao().markPackagesSynced(pkgIds)
+                    } else if (dirtyPackages.isNotEmpty()) {
+                        db.packageDao().markPackagesSynced(dirtyPackages.map { it.id })
                     }
+
                     if (!synced.bills.isNullOrEmpty()) {
                         db.billDao().markBillsSynced(synced.bills)
+                    } else if (dirtyBills.isNotEmpty()) {
+                        db.billDao().markBillsSynced(dirtyBills.map { it.id })
                     }
+
                     if (!synced.payments.isNullOrEmpty()) {
                         db.paymentDao().markPaymentsSynced(synced.payments)
+                    } else if (dirtyPayments.isNotEmpty()) {
+                        db.paymentDao().markPaymentsSynced(dirtyPayments.map { it.id })
                     }
+
                     if (!synced.expenses.isNullOrEmpty()) {
                         db.expenseDao().markExpensesSynced(synced.expenses)
+                    } else if (dirtyExpenses.isNotEmpty()) {
+                        db.expenseDao().markExpensesSynced(dirtyExpenses.map { it.id })
                     }
+
                     if (!synced.expenseCategories.isNullOrEmpty()) {
                         db.expenseDao().markCategoriesSynced(synced.expenseCategories)
+                    } else if (dirtyCategories.isNotEmpty()) {
+                        db.expenseDao().markCategoriesSynced(dirtyCategories.map { it.id })
                     }
-                    if (synced.settings != null) {
+
+                    if (synced.settings != null || dirtySettings != null) {
                         db.settingsDao().markSettingsSynced()
                     }
+
                     if (!synced.auditLogs.isNullOrEmpty()) {
                         db.auditLogDao().markAuditLogsSynced(synced.auditLogs)
+                    } else if (dirtyAuditLogs.isNotEmpty()) {
+                        db.auditLogDao().markAuditLogsSynced(dirtyAuditLogs.map { it.id })
                     }
+
                     if (!synced.bandwidthBills.isNullOrEmpty()) {
                         db.bandwidthBillDao().markBandwidthBillsSynced(synced.bandwidthBills)
+                    } else if (dirtyBandwidthBills.isNotEmpty()) {
+                        db.bandwidthBillDao().markBandwidthBillsSynced(dirtyBandwidthBills.map { it.billingMonth })
                     }
+
                     if (!synced.specificAdvances.isNullOrEmpty()) {
                         db.specificAdvanceDao().markSpecificAdvancesSynced(synced.specificAdvances)
+                    } else if (dirtySpecificAdvances.isNotEmpty()) {
+                        db.specificAdvanceDao().markSpecificAdvancesSynced(dirtySpecificAdvances.map { it.id })
                     }
-                    if (!synced.pendingDeletions.isNullOrEmpty()) {
+
+                    if (pendingDeletions.isNotEmpty()) {
                         db.pendingDeletionDao().deletePendingDeletionsByIds(pendingDeletions.map { it.id })
                     }
                 } else {
@@ -349,11 +377,17 @@ object HostingSyncManager {
                 }
 
                 val syncTimestamp = if (response.serverTimestamp > 0) response.serverTimestamp else System.currentTimeMillis()
-                appPrefs.edit().putLong("last_cloud_sync_time_$uid", syncTimestamp).apply()
+                appPrefs.edit()
+                    .putLong("last_cloud_sync_time_$uid", syncTimestamp)
+                    .putLong("last_cloud_sync_time", syncTimestamp)
+                    .apply()
 
                 // Refresh pending sync count in SharedPreferences so UI displays real remaining unsynced records
                 val remainingDirty = getActualPendingDirtyCount(context)
-                appPrefs.edit().putInt("pending_sync_count_$uid", remainingDirty).apply()
+                appPrefs.edit()
+                    .putInt("pending_sync_count_$uid", remainingDirty)
+                    .putInt("pending_sync_count", remainingDirty)
+                    .apply()
 
                 // Clear any previous sync error
                 val syncPrefs = context.getSharedPreferences("isp_hosting_sync", Context.MODE_PRIVATE)
@@ -676,7 +710,6 @@ object HostingSyncManager {
                 db.expenseDao().getDirtyExpensesCount(),
                 db.expenseDao().getDirtyCategoriesCount(),
                 db.settingsDao().getDirtySettingsCount(),
-                db.auditLogDao().getDirtyAuditLogsCount(),
                 db.bandwidthBillDao().getDirtyBandwidthBillsCount(),
                 db.specificAdvanceDao().getDirtySpecificAdvancesCount(),
                 db.pendingDeletionDao().getPendingDeletionsCount()
@@ -698,12 +731,11 @@ object HostingSyncManager {
             val expenses = db.expenseDao().getDirtyExpenses().size
             val expenseCategories = db.expenseDao().getDirtyCategories().size
             val settings = if (db.settingsDao().getDirtySettings() != null) 1 else 0
-            val auditLogs = db.auditLogDao().getDirtyAuditLogs().size
             val bandwidthBills = db.bandwidthBillDao().getDirtyBandwidthBills().size
             val specificAdvances = db.specificAdvanceDao().getDirtySpecificAdvances().size
             val pendingDeletions = db.pendingDeletionDao().getAllPendingDeletions().size
             
-            customers + packages + bills + payments + expenses + expenseCategories + settings + auditLogs + bandwidthBills + specificAdvances + pendingDeletions
+            customers + packages + bills + payments + expenses + expenseCategories + settings + bandwidthBills + specificAdvances + pendingDeletions
         } catch (e: Exception) {
             0
         }

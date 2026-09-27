@@ -20,6 +20,9 @@ interface SmsQueueDao {
     @Query("SELECT * FROM sms_queue WHERE status = :status ORDER BY id ASC")
     suspend fun getSmsByStatus(status: String): List<SmsQueueEntity>
 
+    @Query("UPDATE sms_queue SET status = 'PENDING' WHERE status = 'SENDING'")
+    suspend fun recoverStaleSendingSms(): Int
+
     @Query("SELECT * FROM sms_queue WHERE id = :id")
     suspend fun getSmsById(id: Long): SmsQueueEntity?
 

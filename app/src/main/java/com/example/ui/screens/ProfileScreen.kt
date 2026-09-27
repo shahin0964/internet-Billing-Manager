@@ -59,7 +59,9 @@ fun ProfileScreen(
 
     fun readLatestSyncTime(): Long {
         if (currentUid.isNullOrBlank()) return 0L
-        return prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
+        val userSyncTime = prefs.getLong("last_cloud_sync_time_$currentUid", 0L)
+        if (userSyncTime > 0L) return userSyncTime
+        return prefs.getLong("last_cloud_sync_time", 0L)
     }
 
     var syncTimeState by remember(currentUid) { 
@@ -84,7 +86,7 @@ fun ProfileScreen(
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
             when (key) {
                 "privacy_mode" -> privacyModeEnabled = sharedPreferences.getBoolean("privacy_mode", false)
-                syncTimeKey, "last_cloud_sync_time_$currentUid" -> {
+                syncTimeKey, "last_cloud_sync_time_$currentUid", "last_cloud_sync_time" -> {
                     syncTimeState = readLatestSyncTime()
                 }
             }

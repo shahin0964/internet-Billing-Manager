@@ -252,140 +252,21 @@ object AutomaticSmsManager {
             Log.e(TAG, "Failed to enqueue SmsQueueWorker: ${e.message}")
         }
 
-        // Trigger immediate direct queue processing on IO Thread so it is sent instantly without waiting
+        // Trigger immediate queue processing on IO Thread with single-flight mutex protection
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                processSmsQueueDirect(context)
+                SafeSmsSenderEngine.processQueue(context)
             } catch (e: Exception) {
-                Log.e(TAG, "Direct SMS queue processing failed: ${e.message}")
+                Log.e(TAG, "Direct SMS queue processing error: ${e.message}")
             }
         }
     }
 
     /**
-     * Directly processes the pending SMS queue asynchronously
+     * Directly processes the pending SMS queue safely
      */
     suspend fun processSmsQueueDirect(context: Context) {
-        if (!isSmsEnabled(context)) {
-            Log.d(TAG, "Direct SMS queue stopped: Automatic SMS feature is disabled")
-            return
-        }
-
-        if (!isSmsPermissionGranted(context)) {
-            Log.w(TAG, "Direct SMS queue stopped: SEND_SMS permission is not granted")
-            return
-        }
-
-        // Ensure data consistency
-        migratePendingSms(context)
-        evaluateDailyWarnings(context)
-
-        val db = SmsDatabase.getDatabase(context)
-        val dao = db.smsQueueDao()
-        val ispDb = com.example.data.database.IspDatabase.getDatabase(context)
-        val customerDao = ispDb.customerDao()
-
-        val pendingList = dao.getSmsByStatus("PENDING")
-        if (pendingList.isEmpty()) {
-            Log.d(TAG, "Direct SMS queue finished: No pending SMS")
-            return
-        }
-
-        Log.d(TAG, "Direct SMS queue: Processing ${pendingList.size} pending SMS...")
-
-        val retryEnabled = isRetryFailedEnabled(context)
-        val maxRetryCount = getMaxRetryCount(context)
-
-        for (sms in pendingList) {
-            // Check status again in case another thread processed it
-            val currentSms = dao.getSmsById(sms.id) ?: continue
-            if (currentSms.status != "PENDING") continue
-
-            dao.updateSms(sms.copy(status = "SENDING"))
-
-            val customerId = sms.customerReferenceId.toLongOrNull()
-            val customer = if (customerId != null) {
-                customerDao.getCustomerById(customerId).first()
-            } else null
-
-            if (customer == null) {
-                Log.e(TAG, "Failed to send SMS ID ${sms.id}: Customer Not Found (ID: ${sms.customerReferenceId})")
-                dao.updateSms(
-                    sms.copy(
-                        status = "FAILED",
-                        lastError = "Customer Not Found"
-                    )
-                )
-                continue
-            }
-
-            val cleanNumber = customer.phone.trim().replace(" ", "").replace("-", "")
-            if (cleanNumber.isBlank()) {
-                Log.e(TAG, "Failed to send SMS ID ${sms.id}: Customer phone is empty")
-                dao.updateSms(
-                    sms.copy(
-                        status = "FAILED",
-                        lastError = "Invalid/Empty Phone Number"
-                    )
-                )
-                continue
-            }
-
-            val sendResult = try {
-                sendSingleSms(
-                    context = context,
-                    mobileNumber = cleanNumber,
-                    message = sms.message,
-                    smsId = sms.id
-                )
-            } catch (e: Exception) {
-                Result.failure<Unit>(e)
-            }
-
-            if (sendResult.isSuccess) {
-                Log.d(TAG, "Successfully sent SMS ID ${sms.id} to $cleanNumber")
-                val selectedSubId = getSelectedSim(context)
-                val availableSims = getAvailableSims(context)
-                val simLabel = if (selectedSubId == -1) "OS Default SIM" else {
-                    val simInfo = availableSims.find { it.subscriptionId == selectedSubId }
-                    if (simInfo != null) "SIM ${simInfo.slotIndex + 1}" else "Unknown SIM"
-                }
-                
-                dao.updateSms(
-                    sms.copy(
-                        status = "SENT",
-                        lastError = "Sent via $simLabel",
-                        mobileNumber = cleanNumber
-                    )
-                )
-            } else {
-                val errorMsg = sendResult.exceptionOrNull()?.message ?: "Unknown SMS sending error"
-                Log.e(TAG, "Failed to send SMS ID ${sms.id} to $cleanNumber: $errorMsg")
-
-                val currentRetry = sms.retryCount
-                if (retryEnabled && currentRetry < maxRetryCount) {
-                    val nextRetry = currentRetry + 1
-                    Log.d(TAG, "Re-queuing SMS ID ${sms.id} (Retry count $nextRetry / $maxRetryCount)")
-                    dao.updateSms(
-                        sms.copy(
-                            status = "PENDING",
-                            retryCount = nextRetry,
-                            lastError = errorMsg,
-                            mobileNumber = cleanNumber
-                        )
-                    )
-                } else {
-                    Log.d(TAG, "Sms ID ${sms.id} reached maximum retries or retry disabled. Marked as FAILED.")
-                    dao.updateSms(
-                        sms.copy(
-                            status = "FAILED",
-                            lastError = errorMsg,
-                            mobileNumber = cleanNumber
-                        )
-                    )
-                }
-            }
-        }
+        SafeSmsSenderEngine.processQueue(context)
     }
 
     /**
@@ -961,139 +842,21 @@ object AutomaticSmsManager {
     }
 
     /**
-     * Synchronous single SMS sender with transient receiver
+     * Synchronous single SMS sender with transient receiver (delegates to SafeSmsSenderEngine)
      */
     suspend fun sendSingleSms(
         context: Context,
         mobileNumber: String,
         message: String,
         smsId: Long
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        if (!isSmsPermissionGranted(context)) {
-            return@withContext Result.failure(Exception("Permission denied"))
-        }
-
-        val selectedSubId = getSelectedSim(context) // -1: Default, >0: specific subId
-        val smsManager = try {
-            getSmsManagerForSubId(context, selectedSubId)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error selecting SIM subscription: ${e.message}")
-            return@withContext Result.failure(e)
-        }
-
-        val sentAction = "SMS_SENT_${System.currentTimeMillis()}_${smsId}"
-        val sentIntent = PendingIntent.getBroadcast(
-            context,
-            smsId.toInt(),
-            Intent(sentAction),
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val deferred = CompletableDeferred<Int>()
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(c: Context?, i: Intent?) {
-                deferred.complete(resultCode)
-                try {
-                    context.unregisterReceiver(this)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Unregister error: ${e.message}")
-                }
-            }
-        }
-
-        // Register receiver with appropriate safety flags
-        withContext(Dispatchers.Main) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(receiver, IntentFilter(sentAction), Context.RECEIVER_EXPORTED)
-            } else {
-                context.registerReceiver(receiver, IntentFilter(sentAction))
-            }
-        }
-
-        try {
-            // Send the message text
-            val msgList = smsManager.divideMessage(message)
-            if (msgList.size > 1) {
-                val sentIntents = ArrayList<PendingIntent>()
-                sentIntents.add(sentIntent)
-                for (k in 1 until msgList.size) {
-                    sentIntents.add(
-                        PendingIntent.getBroadcast(
-                            context,
-                            (smsId + k).toInt(),
-                            Intent(sentAction),
-                            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-                        )
-                    )
-                }
-                smsManager.sendMultipartTextMessage(mobileNumber, null, msgList, sentIntents, null)
-            } else {
-                smsManager.sendTextMessage(mobileNumber, null, message, sentIntent, null)
-            }
-
-            // Wait with a 15-second timeout
-            val resultCode = withTimeoutOrNull(15000L) {
-                deferred.await()
-            } ?: SmsManager.RESULT_ERROR_GENERIC_FAILURE
-
-            if (resultCode == Activity.RESULT_OK) {
-                Result.success(Unit)
-            } else {
-                val errText = when (resultCode) {
-                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "Generic Failure"
-                    SmsManager.RESULT_ERROR_NO_SERVICE -> "No Mobile Service"
-                    SmsManager.RESULT_ERROR_NULL_PDU -> "Null PDU"
-                    SmsManager.RESULT_ERROR_RADIO_OFF -> "Airplane Mode / Radio Off"
-                    else -> "SMS Code: $resultCode"
-                }
-                Result.failure(Exception(errText))
-            }
-        } catch (e: Exception) {
-            // Unregister to prevent leaks
-            try {
-                context.unregisterReceiver(receiver)
-            } catch (ex: Exception) {}
-            Result.failure(e)
-        }
+    ): Result<Unit> {
+        return SafeSmsSenderEngine.sendSingleSms(context, mobileNumber, message, smsId)
     }
 
     /**
-     * Resolves appropriate SmsManager for Dual SIM slots
+     * Resolves appropriate SmsManager for Dual SIM slots (delegates to SafeSmsSenderEngine)
      */
-    private fun getSmsManagerForSubId(context: Context, subId: Int): SmsManager {
-        val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
-        val activeList = try {
-            if (isSmsPermissionGranted(context)) {
-                subscriptionManager?.activeSubscriptionInfoList
-            } else null
-        } catch (e: SecurityException) {
-            null
-        }
-
-        if (subId != -1) {
-            if (activeList != null) {
-                val matchedSub = activeList.firstOrNull { it.subscriptionId == subId }
-                if (matchedSub != null) {
-                    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        val sm = context.getSystemService(SmsManager::class.java)
-                        sm?.createForSubscriptionId(matchedSub.subscriptionId) ?: SmsManager.getDefault()
-                    } else {
-                        @Suppress("DEPRECATION")
-                        SmsManager.getSmsManagerForSubscriptionId(matchedSub.subscriptionId)
-                    }
-                } else {
-                    throw Exception("Selected SIM (Subscription ID: $subId) is currently unavailable or inactive.")
-                }
-            } else {
-                throw Exception("Cannot access SIM subscriptions. Selected SIM is unavailable.")
-            }
-        }
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            context.getSystemService(SmsManager::class.java) ?: SmsManager.getDefault()
-        } else {
-            @Suppress("DEPRECATION")
-            SmsManager.getDefault()
-        }
+    fun getSmsManagerForSubId(context: Context, subId: Int): SmsManager {
+        return SafeSmsSenderEngine.getSmsManagerForSubId(context, subId)
     }
 }
