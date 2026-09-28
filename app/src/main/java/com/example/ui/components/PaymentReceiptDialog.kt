@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -191,20 +192,20 @@ fun PostPaymentReceiptPromptDialog(
 
                     OutlinedButton(
                         onClick = {
-                            ReceiptPrintUtils.savePdfReceipt(context, payment, bill, customer, settings, isBn)
+                            ReceiptPrintUtils.saveJpgReceipt(context, payment, bill, customer, settings, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Icon(imageVector = Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(3.dp))
-                        Text(text = if (isBn) "PDF" else "PDF", fontSize = 11.sp)
+                        Text(text = if (isBn) "JPG ছবি" else "JPG", fontSize = 11.sp)
                     }
 
                     OutlinedButton(
                         onClick = {
-                            val pdf = ReceiptPrintUtils.generateReceiptPdfFile(context, payment, bill, customer, settings, isBn)
-                            ReceiptPrintUtils.sharePdfFile(context, pdf, isBn)
+                            val jpg = ReceiptPrintUtils.generateReceiptJpgFile(context, payment, bill, customer, settings, isBn)
+                            ReceiptPrintUtils.shareJpgFile(context, jpg, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp)
@@ -278,8 +279,8 @@ fun PaymentReceiptModal(
             isRenderingPdf = true
             withContext(Dispatchers.IO) {
                 try {
-                    val pdfFile = ReceiptPrintUtils.generateReceiptPdfFile(context, payment, bill, customer, settings, isBn)
-                    val bmp = ReceiptPrintUtils.renderPdfPageToBitmap(pdfFile)
+                    val jpgFile = ReceiptPrintUtils.generateReceiptJpgFile(context, payment, bill, customer, settings, isBn)
+                    val bmp = BitmapFactory.decodeFile(jpgFile.absolutePath)
                     withContext(Dispatchers.Main) {
                         pdfBitmap = bmp
                         isRenderingPdf = false
@@ -367,9 +368,9 @@ fun PaymentReceiptModal(
                         onClick = { selectedTab = 1 },
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Preview, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(imageVector = Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = if (isBn) "পিডিএফ প্রিভিউ" else "PDF Preview", fontSize = 12.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal)
+                                Text(text = if (isBn) "রশিদ ছবি (JPG)" else "JPG Preview", fontSize = 12.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     )
@@ -573,7 +574,7 @@ fun PaymentReceiptModal(
                                     CircularProgressIndicator(modifier = Modifier.size(32.dp))
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = if (isBn) "পিডিএফ রেন্ডার হচ্ছে..." else "Rendering crisp PDF preview...",
+                                        text = if (isBn) "রশিদ ইমেজ প্রস্তুত হচ্ছে..." else "Rendering crisp JPG preview...",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -587,7 +588,7 @@ fun PaymentReceiptModal(
                                 ) {
                                     Image(
                                         bitmap = pdfBitmap!!.asImageBitmap(),
-                                        contentDescription = "PDF Preview",
+                                        contentDescription = "Receipt Preview",
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(6.dp)),
@@ -600,7 +601,7 @@ fun PaymentReceiptModal(
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        text = if (isBn) "প্রিভিউ লোড করতে পুনরায় চেষ্টা করুন" else "Unable to load PDF preview",
+                                        text = if (isBn) "প্রিভিউ লোড করতে পুনরায় চেষ্টা করুন" else "Unable to load receipt preview",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error
                                     )
@@ -632,20 +633,20 @@ fun PaymentReceiptModal(
 
                     OutlinedButton(
                         onClick = {
-                            ReceiptPrintUtils.savePdfReceipt(context, payment, bill, customer, settings, isBn)
+                            ReceiptPrintUtils.saveJpgReceipt(context, payment, bill, customer, settings, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(imageVector = Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = if (isBn) "PDF" else "PDF", fontSize = 12.sp)
+                        Text(text = if (isBn) "JPG ছবি" else "JPG", fontSize = 12.sp)
                     }
 
                     OutlinedButton(
                         onClick = {
-                            val pdf = ReceiptPrintUtils.generateReceiptPdfFile(context, payment, bill, customer, settings, isBn)
-                            ReceiptPrintUtils.sharePdfFile(context, pdf, isBn)
+                            val jpg = ReceiptPrintUtils.generateReceiptJpgFile(context, payment, bill, customer, settings, isBn)
+                            ReceiptPrintUtils.shareJpgFile(context, jpg, isBn)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)

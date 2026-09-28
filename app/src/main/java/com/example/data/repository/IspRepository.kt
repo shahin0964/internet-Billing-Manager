@@ -43,6 +43,7 @@ import java.util.Locale
 import com.example.data.remote.ApiClient
 import com.example.data.remote.ApiService
 import com.example.data.model.ApiResponse
+import com.example.ui.components.formatAmount
 import com.example.data.model.Customer
 import com.example.data.model.PackageModel
 import com.example.data.model.AddCustomerRequest
@@ -472,7 +473,7 @@ class IspRepository(
         return result
     }
 
-    suspend fun saveCustomer(customer: CustomerEntity): Long {
+    suspend fun saveCustomer(customer: CustomerEntity, previousDues: List<PreviousDueItem> = emptyList()): Long {
         val isNew = customer.id == 0L
         val now = System.currentTimeMillis()
         val customerToSave = if (isNew) {
@@ -480,14 +481,126 @@ class IspRepository(
         } else {
             customer.copy(updatedAt = now, syncStatus = 1)
         }
-        val result = customerDao.insertCustomer(customerToSave)
+
+        val result = db.withTransaction {
+            val custId = customerDao.insertCustomer(customerToSave)
+            val actualCustomerId = if (customerToSave.id != 0L) customerToSave.id else custId
+
+            val validDues = previousDues.filter { it.amount > 0.0 }
+            if (validDues.isNotEmpty()) {
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val todayStr = sdf.format(Date(now))
+                val monthsList = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+                val sortedDues = validDues.sortedWith(compareBy<PreviousDueItem> { it.year.toIntOrNull() ?: 0 }.thenBy { monthsList.indexOf(it.month) })
+
+                val newBills = mutableListOf<BillEntity>()
+                sortedDues.forEachIndexed { index, item ->
+                    val billingMonth = "${item.month} ${item.year}".trim()
+                    val existing = billDao.findBillForCustomerAndMonth(actualCustomerId, customerToSave.customerCode ?: "", billingMonth)
+                    if (existing == null) {
+                        val monthIndex = monthsList.indexOfFirst { it.equals(item.month.trim(), ignoreCase = true) }
+                        val monthNum = if (monthIndex >= 0) monthIndex + 1 else (item.month.trim().toIntOrNull()?.coerceIn(1, 12) ?: 1)
+                        val yearNum = item.year.trim().toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)
+                        val dueDateStr = String.format(Locale.ROOT, "%04d-%02d-10", yearNum, monthNum)
+                        val billNo = "DUE-${actualCustomerId}-${(now % 10000) + index}"
+
+                        newBills.add(
+                            BillEntity(
+                                id = generateUniqueId(),
+                                billNumber = billNo,
+                                customerId = actualCustomerId,
+                                customerName = customerToSave.name,
+                                customerCode = customerToSave.customerCode.ifBlank { "CUST-$actualCustomerId" },
+                                billingMonth = billingMonth,
+                                amount = item.amount,
+                                paidAmount = 0.0,
+                                dueAmount = item.amount,
+                                status = "UNPAID",
+                                generatedDate = todayStr,
+                                dueDate = dueDateStr,
+                                updatedAt = now,
+                                syncStatus = 1
+                            )
+                        )
+                    }
+                }
+                if (newBills.isNotEmpty()) {
+                    billDao.insertBills(newBills)
+                    logActivity(
+                        action = "BILL_CREATE",
+                        actionType = "BILL",
+                        details = "Created ${newBills.size} previous due bills for customer ${customerToSave.name}",
+                        targetEntity = "Customer",
+                        targetId = actualCustomerId.toString()
+                    )
+                }
+            }
+
+            // 2. Generate Current Running Month Regular Bill for new customer
+            if (isNew) {
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(now))
+                val currentBillingMonth = com.example.util.BillingMonthUtils.formatStandardMonth(Date(now))
+                val currentDueDate = com.example.util.BillingMonthUtils.formatStandardDueDate(Date(now))
+
+                // Duplicate protection check
+                val existingCurrentBill = billDao.findBillForCustomerAndMonth(
+                    actualCustomerId,
+                    customerToSave.customerCode ?: "",
+                    currentBillingMonth
+                )
+                val allCustBills = billDao.getBillsListForCustomer(actualCustomerId)
+                val alreadyHasCurrentMonthBill = existingCurrentBill != null ||
+                        allCustBills.any { com.example.util.BillingMonthUtils.isSameMonth(it.billingMonth, currentBillingMonth) } ||
+                        validDues.any { com.example.util.BillingMonthUtils.isSameMonth("${it.month} ${it.year}", currentBillingMonth) }
+
+                if (!alreadyHasCurrentMonthBill) {
+                    val custStatus = customerToSave.status.trim().uppercase(Locale.ROOT)
+                    val isInactiveOrSuspended = custStatus == "INACTIVE" || custStatus == "SUSPENDED" || custStatus == "EXPIRED"
+                    val isFree = customerToSave.packageName.contains("free", ignoreCase = true) ||
+                            customerToSave.packageName.contains("ফ্রি", ignoreCase = true)
+
+                    if (!isInactiveOrSuspended && !isFree) {
+                        val fee = customerToSave.monthlyFee
+                        val billNo = "BILL-${(now % 1000000)}-${actualCustomerId}"
+
+                        val currentBill = BillEntity(
+                            id = generateUniqueId(),
+                            billNumber = billNo,
+                            customerId = actualCustomerId,
+                            customerName = customerToSave.name,
+                            customerCode = customerToSave.customerCode.ifBlank { "CUST-$actualCustomerId" },
+                            billingMonth = currentBillingMonth,
+                            amount = fee,
+                            paidAmount = 0.0,
+                            dueAmount = fee,
+                            status = if (fee <= 0.0) "PAID" else "UNPAID",
+                            generatedDate = todayStr,
+                            dueDate = currentDueDate,
+                            updatedAt = now,
+                            syncStatus = 1
+                        )
+                        billDao.insertBill(currentBill)
+                        logActivity(
+                            action = "BILL_CREATE",
+                            actionType = "BILL",
+                            details = "Generated current month ($currentBillingMonth) regular bill of ৳${fee} for new customer ${customerToSave.name}",
+                            targetEntity = "Customer",
+                            targetId = actualCustomerId.toString()
+                        )
+                    }
+                }
+            }
+
+            actualCustomerId
+        }
+
         val actionName = if (isNew) "CUSTOMER_CREATE" else "CUSTOMER_EDIT"
         logActivity(
             action = actionName,
             actionType = "CUSTOMER",
             details = if (isNew) "Created customer: ${customer.name} (${customer.pppoeUsername})" else "Updated customer: ${customer.name} (${customer.pppoeUsername})",
             targetEntity = "Customer",
-            targetId = if (isNew) result.toString() else customerToSave.id.toString(),
+            targetId = result.toString(),
             newState = "Package: ${customer.packageName}, Fee: ৳${customer.monthlyFee}, Status: ${customer.status}"
         )
         notifyCloudSync()
@@ -496,7 +609,7 @@ class IspRepository(
             val userId = com.example.IspApplication.getUserId(ctx)
             if (userId != null) {
                 try {
-                    val savedCustomerId = if (customerToSave.id != 0L) customerToSave.id else result
+                    val savedCustomerId = result
                     val cycleDate = try {
                         val parts = customerToSave.joiningDate.trim().split("-", "/", ".")
                         if (parts.size >= 3) {
@@ -539,46 +652,52 @@ class IspRepository(
         customer: CustomerEntity,
         previousDues: List<PreviousDueItem>
     ) {
+        val validDues = previousDues.filter { it.amount > 0.0 }
+        if (validDues.isEmpty()) return
+
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val todayStr = sdf.format(Date())
         val monthsList = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
         
         // Sort chronologically oldest first to ensure Room assigns ascending IDs to them!
-        val sortedDues = previousDues.sortedWith(compareBy<PreviousDueItem> { it.year.toIntOrNull() ?: 0 }.thenBy { monthsList.indexOf(it.month) })
+        val sortedDues = validDues.sortedWith(compareBy<PreviousDueItem> { it.year.toIntOrNull() ?: 0 }.thenBy { monthsList.indexOf(it.month) })
         
         db.withTransaction {
             val newBills = mutableListOf<BillEntity>()
-            for (item in sortedDues) {
+            sortedDues.forEachIndexed { index, item ->
                 val billingMonth = "${item.month} ${item.year}".trim()
                 val existing = billDao.findBillForCustomerAndMonth(customerId, customer.customerCode ?: "", billingMonth)
-                if (existing != null) {
-                    continue
-                }
-                val billNo = "PREV-BILL-${System.currentTimeMillis().toString().takeLast(6)}-${customerId}-${item.month.take(3)}"
-                val now = System.currentTimeMillis()
-                newBills.add(
-                    BillEntity(
-                        id = generateUniqueId(),
-                        billNumber = billNo,
-                        customerId = customerId,
-                        customerName = customer.name,
-                        customerCode = customer.customerCode ?: "CUST-${customerId}",
-                        billingMonth = billingMonth,
-                        amount = item.amount,
-                        paidAmount = 0.0,
-                        dueAmount = item.amount,
-                        status = "UNPAID",
-                        generatedDate = todayStr,
-                        dueDate = todayStr,
-                        updatedAt = now,
-                        syncStatus = 1
+                if (existing == null) {
+                    val monthIndex = monthsList.indexOfFirst { it.equals(item.month.trim(), ignoreCase = true) }
+                    val monthNum = if (monthIndex >= 0) monthIndex + 1 else (item.month.trim().toIntOrNull()?.coerceIn(1, 12) ?: 1)
+                    val yearNum = item.year.trim().toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)
+                    val dueDateStr = String.format(Locale.ROOT, "%04d-%02d-10", yearNum, monthNum)
+                    val billNo = "DUE-${customerId}-${(System.currentTimeMillis() % 10000) + index}"
+                    val now = System.currentTimeMillis()
+                    newBills.add(
+                        BillEntity(
+                            id = generateUniqueId(),
+                            billNumber = billNo,
+                            customerId = customerId,
+                            customerName = customer.name,
+                            customerCode = customer.customerCode ?: "CUST-${customerId}",
+                            billingMonth = billingMonth,
+                            amount = item.amount,
+                            paidAmount = 0.0,
+                            dueAmount = item.amount,
+                            status = "UNPAID",
+                            generatedDate = todayStr,
+                            dueDate = dueDateStr,
+                            updatedAt = now,
+                            syncStatus = 1
+                        )
                     )
-                )
+                }
             }
             if (newBills.isNotEmpty()) {
                 billDao.insertBills(newBills)
                 logActivity(
-                    action = "BILL_EDIT",
+                    action = "BILL_CREATE",
                     actionType = "BILL",
                     details = "Created ${newBills.size} previous dues bills for customer ${customer.name}",
                     targetEntity = "Customer",
@@ -1222,9 +1341,11 @@ class IspRepository(
         paymentMethod: String,
         notes: String,
         advanceMonths: Int = 0,
-        specificAdvances: List<PreviousDueItem> = emptyList()
+        specificAdvances: List<PreviousDueItem> = emptyList(),
+        discount: Double = 0.0
     ): PaymentEntity? {
-        if (amount <= 0.0) return null
+        val totalEffective = amount + discount
+        if (totalEffective <= 0.0 || amount < 0.0 || discount < 0.0) return null
 
         return try {
             db.withTransaction {
@@ -1265,16 +1386,16 @@ class IspRepository(
                 val todayStr = sdf.format(Date(now))
                 val receiptNo = "PAY-${System.currentTimeMillis().toString().takeLast(6)}"
 
-                var remainingPayment = amount
+                var remainingEffective = totalEffective
                 val allocatedBills = mutableListOf<Pair<BillEntity, Double>>()
 
-                // 4. Apply payment to unpaid bills for this customer (oldest to newest)
+                // 4. Apply total effective payment (cash + discount) to unpaid bills for this customer (oldest to newest)
                 if (effectiveCustId != 0L) {
                     val unpaidBills = allBills.filter { it.customerId == effectiveCustId && it.dueAmount > 0 }.sortedBy { it.id }
                     for (b in unpaidBills) {
-                        if (remainingPayment <= 0.0) break
+                        if (remainingEffective <= 0.0) break
                         val due = b.dueAmount
-                        val applyAmount = minOf(remainingPayment, due)
+                        val applyAmount = minOf(remainingEffective, due)
                         val newPaid = b.paidAmount + applyAmount
                         val newDue = (b.amount - newPaid).coerceAtLeast(0.0)
                         val newStatus = when {
@@ -1293,11 +1414,11 @@ class IspRepository(
                         if (applyAmount > 0.0) {
                             allocatedBills.add(b to applyAmount)
                         }
-                        remainingPayment -= applyAmount
+                        remainingEffective -= applyAmount
                     }
-                } else if (targetBill != null && remainingPayment > 0.0) {
+                } else if (targetBill != null && remainingEffective > 0.0) {
                     val due = targetBill.dueAmount
-                    val applyAmount = minOf(remainingPayment, due)
+                    val applyAmount = minOf(remainingEffective, due)
                     val newPaid = targetBill.paidAmount + applyAmount
                     val newDue = (targetBill.amount - newPaid).coerceAtLeast(0.0)
                     val newStatus = when {
@@ -1316,12 +1437,12 @@ class IspRepository(
                     if (applyAmount > 0.0) {
                         allocatedBills.add(targetBill to applyAmount)
                     }
-                    remainingPayment -= applyAmount
+                    remainingEffective -= applyAmount
                 }
 
-                // 5. If there is remaining payment (excess/advance), add to customer's advance balance
+                // 5. If there is remaining cash payment (excess/advance), add to customer's advance balance
                 val specificTotal = specificAdvances.sumOf { it.amount }
-                val genericAdvanceAmount = (remainingPayment - specificTotal).coerceAtLeast(0.0)
+                val genericAdvanceAmount = (amount - (totalEffective - remainingEffective) - specificTotal).coerceAtLeast(0.0)
                 if (genericAdvanceAmount > 0.0 && customer != null) {
                     val updatedCust = customer.copy(
                         advanceBalance = customer.advanceBalance + genericAdvanceAmount,
@@ -1353,6 +1474,16 @@ class IspRepository(
                     allocatedBills.size > 1 -> 0L
                     else -> 0L
                 }
+                val effectiveMethod = if (amount == 0.0 && discount > 0.0 && (paymentMethod.isBlank() || paymentMethod.equals("Cash", ignoreCase = true))) {
+                    "Discount"
+                } else {
+                    paymentMethod
+                }
+                val effectiveNotes = when {
+                    discount > 0.0 && notes.isNotBlank() -> "$notes (Discount: ৳${discount.formatAmount()})"
+                    discount > 0.0 -> "Discount: ৳${discount.formatAmount()}"
+                    else -> notes
+                }
                 val payment = PaymentEntity(
                     id = generateUniqueId(),
                     paymentReceiptNo = receiptNo,
@@ -1361,8 +1492,8 @@ class IspRepository(
                     customerName = custName,
                     amount = amount,
                     paymentDate = todayStr,
-                    paymentMethod = paymentMethod,
-                    notes = notes,
+                    paymentMethod = effectiveMethod,
+                    notes = effectiveNotes,
                     updatedAt = now,
                     syncStatus = 1
                 )
@@ -1372,10 +1503,10 @@ class IspRepository(
                 logActivity(
                     action = "PAYMENT_ADDED",
                     actionType = "PAYMENT",
-                    details = "Recorded payment of ৳${amount} for ${custName} via ${paymentMethod}" + (if (advanceMonths > 0) " (Advance: $advanceMonths months)" else ""),
+                    details = "Recorded payment of ৳${amount} for ${custName} via ${effectiveMethod}" + (if (discount > 0.0) " (Discount: ৳${discount.formatAmount()})" else "") + (if (advanceMonths > 0) " (Advance: $advanceMonths months)" else ""),
                     targetEntity = "Payment",
                     targetId = pId.toString(),
-                    newState = "Amount: ৳${amount}, Method: ${paymentMethod}, Receipt: ${receiptNo}"
+                    newState = "Amount: ৳${amount}, Discount: ৳${discount}, Method: ${effectiveMethod}, Receipt: ${receiptNo}"
                 )
 
                 try {

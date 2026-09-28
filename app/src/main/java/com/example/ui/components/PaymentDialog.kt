@@ -50,7 +50,7 @@ fun PaymentDialog(
     preSelectedBill: BillEntity? = null,
     currencySymbol: String,
     onDismiss: () -> Unit,
-    onRecordPayment: (billId: Long, customerId: Long, amount: Double, method: String, notes: String, advanceMonths: Int, specificAdvances: List<PreviousDueItem>) -> Unit
+    onRecordPayment: (billId: Long, customerId: Long, amount: Double, method: String, notes: String, advanceMonths: Int, specificAdvances: List<PreviousDueItem>, discount: Double) -> Unit
 ) {
     var selectedBill by remember { mutableStateOf(preSelectedBill ?: unpaidBills.firstOrNull()) }
     var billDropdownExpanded by remember { mutableStateOf(false) }
@@ -533,6 +533,7 @@ fun PaymentDialog(
             }
         },
         confirmButton = {
+            val parsedDiscount = if (isAdvancePayment) 0.0 else (discountStr.replace(",", "").trim().toDoubleOrNull() ?: 0.0)
             val parsedAmount = if (isAdvancePayment) {
                 (selectedBill?.dueAmount ?: 0.0) + advancePaymentsList.sumOf { it.amount }
             } else {
@@ -548,7 +549,10 @@ fun PaymentDialog(
             val isFormValid = if (isAdvancePayment) {
                 targetCustId != 0L && parsedMonths > 0 && parsedAmount > 0
             } else {
-                (selectedBill != null || targetCustId != 0L) && parsedAmount > 0
+                (selectedBill != null || targetCustId != 0L) &&
+                parsedAmount >= 0.0 &&
+                parsedDiscount >= 0.0 &&
+                (parsedAmount + parsedDiscount) > 0.0
             }
 
             Button(
@@ -556,13 +560,13 @@ fun PaymentDialog(
                     if (isAdvancePayment) {
                         if (targetCustId != 0L && parsedMonths > 0 && parsedAmount > 0) {
                             val billIdToPass = selectedBill?.id ?: preSelectedBill?.id ?: 0L
-                            onRecordPayment(billIdToPass, targetCustId, parsedAmount, paymentMethod, notes, parsedMonths, advancePaymentsList)
+                            onRecordPayment(billIdToPass, targetCustId, parsedAmount, paymentMethod, notes, parsedMonths, advancePaymentsList, 0.0)
                         }
                     } else {
                         val billIdToPass = selectedBill?.id ?: preSelectedBill?.id ?: 0L
                         val custIdToPass = targetCustId
-                        if (parsedAmount > 0 && (billIdToPass != 0L || custIdToPass != 0L)) {
-                            onRecordPayment(billIdToPass, custIdToPass, parsedAmount, paymentMethod, notes, 0, emptyList())
+                        if ((parsedAmount + parsedDiscount) > 0.0 && (billIdToPass != 0L || custIdToPass != 0L)) {
+                            onRecordPayment(billIdToPass, custIdToPass, parsedAmount, paymentMethod, notes, 0, emptyList(), parsedDiscount)
                         }
                     }
                 },

@@ -8,6 +8,7 @@ data class ReceiptCustomizationConfig(
     val receiptTitle: String = "পেমেন্ট রশিদ (PAYMENT RECEIPT)",
     val footerMessage: String = "আমাদের ইন্টারনেট সেবা ব্যবহার করার জন্য আপনাকে ধন্যবাদ!",
     val customNotes: String = "যেকোনো সেবা বা বিল সংক্রান্ত তথ্যের জন্য আমাদের হটলাইনে যোগাযোগ করুন।",
+    val signatureName: String = "",
     val showCustomerPhone: Boolean = true,
     val showCustomerPppoe: Boolean = true,
     val showPackageName: Boolean = true,
@@ -24,6 +25,7 @@ object ReceiptCustomizationManager {
     private const val KEY_RECEIPT_TITLE = "key_receipt_title"
     private const val KEY_FOOTER_MESSAGE = "key_receipt_footer_msg"
     private const val KEY_CUSTOM_NOTES = "key_receipt_custom_notes"
+    private const val KEY_SIGNATURE_NAME = "key_receipt_signature_name"
     private const val KEY_SHOW_PHONE = "key_show_customer_phone"
     private const val KEY_SHOW_PPPOE = "key_show_customer_pppoe"
     private const val KEY_SHOW_PACKAGE = "key_show_package_name"
@@ -53,6 +55,7 @@ object ReceiptCustomizationManager {
             receiptTitle = prefs.getString(KEY_RECEIPT_TITLE, DEFAULT_CONFIG.receiptTitle) ?: DEFAULT_CONFIG.receiptTitle,
             footerMessage = prefs.getString(KEY_FOOTER_MESSAGE, DEFAULT_CONFIG.footerMessage) ?: DEFAULT_CONFIG.footerMessage,
             customNotes = prefs.getString(KEY_CUSTOM_NOTES, DEFAULT_CONFIG.customNotes) ?: DEFAULT_CONFIG.customNotes,
+            signatureName = prefs.getString(KEY_SIGNATURE_NAME, DEFAULT_CONFIG.signatureName) ?: DEFAULT_CONFIG.signatureName,
             showCustomerPhone = prefs.getBoolean(KEY_SHOW_PHONE, DEFAULT_CONFIG.showCustomerPhone),
             showCustomerPppoe = prefs.getBoolean(KEY_SHOW_PPPOE, DEFAULT_CONFIG.showCustomerPppoe),
             showPackageName = prefs.getBoolean(KEY_SHOW_PACKAGE, DEFAULT_CONFIG.showPackageName),
@@ -69,6 +72,7 @@ object ReceiptCustomizationManager {
             .putString(KEY_RECEIPT_TITLE, config.receiptTitle)
             .putString(KEY_FOOTER_MESSAGE, config.footerMessage)
             .putString(KEY_CUSTOM_NOTES, config.customNotes)
+            .putString(KEY_SIGNATURE_NAME, config.signatureName)
             .putBoolean(KEY_SHOW_PHONE, config.showCustomerPhone)
             .putBoolean(KEY_SHOW_PPPOE, config.showCustomerPppoe)
             .putBoolean(KEY_SHOW_PACKAGE, config.showPackageName)

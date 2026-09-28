@@ -465,10 +465,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            val insertedId = repository.saveCustomer(customer)
-            if (previousDues.isNotEmpty()) {
-                repository.createPreviousDues(insertedId, customer, previousDues)
-            }
+            repository.saveCustomer(customer, previousDues)
             _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_customer_saved)
         }
     }
@@ -521,13 +518,14 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                             skippedCount++
                         }
                     } else {
-                        // New customer: save customer and if due > 0, create due bill
-                        val insertedId = repository.saveCustomer(candidate)
-                        if (initialDue > 0.0) {
+                        // New customer: save customer with any initial previous dues and auto-generate current running month bill
+                        val prevItems = if (initialDue > 0.0) {
                             val resolvedMonth = if (rawMonth.isNotBlank()) rawMonth else com.example.util.BillingMonthUtils.formatStandardMonth()
-                            val prevItem = parseToPreviousDueItem(resolvedMonth, initialDue)
-                            repository.createPreviousDues(insertedId, candidate.copy(id = insertedId), listOf(prevItem))
+                            listOf(parseToPreviousDueItem(resolvedMonth, initialDue))
+                        } else {
+                            emptyList()
                         }
+                        repository.saveCustomer(candidate, prevItems)
                         importedCount++
                     }
                 }
@@ -660,12 +658,14 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         notes: String,
         advanceMonths: Int = 0,
         specificAdvances: List<PreviousDueItem> = emptyList(),
+        discount: Double = 0.0,
         onSuccess: ((PaymentEntity) -> Unit)? = null
     ) {
         viewModelScope.launch {
-            val payment = repository.recordPayment(billId, customerId, amount, paymentMethod, notes, advanceMonths, specificAdvances)
+            val payment = repository.recordPayment(billId, customerId, amount, paymentMethod, notes, advanceMonths, specificAdvances, discount)
             if (payment != null) {
-                _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_payment_recorded, settings.value.currencySymbol, amount.formatAmount())
+                val totalSettled = amount + discount
+                _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_payment_recorded, settings.value.currencySymbol, totalSettled.formatAmount())
                 onSuccess?.invoke(payment)
             } else {
                 _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_error_payment)

@@ -1082,8 +1082,8 @@ fun MainAppContent(
             preSelectedBill = preSelectedPaymentBill,
             currencySymbol = settings.currencySymbol,
             onDismiss = { showPaymentDialog = false },
-            onRecordPayment = { billId, customerId, amount, method, notes, advanceMonths, specificAdvances ->
-                viewModel.recordPayment(billId, customerId, amount, method, notes, advanceMonths, specificAdvances) { newPayment ->
+            onRecordPayment = { billId, customerId, amount, method, notes, advanceMonths, specificAdvances, discount ->
+                viewModel.recordPayment(billId, customerId, amount, method, notes, advanceMonths, specificAdvances, discount) { newPayment ->
                     activeReceiptPayment = newPayment
                     val receiptConfig = com.example.util.ReceiptCustomizationManager.getConfig(context)
                     if (receiptConfig.autoPopupEnabled) {

@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -270,7 +272,52 @@ fun ReceiptCustomizationScreen(
                 }
             }
 
-            // Section 4: Visible Fields Toggles
+            // Section 4: Signature Name Customization
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "স্বাক্ষরকারীর নাম (Signature Name)",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        Text(
+                            text = "অনুমোদিত স্বাক্ষরকারীর নাম লিখুন। এটি রশিদে স্বয়ংক্রিয়ভাবে আকর্ষণীয় সিগনেচার স্টাইলে প্রদর্শিত হবে।",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        OutlinedTextField(
+                            value = config.signatureName,
+                            onValueChange = { updateConfig(config.copy(signatureName = it)) },
+                            label = { Text("Signature Name / স্বাক্ষরকারীর নাম") },
+                            placeholder = { Text("যেমন: Md Shahin") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // Section 5: Visible Fields Toggles
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -707,7 +754,7 @@ private fun MoneyReceiptLivePreview(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Signature Row
             Row(
@@ -716,12 +763,22 @@ private fun MoneyReceiptLivePreview(
                 verticalAlignment = Alignment.Bottom
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("__________________", fontSize = 8.sp, color = Color(0xFF94A3B8))
-                    Text("গ্রাহকের স্বাক্ষর", fontSize = 8.sp, color = Color(0xFF64748B))
+                    Text("________________________", fontSize = 8.sp, color = Color(0xFF94A3B8))
+                    Text("গ্রাহকের স্বাক্ষর (Received by)", fontSize = 8.5.sp, color = Color(0xFF64748B))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("__________________", fontSize = 8.sp, color = Color(0xFF1E3A8A))
-                    Text("কর্তৃপক্ষের স্বাক্ষর", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                    if (config.signatureName.isNotBlank()) {
+                        Text(
+                            text = config.signatureName,
+                            fontFamily = FontFamily.Cursive,
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color(0xFF1E3A8A)
+                        )
+                    }
+                    Text("________________________", fontSize = 8.sp, color = Color(0xFF1E3A8A))
+                    Text("কর্তৃপক্ষের স্বাক্ষর (Authorized Signature)", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
                 }
             }
 
@@ -961,6 +1018,16 @@ private fun A4InvoiceLivePreview(
                     Text("গ্রাহকের স্বাক্ষর ও তারিখ", fontSize = 8.sp, color = Color(0xFF64748B))
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (config.signatureName.isNotBlank()) {
+                        Text(
+                            text = config.signatureName,
+                            fontFamily = FontFamily.Cursive,
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color(0xFF1E3A8A)
+                        )
+                    }
                     Text("_____________________", fontSize = 8.sp, color = Color(0xFF1E3A8A))
                     Text("অনুমোদিত কর্মকর্তার স্বাক্ষর ও সিল", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
                 }

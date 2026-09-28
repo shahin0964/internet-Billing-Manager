@@ -74,6 +74,34 @@ object ReceiptPrintUtils {
     }
 
     /**
+     * Generates a high-resolution JPG image (.jpg) for the payment receipt according to the exact configured design and layout.
+     */
+    fun generateReceiptJpgFile(
+        context: Context,
+        payment: PaymentEntity,
+        bill: BillEntity?,
+        customer: CustomerEntity?,
+        settings: BusinessSettingsEntity,
+        isBn: Boolean = true
+    ): File {
+        val pdfFile = generateReceiptPdfFile(context, payment, bill, customer, settings, isBn)
+        val docsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir, "Receipts")
+        if (!docsDir.exists()) docsDir.mkdirs()
+
+        val safeReceiptNo = payment.paymentReceiptNo.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val jpgFile = File(docsDir, "Receipt_${safeReceiptNo}.jpg")
+
+        val bitmap = renderPdfPageToBitmap(pdfFile)
+        if (bitmap != null) {
+            FileOutputStream(jpgFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 96, out)
+            }
+            bitmap.recycle()
+        }
+        return jpgFile
+    }
+
+    /**
      * Generates a professional Internet / ISP Monthly Bill Money Receipt (মানি রশিদ) PDF format.
      */
     fun generateMoneyReceiptPdfFile(
@@ -315,6 +343,22 @@ object ReceiptPrintUtils {
 
         // Authorized Signature Line on Right
         val authSigStartX = rightMargin - 16f - sigLineLength
+        val authSigCenterX = authSigStartX + (sigLineLength / 2f)
+
+        if (config.signatureName.isNotBlank()) {
+            val sigPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = AndroidColor.parseColor("#0F2942")
+                textSize = 17f
+                try {
+                    typeface = Typeface.create("cursive", Typeface.ITALIC)
+                } catch (_: Throwable) {
+                    typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
+                }
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText(config.signatureName, authSigCenterX, sigLineY - 6f, sigPaint)
+        }
+
         paint.color = AndroidColor.parseColor("#1E3A8A")
         paint.strokeWidth = 1f
         canvas.drawLine(authSigStartX, sigLineY, rightMargin - 16f, sigLineY, paint)
@@ -323,11 +367,11 @@ object ReceiptPrintUtils {
         paint.textSize = 9f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(if (isBn) "কর্তৃপক্ষের স্বাক্ষর (Authorized Signature)" else "Authorized Signature", authSigStartX + (sigLineLength / 2f), sigLineY + 11f, paint)
+        canvas.drawText(if (isBn) "কর্তৃপক্ষের স্বাক্ষর (Authorized Signature)" else "Authorized Signature", authSigCenterX, sigLineY + 11f, paint)
         paint.color = AndroidColor.parseColor("#64748B")
         paint.textSize = 7.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        canvas.drawText("for $ispName", authSigStartX + (sigLineLength / 2f), sigLineY + 20f, paint)
+        canvas.drawText("for $ispName", authSigCenterX, sigLineY + 20f, paint)
 
         // 5. Footer & Thank you Note
         paint.color = AndroidColor.parseColor("#64748B")
@@ -578,16 +622,32 @@ object ReceiptPrintUtils {
         // Signature section for A4 as well
         val sigLineY = currentY + 36f
         val sigLineLength = 160f
+        val authSigStartX = rightMargin - sigLineLength
+        val authSigCenterX = authSigStartX + (sigLineLength / 2f)
+
+        if (config.signatureName.isNotBlank()) {
+            val sigPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = AndroidColor.parseColor("#0F2942")
+                textSize = 18f
+                try {
+                    typeface = Typeface.create("cursive", Typeface.ITALIC)
+                } catch (_: Throwable) {
+                    typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
+                }
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText(config.signatureName, authSigCenterX, sigLineY - 6f, sigPaint)
+        }
+
         paint.color = AndroidColor.parseColor("#1E3A8A")
         paint.strokeWidth = 1f
-        val authSigStartX = rightMargin - sigLineLength
         canvas.drawLine(authSigStartX, sigLineY, rightMargin, sigLineY, paint)
 
         paint.color = AndroidColor.parseColor("#1E3A8A")
         paint.textSize = 10f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(if (isBn) "কর্তৃপক্ষের স্বাক্ষর" else "Authorized Signature", authSigStartX + (sigLineLength / 2f), sigLineY + 14f, paint)
+        canvas.drawText(if (isBn) "কর্তৃপক্ষের স্বাক্ষর" else "Authorized Signature", authSigCenterX, sigLineY + 14f, paint)
 
         currentY = sigLineY + 30f
 
@@ -865,6 +925,36 @@ object ReceiptPrintUtils {
     }
 
     /**
+     * Saves the receipt as a high-resolution JPG image (.jpg) and opens it in image viewer.
+     */
+    fun saveJpgReceipt(
+        context: Context,
+        payment: PaymentEntity,
+        bill: BillEntity?,
+        customer: CustomerEntity?,
+        settings: BusinessSettingsEntity,
+        isBn: Boolean = true
+    ): File? {
+        return try {
+            val jpgFile = generateReceiptJpgFile(context, payment, bill, customer, settings, isBn)
+            trySaveJpgToPublicGalleryOrDownloads(context, jpgFile)
+
+            Toast.makeText(
+                context,
+                if (isBn) "✓ রশিদ ছবি (JPG) সংরক্ষিত হয়েছে: ${jpgFile.name}" else "✓ Receipt JPG Saved: ${jpgFile.name}",
+                Toast.LENGTH_SHORT
+            ).show()
+
+            openJpgFile(context, jpgFile, isBn)
+            jpgFile
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error saving JPG receipt: ${t.message}", t)
+            Toast.makeText(context, if (isBn) "রশিদ তৈরিতে সমস্যা: ${t.localizedMessage}" else "Failed to create receipt JPG: ${t.localizedMessage}", Toast.LENGTH_SHORT).show()
+            null
+        }
+    }
+
+    /**
      * Saves the PDF receipt and opens it in user's PDF viewer.
      */
     fun savePdfReceipt(
@@ -901,6 +991,34 @@ object ReceiptPrintUtils {
         printReceipt(context, htmlContent, fileName.removeSuffix(".pdf"))
     }
 
+    private fun trySaveJpgToPublicGalleryOrDownloads(context: Context, sourceFile: File) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, sourceFile.name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/ISP_Receipts")
+                }
+                val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        FileInputStream(sourceFile).use { input ->
+                            input.copyTo(out)
+                        }
+                    }
+                }
+            } else {
+                val publicPictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+                val targetDir = File(publicPictures, "ISP_Receipts")
+                if (!targetDir.exists()) targetDir.mkdirs()
+                val destFile = File(targetDir, sourceFile.name)
+                sourceFile.copyTo(destFile, overwrite = true)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not copy JPG to public pictures folder: ${e.message}")
+        }
+    }
+
     private fun trySaveToPublicDownloads(context: Context, sourceFile: File) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -926,6 +1044,63 @@ object ReceiptPrintUtils {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Could not copy to public downloads folder: ${e.message}")
+        }
+    }
+
+    /**
+     * Opens the generated JPG image file using system image viewer.
+     */
+    fun openJpgFile(context: Context, jpgFile: File, isBn: Boolean = true) {
+        try {
+            val uri: Uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                jpgFile
+            )
+
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "image/jpeg")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            val chooser = Intent.createChooser(intent, if (isBn) "রশিদ ছবি ওপেন করুন" else "Open Receipt Image")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Log.w(TAG, "No default image viewer found, trying share intent: ${e.message}")
+            shareJpgFile(context, jpgFile, isBn)
+        }
+    }
+
+    /**
+     * Shares the generated JPG image file (.jpg).
+     */
+    fun shareJpgFile(context: Context, jpgFile: File, isBn: Boolean = true) {
+        try {
+            val authority = "${context.packageName}.provider"
+            val imageUri: Uri = FileProvider.getUriForFile(
+                context,
+                authority,
+                jpgFile
+            )
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/jpeg"
+                putExtra(Intent.EXTRA_STREAM, imageUri)
+                putExtra(Intent.EXTRA_SUBJECT, jpgFile.name)
+                putExtra(Intent.EXTRA_TEXT, if (isBn) "🧾 পেমেন্ট রশিদ" else "🧾 Payment Receipt")
+                clipData = ClipData.newUri(context.contentResolver, "Receipt Image", imageUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            val chooser = Intent.createChooser(shareIntent, if (isBn) "রশিদ ছবি শেয়ার করুন" else "Share Receipt JPG")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Log.e(TAG, "Share JPG failed: ${e.message}", e)
+            Toast.makeText(context, if (isBn) "শেয়ার করতে ব্যর্থ হয়েছে: ${e.localizedMessage}" else "Failed to share: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
 

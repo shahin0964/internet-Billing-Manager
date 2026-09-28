@@ -57,6 +57,7 @@ import com.example.ui.components.CustomSearchBar
 import com.example.ui.components.EmptyStateView
 import com.example.ui.components.KpiCard
 import com.example.ui.components.SectionHeader
+import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.EmeraldSuccess
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -142,6 +143,10 @@ fun CollectionScreen(
     val totalMonthlyBill = monthlyBills.sumOf { it.amount }
     val totalMonthlyCollected = remember(payments, monthlyBillIds, selectedMonthString) {
         payments.filter { isPaymentInMonth(it, selectedMonthString, monthlyBillIds) }.sumOf { it.amount }
+    }
+    val totalMonthlyDiscount = remember(payments, monthlyBillIds, selectedMonthString) {
+        payments.filter { isPaymentInMonth(it, selectedMonthString, monthlyBillIds) }
+            .sumOf { it.getDiscountAmount() }
     }
     val totalMonthlyDue = monthlyBills.sumOf { it.dueAmount }
 
@@ -315,6 +320,21 @@ fun CollectionScreen(
                     icon = Icons.Default.Payments,
                     iconColor = if (profit >= 0) EmeraldSuccess else MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                KpiCard(
+                    title = androidx.compose.ui.res.stringResource(com.example.R.string.discount),
+                    value = "$currencySymbol${totalMonthlyDiscount.formatAmount()}",
+                    icon = Icons.Default.Payments,
+                    iconColor = AmberWarning,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
@@ -767,4 +787,20 @@ private fun isPaymentInCurrentMonth(paymentDateStr: String, currentYear: Int, cu
     }
 
     return false
+}
+
+fun PaymentEntity.getDiscountAmount(): Double {
+    if (notes.isNotBlank()) {
+        val regex = Regex("""Discount:\s*[৳$€£]?\s*([0-9]+(?:\.[0-9]+)?)""", RegexOption.IGNORE_CASE)
+        val match = regex.find(notes)
+        if (match != null) {
+            val numStr = match.groupValues[1].replace(",", "").trim()
+            val parsed = numStr.toDoubleOrNull()
+            if (parsed != null && parsed > 0.0) return parsed
+        }
+    }
+    if (paymentMethod.equals("Discount", ignoreCase = true) && amount > 0.0) {
+        return amount
+    }
+    return 0.0
 }
