@@ -115,6 +115,7 @@ object ReceiptPrintUtils {
         val config = ReceiptCustomizationManager.getConfig(context)
         val ispName = settings.ispName.ifBlank { if (isBn) "আইএসপি ডিজিটাল নেটওয়ার্ক" else "ISP Digital Network" }
         val hotline = settings.hotline.ifBlank { if (isBn) "০১৭০০-০০০০০০" else "01700-000000" }
+        val email = settings.email.ifBlank { "support@isp.com" }
         val address = settings.address.ifBlank { if (isBn) "হেড অফিস, ঢাকা, বাংলাদেশ" else "Head Office, Dhaka, Bangladesh" }
         val currency = settings.currencySymbol.ifBlank { "৳" }
 
@@ -124,6 +125,7 @@ object ReceiptPrintUtils {
         val pppoeUser = customer?.pppoeUsername ?: "N/A"
         val packageName = customer?.packageName ?: "Standard Package"
         val custAddress = customer?.address ?: "N/A"
+        val custBranch = (customer?.area?.ifBlank { null } ?: customer?.zone?.ifBlank { null } ?: "Main Branch")
 
         val invNo = bill?.billNumber ?: "INV-${payment.billId}"
         val receiptNo = payment.paymentReceiptNo
@@ -132,223 +134,226 @@ object ReceiptPrintUtils {
         val paidAmt = String.format(Locale.US, "%.2f", payment.amount)
         val dueAmt = String.format(Locale.US, "%.2f", bill?.dueAmount ?: 0.0)
 
-        // Compact professional voucher dimensions (A5 Landscape / Money Receipt format): 595 x 420
-        val pageWidth = 595
-        val pageHeight = 420
+        val bkashNumber = config.bkashNumber.trim()
+        val nagadNumber = config.nagadNumber.trim()
+        val sigName = config.signatureName.trim()
+        val motto = config.corporateMotto.ifBlank { "Stay Connected, Stay Ahead" }
+
+        // Professional landscape voucher canvas dimensions: 650 x 410
+        val pageWidth = 650
+        val pageHeight = 410
 
         val pdfDocument = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
         val page = pdfDocument.startPage(pageInfo)
         val canvas: Canvas = page.canvas
 
-        // Background
+        // Clean white background
         canvas.drawColor(AndroidColor.WHITE)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        val leftMargin = 24f
-        val rightMargin = pageWidth - 24f
+        val leftMargin = 22f
+        val rightMargin = pageWidth - 22f
         val contentWidth = rightMargin - leftMargin
 
-        // Outer Decorative Border Frame
-        val outerRect = RectF(leftMargin, 16f, rightMargin, pageHeight - 16f)
-        paint.color = AndroidColor.parseColor("#E2E8F0")
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.5f
-        canvas.drawRoundRect(outerRect, 10f, 10f, paint)
-
-        // Inner Border Accent
-        val innerRect = RectF(leftMargin + 3f, 19f, rightMargin - 3f, pageHeight - 19f)
-        paint.color = AndroidColor.parseColor("#F1F5F9")
-        paint.strokeWidth = 0.8f
-        canvas.drawRoundRect(innerRect, 8f, 8f, paint)
-        paint.style = Paint.Style.FILL
-
-        // 1. Top Header Banner
-        val headerHeight = 58f
-        val headerRect = RectF(leftMargin + 3f, 19f, rightMargin - 3f, 19f + headerHeight)
-        paint.color = AndroidColor.parseColor("#1E3A8A")
-        canvas.drawRoundRect(headerRect, 8f, 8f, paint)
-        // Clean bottom corners of header
-        canvas.drawRect(leftMargin + 3f, 19f + headerHeight - 8f, rightMargin - 3f, 19f + headerHeight, paint)
-
-        // Header Text: Company Name
+        // 1. Top Header Section
+        // Left: Logo & Company Name
+        paint.color = AndroidColor.parseColor("#0284C7")
+        canvas.drawCircle(leftMargin + 18f, 36f, 18f, paint)
         paint.color = AndroidColor.WHITE
-        paint.textSize = 17f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.textAlign = Paint.Align.LEFT
-        canvas.drawText(ispName, leftMargin + 16f, 42f, paint)
-
-        // Subtitle: Address & Helpline
-        paint.color = AndroidColor.parseColor("#E0E7FF")
-        paint.textSize = 9.5f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        val contactLine = if (address.isNotBlank()) "$address • ${if (isBn) "হটলাইন:" else "Hotline:"} $hotline" else "${if (isBn) "হটলাইন:" else "Hotline:"} $hotline"
-        canvas.drawText(contactLine, leftMargin + 16f, 60f, paint)
-
-        // Header Right: Money Receipt Title Badge
-        val titleText = config.receiptTitle.ifBlank {
-            if (isBn) "মানি রশিদ (MONEY RECEIPT)" else "MONEY RECEIPT"
-        }
-        val badgeW = (paint.measureText(titleText) + 24f).coerceIn(160f, 240f)
-        val badgeRect = RectF(rightMargin - 16f - badgeW, 28f, rightMargin - 16f, 58f)
-        paint.color = AndroidColor.parseColor("#2563EB")
-        canvas.drawRoundRect(badgeRect, 6f, 6f, paint)
-
-        paint.color = AndroidColor.WHITE
-        paint.textSize = 10f
+        paint.textSize = 12f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(titleText, badgeRect.centerX(), 47f, paint)
+        canvas.drawText("ISP", leftMargin + 18f, 40f, paint)
 
-        // 2. Metadata Bar (Receipt #, Date, Bill Month)
-        var currentY = 19f + headerHeight + 14f
         paint.textAlign = Paint.Align.LEFT
         paint.color = AndroidColor.parseColor("#0F172A")
-        paint.textSize = 10f
+        paint.textSize = 15f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("${if (isBn) "রশিদ নং:" else "Receipt #:"} $receiptNo", leftMargin + 16f, currentY, paint)
+        canvas.drawText(ispName, leftMargin + 42f, 32f, paint)
 
+        paint.color = AndroidColor.parseColor("#0284C7")
+        paint.textSize = 7.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("FAST • STABLE • CONNECTED", leftMargin + 42f, 45f, paint)
+
+        // Center: MONEY RECEIPT Title
+        val centerX = pageWidth / 2f - 20f
         paint.textAlign = Paint.Align.CENTER
-        paint.color = AndroidColor.parseColor("#475569")
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        canvas.drawText("${if (isBn) "বিলিং মাস:" else "Bill Month:"} $billMonth", pageWidth / 2f, currentY, paint)
+        paint.color = AndroidColor.parseColor("#0F172A")
+        paint.textSize = 14f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("MONEY", centerX, 28f, paint)
+        paint.color = AndroidColor.parseColor("#00A896")
+        paint.textSize = 16f
+        canvas.drawText("RECEIPT", centerX, 44f, paint)
+        paint.color = AndroidColor.parseColor("#64748B")
+        paint.textSize = 7.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+        canvas.drawText("Thank you for being with us!", centerX, 55f, paint)
 
-        paint.textAlign = Paint.Align.RIGHT
-        canvas.drawText("${if (isBn) "তারিখ:" else "Date:"} ${payment.paymentDate}", rightMargin - 16f, currentY, paint)
-
-        currentY += 8f
-        paint.color = AndroidColor.parseColor("#CBD5E1")
-        paint.strokeWidth = 1f
-        canvas.drawLine(leftMargin + 16f, currentY, rightMargin - 16f, currentY, paint)
-        currentY += 12f
-
-        // 3. Two-Column Layout (Customer Info on Left, Payment Details on Right)
-        val colGap = 14f
-        val colWidth = (contentWidth - 32f - colGap) / 2f
-        val colLeftX = leftMargin + 16f
-        val colRightX = colLeftX + colWidth + colGap
-        val boxHeight = 150f
-
-        // Left Box: Customer Details
-        val leftBoxRect = RectF(colLeftX, currentY, colLeftX + colWidth, currentY + boxHeight)
-        paint.color = AndroidColor.parseColor("#F8FAFC")
-        canvas.drawRoundRect(leftBoxRect, 6f, 6f, paint)
-        paint.color = AndroidColor.parseColor("#E2E8F0")
+        // Right: Dedicated Mobile Banking Box (bKash / Nagad)
+        val bankBoxW = 160f
+        val bankBoxH = 50f
+        val bankBoxRect = RectF(rightMargin - bankBoxW, 14f, rightMargin, 14f + bankBoxH)
+        paint.color = AndroidColor.parseColor("#FFF1F2")
+        canvas.drawRoundRect(bankBoxRect, 8f, 8f, paint)
+        paint.color = AndroidColor.parseColor("#E11D48")
         paint.style = Paint.Style.STROKE
-        canvas.drawRoundRect(leftBoxRect, 6f, 6f, paint)
+        paint.strokeWidth = 1f
+        canvas.drawRoundRect(bankBoxRect, 8f, 8f, paint)
         paint.style = Paint.Style.FILL
 
-        // Left Box Header
-        val leftHeaderRect = RectF(colLeftX, currentY, colLeftX + colWidth, currentY + 22f)
-        paint.color = AndroidColor.parseColor("#E0E7FF")
-        canvas.drawRoundRect(leftHeaderRect, 6f, 6f, paint)
-        canvas.drawRect(colLeftX, currentY + 12f, colLeftX + colWidth, currentY + 22f, paint)
+        paint.textAlign = Paint.Align.CENTER
+        if (bkashNumber.isNotBlank() && nagadNumber.isNotBlank()) {
+            paint.color = AndroidColor.parseColor("#D81B60")
+            paint.textSize = 8.5f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            canvas.drawText("bKash: $bkashNumber", bankBoxRect.centerX(), 32f, paint)
+            paint.color = AndroidColor.parseColor("#EA580C")
+            canvas.drawText("Nagad: $nagadNumber", bankBoxRect.centerX(), 48f, paint)
+        } else if (nagadNumber.isNotBlank()) {
+            paint.color = AndroidColor.parseColor("#EA580C")
+            paint.textSize = 10f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            canvas.drawText("Nagad Mobile Banking", bankBoxRect.centerX(), 30f, paint)
+            paint.textSize = 9.5f
+            canvas.drawText(nagadNumber, bankBoxRect.centerX(), 48f, paint)
+        } else {
+            val num = if (bkashNumber.isNotBlank()) bkashNumber else hotline
+            paint.color = AndroidColor.parseColor("#D81B60")
+            paint.textSize = 10f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            canvas.drawText("bKash Mobile Banking", bankBoxRect.centerX(), 30f, paint)
+            paint.textSize = 9.5f
+            canvas.drawText(num, bankBoxRect.centerX(), 48f, paint)
+        }
 
-        paint.color = AndroidColor.parseColor("#1E3A8A")
-        paint.textSize = 9.5f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        // 2. Contact Information Ribbon
+        val ribbonY = 72f
+        val ribbonH = 20f
+        val ribbonRect = RectF(leftMargin, ribbonY, rightMargin, ribbonY + ribbonH)
+        paint.color = AndroidColor.parseColor("#F0F9FF")
+        canvas.drawRoundRect(ribbonRect, 10f, 10f, paint)
+        paint.color = AndroidColor.parseColor("#BAE6FD")
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 0.8f
+        canvas.drawRoundRect(ribbonRect, 10f, 10f, paint)
+        paint.style = Paint.Style.FILL
+
         paint.textAlign = Paint.Align.LEFT
-        canvas.drawText(if (isBn) "গ্রাহকের তথ্য (CUSTOMER INFO)" else "CUSTOMER DETAILS", colLeftX + 10f, currentY + 15f, paint)
-
-        var lY = currentY + 36f
-        drawCompactInfoRow(canvas, paint, if (isBn) "গ্রাহক:" else "Name:", "$custName ($custCode)", colLeftX + 10f, lY, colWidth - 20f, true)
-        lY += 16f
-        if (config.showCustomerPhone) {
-            drawCompactInfoRow(canvas, paint, if (isBn) "মোবাইল:" else "Phone:", custPhone, colLeftX + 10f, lY, colWidth - 20f)
-            lY += 16f
-        }
-        if (config.showCustomerPppoe) {
-            drawCompactInfoRow(canvas, paint, if (isBn) "ইউজারনেম:" else "PPPoE ID:", pppoeUser, colLeftX + 10f, lY, colWidth - 20f)
-            lY += 16f
-        }
-        if (config.showPackageName) {
-            drawCompactInfoRow(canvas, paint, if (isBn) "প্যাকেজ:" else "Package:", packageName, colLeftX + 10f, lY, colWidth - 20f)
-            lY += 16f
-        }
-        if (config.showCustomerAddress) {
-            drawCompactInfoRow(canvas, paint, if (isBn) "ঠিকানা:" else "Address:", custAddress, colLeftX + 10f, lY, colWidth - 20f)
-            lY += 16f
-        }
-        drawCompactInfoRow(canvas, paint, if (isBn) "ইনভয়েস #:" else "Invoice #:", invNo, colLeftX + 10f, lY, colWidth - 20f)
-
-        // Right Box: Payment & Bill Breakdown
-        val rightBoxRect = RectF(colRightX, currentY, colRightX + colWidth, currentY + boxHeight)
-        paint.color = AndroidColor.parseColor("#F8FAFC")
-        canvas.drawRoundRect(rightBoxRect, 6f, 6f, paint)
-        paint.color = AndroidColor.parseColor("#E2E8F0")
-        paint.style = Paint.Style.STROKE
-        canvas.drawRoundRect(rightBoxRect, 6f, 6f, paint)
-        paint.style = Paint.Style.FILL
-
-        // Right Box Header
-        val rightHeaderRect = RectF(colRightX, currentY, colRightX + colWidth, currentY + 22f)
-        paint.color = AndroidColor.parseColor("#DCFCE7")
-        canvas.drawRoundRect(rightHeaderRect, 6f, 6f, paint)
-        canvas.drawRect(colRightX, currentY + 12f, colRightX + colWidth, currentY + 22f, paint)
-
-        paint.color = AndroidColor.parseColor("#15803D")
-        paint.textSize = 9.5f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText(if (isBn) "বিল ও পেমেন্ট বিবরণ (PAYMENT DETAILS)" else "PAYMENT BREAKDOWN", colRightX + 10f, currentY + 15f, paint)
-
-        var rY = currentY + 36f
-        drawCompactAmountRow(canvas, paint, if (isBn) "প্যাকেজ বিল:" else "Package Bill:", "$currency $billAmt", colRightX + 10f, rY, colWidth - 20f, false, AndroidColor.parseColor("#334155"), 10f)
-        rY += 16f
-        if (config.showRemainingDue) {
-            drawCompactAmountRow(canvas, paint, if (isBn) "বকেয়া বিল:" else "Previous Due:", "$currency $dueAmt", colRightX + 10f, rY, colWidth - 20f, false, if ((bill?.dueAmount ?: 0.0) > 0) AndroidColor.parseColor("#DC2626") else AndroidColor.parseColor("#64748B"), 10f)
-            rY += 16f
-        }
-
-        // Highlight Paid Amount Row
-        paint.color = AndroidColor.parseColor("#F0FDF4")
-        val paidHighlightRect = RectF(colRightX + 6f, rY - 11f, colRightX + colWidth - 6f, rY + 14f)
-        canvas.drawRoundRect(paidHighlightRect, 4f, 4f, paint)
-        paint.color = AndroidColor.parseColor("#86EFAC")
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1f
-        canvas.drawRoundRect(paidHighlightRect, 4f, 4f, paint)
-        paint.style = Paint.Style.FILL
-
-        drawCompactAmountRow(canvas, paint, if (isBn) "পরিশোধিত (PAID):" else "Amount Paid:", "$currency $paidAmt", colRightX + 10f, rY + 2f, colWidth - 20f, true, AndroidColor.parseColor("#15803D"), 12f)
-        rY += 24f
-
-        if (config.showPaymentMethod) {
-            drawCompactAmountRow(canvas, paint, if (isBn) "মাধ্যম:" else "Method:", payment.paymentMethod, colRightX + 10f, rY, colWidth - 20f, true, AndroidColor.parseColor("#0F172A"), 9.5f)
-            rY += 16f
-        }
-
-        // Paid Stamp
-        paint.color = AndroidColor.parseColor("#16A34A")
-        paint.textSize = 10.5f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(if (isBn) "✓ পরিশোধ সম্পন্ন (PAID FULLY)" else "✓ PAYMENT RECEIVED IN FULL", colRightX + (colWidth / 2f), currentY + boxHeight - 12f, paint)
-
-        currentY += boxHeight + 14f
-
-        // 4. Authorized Signature & Customer Signature Area
-        val sigLineY = currentY + 36f
-        val sigLineLength = 160f
-
-        // Customer Signature Line on Left
-        paint.color = AndroidColor.parseColor("#94A3B8")
-        paint.strokeWidth = 1f
-        canvas.drawLine(colLeftX, sigLineY, colLeftX + sigLineLength, sigLineY, paint)
-
-        paint.color = AndroidColor.parseColor("#475569")
-        paint.textSize = 8.5f
+        paint.color = AndroidColor.parseColor("#0F172A")
+        paint.textSize = 8f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        canvas.drawText("☎ Hotline: $hotline", leftMargin + 12f, ribbonY + 13f, paint)
+        canvas.drawText("✉ Email: $email", leftMargin + 190f, ribbonY + 13f, paint)
+        canvas.drawText("📍 Address: $address", leftMargin + 380f, ribbonY + 13f, paint)
+
+        // 3. Dotted Form Rows Section
+        var formY = 118f
+        val lineSpacing = 30f
+
+        // Helper to draw dotted row
+        fun drawFormDottedRow(label: String, value: String, y: Float, startX: Float = leftMargin, endX: Float = rightMargin) {
+            paint.textAlign = Paint.Align.LEFT
+            paint.color = AndroidColor.parseColor("#0F172A")
+            paint.textSize = 9.5f
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            canvas.drawText(label, startX, y, paint)
+
+            val labelW = paint.measureText(label) + 8f
+            val dotStartX = startX + labelW
+            paint.color = AndroidColor.parseColor("#0284C7")
+            paint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(4f, 4f), 0f)
+            paint.strokeWidth = 1f
+            canvas.drawLine(dotStartX, y, endX, y, paint)
+            paint.pathEffect = null
+
+            paint.color = AndroidColor.parseColor("#1E293B")
+            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            canvas.drawText(value, dotStartX + 6f, y - 2f, paint)
+        }
+
+        // Row 1: Received with thanks from
+        drawFormDottedRow("Received with thanks from", "$custName ($custCode)", formY)
+        formY += lineSpacing
+
+        // Row 2: Amount
+        drawFormDottedRow("Amount", "$currency $paidAmt", formY)
+        formY += lineSpacing
+
+        // Row 3: In word
+        val words = com.example.ui.components.convertNumberToWords(payment.amount.toLong())
+        drawFormDottedRow("In word", "$words Only", formY)
+        formY += lineSpacing
+
+        // Row 4: For & Branch
+        val midX = leftMargin + (contentWidth * 0.6f)
+        drawFormDottedRow("For", billMonth, formY, leftMargin, midX - 10f)
+        drawFormDottedRow("Branch", custBranch, formY, midX, rightMargin)
+        formY += lineSpacing
+
+        // Row 5: ACCT. | PAID | DUE
+        val col1End = leftMargin + (contentWidth * 0.38f)
+        val col2End = leftMargin + (contentWidth * 0.68f)
+        drawFormDottedRow("ACCT.", pppoeUser, formY, leftMargin, col1End - 10f)
+        drawFormDottedRow("PAID", "$currency $paidAmt", formY, col1End, col2End - 10f)
+        drawFormDottedRow("DUE", "$currency $dueAmt", formY, col2End, rightMargin)
+
+        // 4. Highlighted Amount Box & Signatures
+        val btmY = 285f
+
+        // Bottom Left: Prominent Amount = [ ৳ 1,500.00 ] Box
+        val amtBoxRect = RectF(leftMargin, btmY, leftMargin + 200f, btmY + 40f)
+        paint.color = AndroidColor.parseColor("#E0F2FE")
+        canvas.drawRoundRect(amtBoxRect, 8f, 8f, paint)
+        paint.color = AndroidColor.parseColor("#BAE6FD")
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1f
+        canvas.drawRoundRect(amtBoxRect, 8f, 8f, paint)
+        paint.style = Paint.Style.FILL
+
+        paint.textAlign = Paint.Align.LEFT
+        paint.color = AndroidColor.parseColor("#0F172A")
+        paint.textSize = 11f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("Amount =", leftMargin + 12f, btmY + 25f, paint)
+
+        val amtInsetRect = RectF(leftMargin + 72f, btmY + 6f, leftMargin + 192f, btmY + 34f)
+        paint.color = AndroidColor.WHITE
+        canvas.drawRoundRect(amtInsetRect, 4f, 4f, paint)
+        paint.color = AndroidColor.parseColor("#94A3B8")
+        paint.style = Paint.Style.STROKE
+        canvas.drawRoundRect(amtInsetRect, 4f, 4f, paint)
+        paint.style = Paint.Style.FILL
+
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(if (isBn) "গ্রাহকের স্বাক্ষর (Customer Signature)" else "Customer Signature", colLeftX + (sigLineLength / 2f), sigLineY + 11f, paint)
+        paint.color = AndroidColor.parseColor("#0F172A")
+        paint.textSize = 11f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("$currency $paidAmt", amtInsetRect.centerX(), btmY + 24f, paint)
 
-        // Authorized Signature Line on Right
-        val authSigStartX = rightMargin - 16f - sigLineLength
-        val authSigCenterX = authSigStartX + (sigLineLength / 2f)
+        // Bottom Right: Received by & Authorized Signature
+        val sigLineY = btmY + 24f
+        val recByX = rightMargin - 240f
+        val authSigX = rightMargin - 100f
 
-        if (config.signatureName.isNotBlank()) {
+        // Received by line
+        paint.color = AndroidColor.parseColor("#0284C7")
+        paint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f, 3f), 0f)
+        canvas.drawLine(recByX - 50f, sigLineY, recByX + 50f, sigLineY, paint)
+        paint.pathEffect = null
+        paint.textAlign = Paint.Align.CENTER
+        paint.color = AndroidColor.parseColor("#334155")
+        paint.textSize = 8.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("Received by", recByX, sigLineY + 12f, paint)
+
+        // Authorized Signature
+        if (sigName.isNotBlank()) {
             val sigPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = AndroidColor.parseColor("#0F2942")
-                textSize = 17f
+                color = AndroidColor.parseColor("#1E3A8A")
+                textSize = 14f
                 try {
                     typeface = Typeface.create("cursive", Typeface.ITALIC)
                 } catch (_: Throwable) {
@@ -356,41 +361,40 @@ object ReceiptPrintUtils {
                 }
                 textAlign = Paint.Align.CENTER
             }
-            canvas.drawText(config.signatureName, authSigCenterX, sigLineY - 6f, sigPaint)
+            canvas.drawText(sigName, authSigX, sigLineY - 4f, sigPaint)
         }
 
-        paint.color = AndroidColor.parseColor("#1E3A8A")
-        paint.strokeWidth = 1f
-        canvas.drawLine(authSigStartX, sigLineY, rightMargin - 16f, sigLineY, paint)
-
-        paint.color = AndroidColor.parseColor("#1E3A8A")
-        paint.textSize = 9f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.color = AndroidColor.parseColor("#0284C7")
+        paint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f, 3f), 0f)
+        canvas.drawLine(authSigX - 60f, sigLineY, authSigX + 60f, sigLineY, paint)
+        paint.pathEffect = null
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(if (isBn) "কর্তৃপক্ষের স্বাক্ষর (Authorized Signature)" else "Authorized Signature", authSigCenterX, sigLineY + 11f, paint)
-        paint.color = AndroidColor.parseColor("#64748B")
-        paint.textSize = 7.5f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        canvas.drawText("for $ispName", authSigCenterX, sigLineY + 20f, paint)
-
-        // 5. Footer & Thank you Note
-        paint.color = AndroidColor.parseColor("#64748B")
+        paint.color = AndroidColor.parseColor("#334155")
         paint.textSize = 8.5f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        paint.textAlign = Paint.Align.CENTER
-        val footerMsg = config.footerMessage.ifBlank {
-            if (isBn) "আমাদের ইন্টারনেট সেবা ব্যবহার করার জন্য আপনাকে ধন্যবাদ!" else "Thank you for using our internet service!"
-        }
-        canvas.drawText(footerMsg, pageWidth / 2f, pageHeight - 34f, paint)
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText("Authorized Signature", authSigX, sigLineY + 12f, paint)
 
-        paint.color = AndroidColor.parseColor("#94A3B8")
-        paint.textSize = 7.5f
-        val genTime = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date())
-        canvas.drawText("Official Digital Money Receipt • Generated on $genTime", pageWidth / 2f, pageHeight - 24f, paint)
+        // 5. Corporate Footer Band
+        val footerY = pageHeight - 34f
+        val footerH = 34f
+        val footerRect = RectF(0f, footerY, pageWidth.toFloat(), pageHeight.toFloat())
+        paint.color = AndroidColor.parseColor("#312E81")
+        canvas.drawRect(footerRect, paint)
+
+        paint.textAlign = Paint.Align.LEFT
+        paint.color = AndroidColor.WHITE
+        paint.textSize = 10f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC)
+        canvas.drawText("⚡ $motto", leftMargin + 8f, footerY + 21f, paint)
+
+        paint.textAlign = Paint.Align.RIGHT
+        paint.textSize = 8f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        canvas.drawText("Receipt #: $receiptNo • $billMonth", rightMargin - 8f, footerY + 21f, paint)
 
         pdfDocument.finishPage(page)
 
-        // Save PDF to documents directory
+        // Save to document file
         val docsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir, "Receipts")
         if (!docsDir.exists()) docsDir.mkdirs()
 

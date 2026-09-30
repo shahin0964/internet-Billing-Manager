@@ -31,6 +31,7 @@ import com.example.R
 import com.example.data.model.BillEntity
 import com.example.data.model.CustomerEntity
 import com.example.data.model.PaymentEntity
+import com.example.ui.components.CorporateMoneyReceiptView
 import com.example.ui.viewmodel.IspViewModel
 import com.example.util.ReceiptCustomizationConfig
 import com.example.util.ReceiptCustomizationManager
@@ -272,7 +273,7 @@ fun ReceiptCustomizationScreen(
                 }
             }
 
-            // Section 4: Signature Name Customization
+            // Section 4: Mobile Banking & Signature Customization
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -282,26 +283,62 @@ fun ReceiptCustomizationScreen(
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Edit,
+                                imageVector = Icons.Default.AccountBalanceWallet,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "স্বাক্ষরকারীর নাম (Signature Name)",
+                                text = "মোবাইল ব্যাংকিং ও স্বাক্ষর (bKash / Nagad & Signature)",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                         }
 
                         Text(
-                            text = "অনুমোদিত স্বাক্ষরকারীর নাম লিখুন। এটি রশিদে স্বয়ংক্রিয়ভাবে আকর্ষণীয় সিগনেচার স্টাইলে প্রদর্শিত হবে।",
+                            text = "মানি রসিদের টপ-রাইট বক্সে প্রদর্শনের জন্য বিকাশ ও নগদ নম্বর এবং অনুমোদিত স্বাক্ষরকারীর নাম সেট করুন।",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        OutlinedTextField(
+                            value = config.bkashNumber,
+                            onValueChange = { updateConfig(config.copy(bkashNumber = it)) },
+                            label = { Text("bKash Number / বিকাশ নম্বর") },
+                            placeholder = { Text("যেমন: 01XXXXXXXXX") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Smartphone,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD81B60),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        OutlinedTextField(
+                            value = config.nagadNumber,
+                            onValueChange = { updateConfig(config.copy(nagadNumber = it)) },
+                            label = { Text("Nagad Number / নগদ নম্বর") },
+                            placeholder = { Text("যেমন: 01XXXXXXXXX") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Smartphone,
+                                    contentDescription = null,
+                                    tint = Color(0xFFEA580C),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
                         )
 
                         OutlinedTextField(
@@ -309,6 +346,32 @@ fun ReceiptCustomizationScreen(
                             onValueChange = { updateConfig(config.copy(signatureName = it)) },
                             label = { Text("Signature Name / স্বাক্ষরকারীর নাম") },
                             placeholder = { Text("যেমন: Md Shahin") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        OutlinedTextField(
+                            value = config.corporateMotto,
+                            onValueChange = { updateConfig(config.copy(corporateMotto = it)) },
+                            label = { Text("Corporate Motto / কোম্পানির স্লোগান") },
+                            placeholder = { Text("যেমন: Stay Connected, Stay Ahead") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Wifi,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             shape = RoundedCornerShape(8.dp)
@@ -599,203 +662,69 @@ fun ReceiptCustomizationScreen(
 }
 
 /**
- * 1. Money Receipt Live Preview - Classic Voucher / Counterfoil format with ornate frame & dual-column layout
+ * 1. Money Receipt Live Preview - Corporate Money Voucher format inspired by the reference image
  */
 @Composable
 private fun MoneyReceiptLivePreview(
     config: ReceiptCustomizationConfig,
     settings: com.example.data.model.BusinessSettingsEntity
 ) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = Color.White,
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFCBD5E1)),
-        shadowElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-        ) {
-            // Header Banner
-            Surface(
-                shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
-                color = Color(0xFF1E3A8A),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = settings.ispName.ifBlank { "আইএসপি ডিজিটাল নেটওয়ার্ক" },
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "হটলাইন: ${settings.hotline.ifBlank { "০১৭০০-০০০০০০" }}",
-                            fontSize = 10.sp,
-                            color = Color(0xFFBFDBFE)
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF2563EB)
-                    ) {
-                        Text(
-                            text = config.receiptTitle.ifBlank { "মানি রশিদ" },
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-
-            // Sub-header metadata strip
-            Surface(
-                color = Color(0xFFF1F5F9),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "রশিদ নং: RCP-889201", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                    Text(text = "মাস: সেপ্টেম্বর ২০২৬", fontSize = 9.sp, color = Color(0xFF475569))
-                    Text(text = "তারিখ: আজকের তারিখ", fontSize = 9.sp, color = Color(0xFF475569))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Two-column section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // Left Column: Customer Details
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFFF8FAFC),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(
-                            text = "গ্রাহক তথ্য",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E3A8A)
-                        )
-                        HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
-                        PreviewItemRow("নাম:", "মোঃ আরিফুল ইসলাম")
-                        PreviewItemRow("আইডি:", "CUST-101")
-                        if (config.showCustomerPhone) PreviewItemRow("মোবাইল:", "01712-345678")
-                        if (config.showCustomerPppoe) PreviewItemRow("ইউজার:", "ariful_net")
-                        if (config.showPackageName) PreviewItemRow("প্যাকেজ:", "20 Mbps")
-                        if (config.showCustomerAddress) PreviewItemRow("ঠিকানা:", "মিরপুর-১০, ঢাকা")
-                    }
-                }
-
-                // Right Column: Payment Details
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFFF8FAFC),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(
-                            text = "পরিশোধ বিবরণ",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF16A34A)
-                        )
-                        HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
-                        PreviewItemRow("মোট বিল:", "${settings.currencySymbol} 800.00")
-                        PreviewItemRow("পরিশোধ:", "${settings.currencySymbol} 800.00", isSuccess = true)
-                        if (config.showRemainingDue) PreviewItemRow("বকেয়া:", "${settings.currencySymbol} 0.00")
-                        if (config.showPaymentMethod) PreviewItemRow("মাধ্যম:", "bKash")
-                        PreviewItemRow("অবস্থা:", "PAID", isSuccess = true)
-                    }
-                }
-            }
-
-            if (config.customNotes.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFFFFFBEB),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFFDE68A)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "নোট: ${config.customNotes}",
-                        fontSize = 9.sp,
-                        color = Color(0xFF92400E),
-                        modifier = Modifier.padding(6.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Signature Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("________________________", fontSize = 8.sp, color = Color(0xFF94A3B8))
-                    Text("গ্রাহকের স্বাক্ষর (Received by)", fontSize = 8.5.sp, color = Color(0xFF64748B))
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (config.signatureName.isNotBlank()) {
-                        Text(
-                            text = config.signatureName,
-                            fontFamily = FontFamily.Cursive,
-                            fontStyle = FontStyle.Italic,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = Color(0xFF1E3A8A)
-                        )
-                    }
-                    Text("________________________", fontSize = 8.sp, color = Color(0xFF1E3A8A))
-                    Text("কর্তৃপক্ষের স্বাক্ষর (Authorized Signature)", fontSize = 8.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 0.5.dp)
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = config.footerMessage.ifBlank { "আমাদের ইন্টারনেট সেবা ব্যবহারের জন্য ধন্যবাদ!" },
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF475569),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
+    val samplePayment = remember {
+        PaymentEntity(
+            id = 1,
+            paymentReceiptNo = "RCP-889201",
+            billId = 1,
+            customerId = 1,
+            customerName = "মোঃ আরিফুল ইসলাম",
+            amount = 1500.0,
+            paymentDate = "2026-09-30",
+            paymentMethod = "bKash",
+            notes = "September 2026 Monthly Internet Bill"
+        )
     }
+    val sampleBill = remember {
+        BillEntity(
+            id = 1,
+            billNumber = "INV-2026-0901",
+            customerId = 1,
+            customerName = "মোঃ আরিফুল ইসলাম",
+            customerCode = "CUST-101",
+            billingMonth = "September 2026",
+            amount = 1500.0,
+            paidAmount = 1500.0,
+            dueAmount = 0.0,
+            status = "PAID",
+            generatedDate = "2026-09-01",
+            dueDate = "2026-09-10"
+        )
+    }
+    val sampleCustomer = remember {
+        CustomerEntity(
+            id = 1,
+            customerCode = "CUST-101",
+            name = "মোঃ আরিফুল ইসলাম",
+            phone = "01712-345678",
+            address = "মিরপুর-১০, ঢাকা",
+            pppoeUsername = "ariful_net",
+            packageId = 1,
+            packageName = "Standard 20 Mbps",
+            monthlyFee = 1500.0,
+            joiningDate = "2026-01-01",
+            area = "মিরপুর শাখা"
+        )
+    }
+
+    CorporateMoneyReceiptView(
+        payment = samplePayment,
+        bill = sampleBill,
+        customer = sampleCustomer,
+        settings = settings,
+        config = config,
+        bkashNumber = config.bkashNumber,
+        nagadNumber = config.nagadNumber,
+        signatureName = config.signatureName,
+        motto = config.corporateMotto
+    )
 }
 
 /**

@@ -61,9 +61,12 @@ import com.example.data.model.CustomerEntity
 import com.example.data.model.PaymentEntity
 import java.util.Locale
 
+import androidx.compose.ui.text.font.FontFamily
+import com.example.util.ReceiptCustomizationConfig
+
 /**
  * Modern Corporate Money Receipt layout replicating the professional ISP money voucher design.
- * Dynamically bound to BusinessSettingsEntity, PaymentEntity, BillEntity, and CustomerEntity.
+ * Dynamically bound to BusinessSettingsEntity, PaymentEntity, BillEntity, CustomerEntity, and ReceiptCustomizationConfig.
  */
 @Composable
 fun CorporateMoneyReceiptView(
@@ -72,7 +75,11 @@ fun CorporateMoneyReceiptView(
     customer: CustomerEntity?,
     settings: BusinessSettingsEntity,
     modifier: Modifier = Modifier,
-    motto: String = "Stay Connected, Stay Ahead"
+    config: ReceiptCustomizationConfig? = null,
+    bkashNumber: String? = null,
+    nagadNumber: String? = null,
+    signatureName: String? = null,
+    motto: String? = null
 ) {
     // Dynamic Bindings with robust fallbacks
     val ispName = settings.ispName.ifBlank { "ISP & IT Solutions" }
@@ -80,6 +87,11 @@ fun CorporateMoneyReceiptView(
     val email = settings.email.ifBlank { "support@isp.com" }
     val address = settings.address.ifBlank { "Dhaka, Bangladesh" }
     val currency = settings.currencySymbol.ifBlank { "৳" }
+
+    val effectiveBkash = (bkashNumber ?: config?.bkashNumber ?: "").trim()
+    val effectiveNagad = (nagadNumber ?: config?.nagadNumber ?: "").trim()
+    val effectiveSignature = (signatureName ?: config?.signatureName ?: "").trim()
+    val effectiveMotto = (motto ?: config?.corporateMotto ?: "Stay Connected, Stay Ahead").ifBlank { "Stay Connected, Stay Ahead" }
 
     val customerName = (customer?.name ?: payment.customerName).ifBlank { "Valued Customer" }
     val customerCode = customer?.customerCode ?: "CUST-${payment.customerId}"
@@ -291,83 +303,206 @@ fun CorporateMoneyReceiptView(
                         )
                     }
 
-                    // 1.3 Right: Mobile Banking / bKash Box
+                    // 1.3 Right: Dedicated Mobile Banking Widget (bKash / Nagad)
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color.White,
-                        border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFFE11D48)),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.2.dp,
+                            if (effectiveNagad.isNotBlank() && effectiveBkash.isBlank()) Color(0xFFEA580C) else Color(0xFFE11D48)
+                        ),
                         shadowElevation = 1.dp,
                         modifier = Modifier
-                            .weight(1.2f)
+                            .weight(1.3f)
                             .padding(start = 6.dp)
                     ) {
                         Column(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "bKash",
-                                    style = MaterialTheme.typography.titleSmall.copy(
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 14.sp
-                                    ),
-                                    color = Color(0xFFD81B60)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                // Origami Bird Logo Icon
-                                Icon(
-                                    imageVector = Icons.Default.AccountBalanceWallet,
-                                    contentDescription = "bKash",
-                                    tint = Color(0xFFE11D48),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Smartphone,
-                                    contentDescription = null,
-                                    tint = Color(0xFFD81B60),
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = "bKash Number",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 8.5.sp
-                                    ),
-                                    color = Color(0xFF334155)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(3.dp))
-
-                            // Hotline/Payment Number Box
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = Color(0xFFFFF1F2),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECDD3)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = hotline,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        letterSpacing = 0.5.sp
-                                    ),
-                                    color = Color(0xFF9F1239),
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(vertical = 3.dp, horizontal = 4.dp),
-                                    maxLines = 1
-                                )
+                            if (effectiveBkash.isNotBlank() && effectiveNagad.isNotBlank()) {
+                                // Dual bKash & Nagad layout
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "bKash",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFD81B60),
+                                        fontSize = 10.sp
+                                    )
+                                    Text(text = "•", color = Color(0xFFCBD5E1), fontSize = 10.sp)
+                                    Text(
+                                        text = "Nagad",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFEA580C),
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                // bKash number row
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFFFFF1F2),
+                                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFFECDD3)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "bKash: $effectiveBkash",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 9.5.sp
+                                        ),
+                                        color = Color(0xFF9F1239),
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(vertical = 2.dp, horizontal = 2.dp),
+                                        maxLines = 1
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                // Nagad number row
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFFFFF7ED),
+                                    border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0xFFFFEDD5)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "Nagad: $effectiveNagad",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 9.5.sp
+                                        ),
+                                        color = Color(0xFFC2410C),
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(vertical = 2.dp, horizontal = 2.dp),
+                                        maxLines = 1
+                                    )
+                                }
+                            } else if (effectiveNagad.isNotBlank()) {
+                                // Only Nagad
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "Nagad",
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 13.sp
+                                        ),
+                                        color = Color(0xFFEA580C)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.AccountBalanceWallet,
+                                        contentDescription = "Nagad",
+                                        tint = Color(0xFFEA580C),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Smartphone,
+                                        contentDescription = null,
+                                        tint = Color(0xFFEA580C),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = "Nagad Number",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 8.5.sp
+                                        ),
+                                        color = Color(0xFF334155)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFFFF7ED),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFEDD5)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = effectiveNagad,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            letterSpacing = 0.5.sp
+                                        ),
+                                        color = Color(0xFFC2410C),
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(vertical = 3.dp, horizontal = 4.dp),
+                                        maxLines = 1
+                                    )
+                                }
+                            } else {
+                                // bKash or Hotline fallback
+                                val displayBkashNumber = if (effectiveBkash.isNotBlank()) effectiveBkash else hotline
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "bKash",
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 13.sp
+                                        ),
+                                        color = Color(0xFFD81B60)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.AccountBalanceWallet,
+                                        contentDescription = "bKash",
+                                        tint = Color(0xFFE11D48),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Smartphone,
+                                        contentDescription = null,
+                                        tint = Color(0xFFD81B60),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = "bKash Number",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 8.5.sp
+                                        ),
+                                        color = Color(0xFF334155)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFFFF1F2),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECDD3)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = displayBkashNumber,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            letterSpacing = 0.5.sp
+                                        ),
+                                        color = Color(0xFF9F1239),
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(vertical = 3.dp, horizontal = 4.dp),
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -651,6 +786,17 @@ fun CorporateMoneyReceiptView(
 
                         // Authorized Signature
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (effectiveSignature.isNotBlank()) {
+                                Text(
+                                    text = effectiveSignature,
+                                    fontFamily = FontFamily.Cursive,
+                                    fontStyle = FontStyle.Italic,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color(0xFF1E3A8A),
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                )
+                            }
                             DottedUnderline(width = 110.dp)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -694,7 +840,7 @@ fun CorporateMoneyReceiptView(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = motto,
+                            text = effectiveMotto,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontStyle = FontStyle.Italic,
