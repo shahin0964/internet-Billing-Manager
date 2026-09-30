@@ -82,6 +82,7 @@ class IspRepository(
     private val context: Context? = null,
     val databaseOwner: String? = null
 ) {
+    private val restoreLockMutex = Mutex()
     @Volatile private var idCounter = 0
     private fun generateUniqueId(): Long {
         val count = synchronized(this) { idCounter++ }
@@ -287,6 +288,10 @@ class IspRepository(
         context?.let { ctx ->
             val uid = com.example.IspApplication.getUserId(ctx)
             if (uid != null) {
+                // 1. Enqueue reliable WorkManager background task for automatic live sync when online
+                com.example.util.SyncWorker.enqueueSync(ctx, forceExpedited = false)
+
+                // 2. Refresh pending count and attempt immediate in-memory sync if online
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
                         val actualCount = com.example.util.HostingSyncManager.getActualPendingDirtyCount(ctx)
@@ -296,6 +301,14 @@ class IspRepository(
                         val prefs = ctx.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
                         val currentCount = prefs.getInt("pending_sync_count_$uid", 0)
                         prefs.edit().putInt("pending_sync_count_$uid", currentCount + 1).apply()
+                    }
+
+                    if (com.example.util.HostingSyncManager.isNetworkAvailable(ctx)) {
+                        try {
+                            com.example.util.HostingSyncManager.syncLocalToHosting(ctx)
+                        } catch (e: Throwable) {
+                            Log.d("IspRepository", "Direct sync attempt noted: ${e.message}")
+                        }
                     }
                 }
             }
@@ -1968,28 +1981,32 @@ class IspRepository(
         }
     }
 
-    suspend fun generateFullBackupJson(context: Context): String {
-        val custs = kotlinx.coroutines.withTimeoutOrNull(5000L) { customers.first() } ?: emptyList()
-        val pkgs = kotlinx.coroutines.withTimeoutOrNull(5000L) { packages.first() } ?: emptyList()
-        val bls = kotlinx.coroutines.withTimeoutOrNull(5000L) { bills.first() } ?: emptyList()
-        val pymts = kotlinx.coroutines.withTimeoutOrNull(5000L) { payments.first() } ?: emptyList()
-        val sttngs = kotlinx.coroutines.withTimeoutOrNull(5000L) { settings.first() }
-        val exps = kotlinx.coroutines.withTimeoutOrNull(5000L) { expenses.first() } ?: emptyList()
-        val cats = kotlinx.coroutines.withTimeoutOrNull(5000L) { expenseCategories.first() } ?: emptyList()
-        val bwBills = kotlinx.coroutines.withTimeoutOrNull(5000L) { bandwidthBills.first() } ?: emptyList()
-        val specAdvs = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.specificAdvanceDao().getAllSpecificAdvancesList() } ?: emptyList()
-        val networkDiagrams = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.networkDiagramDao().getAllDiagramsList() } ?: emptyList()
-        val networkNodes = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.networkDiagramDao().getAllNodesList() } ?: emptyList()
-        val networkConns = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.networkDiagramDao().getAllConnectionsList() } ?: emptyList()
-        val auditLogsList = kotlinx.coroutines.withTimeoutOrNull(5000L) { db.auditLogDao().getAllAuditLogsList() } ?: emptyList()
+    suspend fun generateFullBackupJson(context: Context): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val custs = customerDao.getAllCustomersList()
+        val pkgs = packageDao.getAllPackagesList()
+        val bls = billDao.getAllBillsList()
+        val pymts = paymentDao.getAllPaymentsList()
+        val sttngs = settingsDao.getSettingsSingle()
+        val exps = expenseDao.getAllExpensesList()
+        val cats = expenseDao.getAllCategoriesList()
+        val bwBills = db.bandwidthBillDao().getAllBandwidthBillsList()
+        val specAdvs = db.specificAdvanceDao().getAllSpecificAdvancesList()
+        val diagramsList = db.networkDiagramDao().getAllDiagramsList()
+        val nodesList = db.networkDiagramDao().getAllNodesList()
+        val connsList = db.networkDiagramDao().getAllConnectionsList()
+        val auditLogsList = db.auditLogDao().getAllAuditLogsList()
 
         val sharedPrefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val appLang = sharedPrefs.getString("app_lang", "en") ?: "en"
+        val activeUid = com.example.IspApplication.getUserId(context) ?: ""
 
         val root = JSONObject()
-        root.put("schemaVersion", 1)
+        root.put("schemaVersion", 2)
+        root.put("version", 2)
         root.put("exportedAt", System.currentTimeMillis())
+        root.put("export_timestamp", System.currentTimeMillis())
         root.put("appLanguage", appLang)
+        root.put("userId", activeUid)
 
         // Customers
         val custArray = JSONArray()
@@ -2017,6 +2034,7 @@ class IspRepository(
             obj.put("onuSerial", c.onuSerial)
             obj.put("routerName", c.routerName)
             obj.put("advanceBalance", c.advanceBalance)
+            obj.put("updatedAt", c.updatedAt)
             custArray.put(obj)
         }
         root.put("customers", custArray)
@@ -2030,6 +2048,7 @@ class IspRepository(
             obj.put("speedMbps", p.speedMbps)
             obj.put("monthlyPrice", p.monthlyPrice)
             obj.put("description", p.description)
+            obj.put("updatedAt", p.updatedAt)
             pkgArray.put(obj)
         }
         root.put("packages", pkgArray)
@@ -2050,6 +2069,7 @@ class IspRepository(
             obj.put("status", b.status)
             obj.put("generatedDate", b.generatedDate)
             obj.put("dueDate", b.dueDate)
+            obj.put("updatedAt", b.updatedAt)
             billArray.put(obj)
         }
         root.put("bills", billArray)
@@ -2067,6 +2087,7 @@ class IspRepository(
             obj.put("paymentDate", p.paymentDate)
             obj.put("paymentMethod", p.paymentMethod)
             obj.put("notes", p.notes)
+            obj.put("updatedAt", p.updatedAt)
             paymentArray.put(obj)
         }
         root.put("payments", paymentArray)
@@ -2095,6 +2116,7 @@ class IspRepository(
             val obj = JSONObject()
             obj.put("id", c.id)
             obj.put("name", c.name)
+            obj.put("updatedAt", c.updatedAt)
             catArray.put(obj)
         }
         root.put("expenseCategories", catArray)
@@ -2105,6 +2127,7 @@ class IspRepository(
             val obj = JSONObject()
             obj.put("billingMonth", b.billingMonth)
             obj.put("amount", b.amount)
+            obj.put("updatedAt", b.updatedAt)
             bwArray.put(obj)
         }
         root.put("bandwidthBills", bwArray)
@@ -2135,25 +2158,26 @@ class IspRepository(
             settObj.put("themeMode", sttngs.themeMode)
             settObj.put("logoUri", sttngs.logoUri ?: "")
             settObj.put("email", sttngs.email)
+            settObj.put("updatedAt", sttngs.updatedAt)
             root.put("settings", settObj)
         }
 
         // Network Diagrams
-        val diagArray = JSONArray()
-        networkDiagrams.forEach { d ->
+        val diagramArray = JSONArray()
+        diagramsList.forEach { d ->
             val obj = JSONObject()
             obj.put("id", d.id)
             obj.put("name", d.name)
             obj.put("isDefault", d.isDefault)
             obj.put("createdAt", d.createdAt)
             obj.put("updatedAt", d.updatedAt)
-            diagArray.put(obj)
+            diagramArray.put(obj)
         }
-        root.put("networkDiagrams", diagArray)
+        root.put("networkDiagrams", diagramArray)
 
         // Network Nodes
         val nodeArray = JSONArray()
-        networkNodes.forEach { n ->
+        nodesList.forEach { n ->
             val obj = JSONObject()
             obj.put("id", n.id)
             obj.put("diagramId", n.diagramId)
@@ -2175,15 +2199,15 @@ class IspRepository(
 
         // Network Connections
         val connArray = JSONArray()
-        networkConns.forEach { c ->
+        connsList.forEach { cn ->
             val obj = JSONObject()
-            obj.put("id", c.id)
-            obj.put("diagramId", c.diagramId)
-            obj.put("fromNodeId", c.fromNodeId)
-            obj.put("toNodeId", c.toNodeId)
-            obj.put("label", c.label)
-            obj.put("notes", c.notes)
-            obj.put("updatedAt", c.updatedAt)
+            obj.put("id", cn.id)
+            obj.put("diagramId", cn.diagramId)
+            obj.put("fromNodeId", cn.fromNodeId)
+            obj.put("toNodeId", cn.toNodeId)
+            obj.put("label", cn.label)
+            obj.put("notes", cn.notes)
+            obj.put("updatedAt", cn.updatedAt)
             connArray.put(obj)
         }
         root.put("networkConnections", connArray)
@@ -2208,341 +2232,444 @@ class IspRepository(
         }
         root.put("auditLogs", logArray)
 
-        return root.toString(2)
+        root.toString(2)
     }
 
-    suspend fun restoreFromFullBackupJson(context: Context, jsonStr: String): Boolean {
-        // Step 1: Create local safety backup string before modifying existing database
-        val safetyBackupJson = generateFullBackupJson(context)
-        val safetyFile = java.io.File(context.filesDir, "safety_backup_before_restore.json")
-        try {
-            safetyFile.writeText(safetyBackupJson, Charsets.UTF_8)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        return try {
-            val root = JSONObject(jsonStr)
-
-            fun optJsonLong(obj: JSONObject, key: String, defaultIdx: Int): Long {
-                if (obj.has(key) && !obj.isNull(key)) {
-                    val v = obj.get(key)
-                    val parsed = when (v) {
-                        is Number -> v.toLong()
-                        is String -> v.toLongOrNull() ?: v.filter { it.isDigit() }.toLongOrNull()
-                        else -> null
-                    }
-                    if (parsed != null && parsed != 0L) return parsed
-                }
-                return (defaultIdx + 1000).toLong()
+    suspend fun restoreFromFullBackupJson(context: Context, jsonStr: String): Boolean = restoreLockMutex.withLock {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val safetyBackupJson = try {
+                generateFullBackupJson(context)
+            } catch (e: Exception) {
+                Log.w("IspRepository", "Could not generate pre-restore safety backup: ${e.message}")
+                null
             }
-
-            val customerList = mutableListOf<CustomerEntity>()
-            if (root.has("customers")) {
-                val arr = root.getJSONArray("customers")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val custId = optJsonLong(obj, "id", i)
-                    customerList.add(
-                        CustomerEntity(
-                            id = custId,
-                            customerCode = obj.optString("customerCode", "CUST-$custId"),
-                            name = obj.optString("name", ""),
-                            phone = obj.optString("phone", ""),
-                            address = obj.optString("address", ""),
-                            pppoeUsername = obj.optString("pppoeUsername", ""),
-                            ipAddress = obj.optString("ipAddress", ""),
-                            packageId = optJsonLong(obj, "packageId", 0),
-                            packageName = obj.optString("packageName", ""),
-                            monthlyFee = obj.optDouble("monthlyFee", 0.0),
-                            status = obj.optString("status", "ACTIVE"),
-                            joiningDate = obj.optString("joiningDate", ""),
-                            notes = obj.optString("notes", ""),
-                            area = obj.optString("area", ""),
-                            zone = obj.optString("zone", ""),
-                            latitude = obj.optDouble("latitude", 0.0),
-                            longitude = obj.optDouble("longitude", 0.0),
-                            oltName = obj.optString("oltName", ""),
-                            ponPort = obj.optString("ponPort", ""),
-                            onuSerial = obj.optString("onuSerial", ""),
-                            routerName = obj.optString("routerName", ""),
-                            advanceBalance = obj.optDouble("advanceBalance", 0.0),
-                            updatedAt = System.currentTimeMillis(),
-                            syncStatus = 1
-                        )
-                    )
-                }
-            }
-
-            val custCodeMap = customerList.associate { it.customerCode.trim().lowercase(java.util.Locale.ROOT) to it.id }
-            val custNameMap = customerList.associate { it.name.trim().lowercase(java.util.Locale.ROOT) to it.id }
-
-            val packageList = mutableListOf<IspPackageEntity>()
-            if (root.has("packages")) {
-                val arr = root.getJSONArray("packages")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    packageList.add(
-                        IspPackageEntity(
-                            id = optJsonLong(obj, "id", i),
-                            name = obj.optString("name", ""),
-                            speedMbps = obj.optInt("speedMbps", 0),
-                            monthlyPrice = obj.optDouble("monthlyPrice", 0.0),
-                            description = obj.optString("description", ""),
-                            updatedAt = System.currentTimeMillis(),
-                            syncStatus = 1
-                        )
-                    )
-                }
-            }
-
-            val billList = mutableListOf<BillEntity>()
-            if (root.has("bills")) {
-                val arr = root.getJSONArray("bills")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val billId = optJsonLong(obj, "id", i)
-                    val rawCustId = optJsonLong(obj, "customerId", -1)
-                    val cCode = obj.optString("customerCode", "")
-                    val cName = obj.optString("customerName", "")
-                    val resolvedCustId = if (rawCustId > 0L && customerList.any { it.id == rawCustId }) {
-                        rawCustId
-                    } else {
-                        custCodeMap[cCode.trim().lowercase(java.util.Locale.ROOT)]
-                            ?: custNameMap[cName.trim().lowercase(java.util.Locale.ROOT)]
-                            ?: if (rawCustId > 0L) rawCustId else 0L
-                    }
-
-                    billList.add(
-                        BillEntity(
-                            id = billId,
-                            billNumber = obj.optString("billNumber", ""),
-                            customerId = resolvedCustId,
-                            customerName = cName,
-                            customerCode = cCode,
-                            billingMonth = obj.optString("billingMonth", ""),
-                            amount = obj.optDouble("amount", 0.0),
-                            paidAmount = obj.optDouble("paidAmount", 0.0),
-                            dueAmount = obj.optDouble("dueAmount", 0.0),
-                            status = obj.optString("status", "UNPAID"),
-                            generatedDate = obj.optString("generatedDate", ""),
-                            dueDate = obj.optString("dueDate", ""),
-                            updatedAt = System.currentTimeMillis(),
-                            syncStatus = 1
-                        )
-                    )
-                }
-            }
-
-            val paymentList = mutableListOf<PaymentEntity>()
-            if (root.has("payments")) {
-                val arr = root.getJSONArray("payments")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val payId = optJsonLong(obj, "id", i)
-                    val rawCustId = optJsonLong(obj, "customerId", -1)
-                    val cName = obj.optString("customerName", "")
-                    val resolvedCustId = if (rawCustId > 0L && customerList.any { it.id == rawCustId }) {
-                        rawCustId
-                    } else {
-                        custNameMap[cName.trim().lowercase(java.util.Locale.ROOT)] ?: if (rawCustId > 0L) rawCustId else 0L
-                    }
-
-                    paymentList.add(
-                        PaymentEntity(
-                            id = payId,
-                            paymentReceiptNo = obj.optString("paymentReceiptNo", ""),
-                            billId = optJsonLong(obj, "billId", 0),
-                            customerId = resolvedCustId,
-                            customerName = cName,
-                            amount = obj.optDouble("amount", 0.0),
-                            paymentDate = obj.optString("paymentDate", ""),
-                            paymentMethod = obj.optString("paymentMethod", "Cash"),
-                            notes = obj.optString("notes", ""),
-                            updatedAt = System.currentTimeMillis(),
-                            syncStatus = 1
-                        )
-                    )
-                }
-            }
-
-            val expenseList = mutableListOf<ExpenseEntity>()
-            if (root.has("expenses")) {
-                val arr = root.getJSONArray("expenses")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    expenseList.add(
-                        ExpenseEntity(
-                            id = if (obj.has("id")) obj.getLong("id") else 0L,
-                            title = obj.optString("title", ""),
-                            amount = obj.optDouble("amount", 0.0),
-                            category = obj.optString("category", "Other"),
-                            date = obj.optString("date", ""),
-                            paymentMethod = obj.optString("paymentMethod", "Cash"),
-                            note = obj.optString("note", ""),
-                            receiptPath = obj.optString("receiptPath", "").ifEmpty { null },
-                            createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-                            updatedAt = System.currentTimeMillis(),
-                            syncStatus = 1
-                        )
-                    )
-                }
-            }
-
-            val categoryList = mutableListOf<ExpenseCategoryEntity>()
-            if (root.has("expenseCategories")) {
-                val arr = root.getJSONArray("expenseCategories")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    categoryList.add(
-                        ExpenseCategoryEntity(
-                            id = if (obj.has("id")) obj.getLong("id") else 0L,
-                            name = obj.optString("name", ""),
-                            updatedAt = System.currentTimeMillis(),
-                            syncStatus = 1
-                        )
-                    )
-                }
-            }
-
-            val bandwidthBillList = mutableListOf<BandwidthBillEntity>()
-            if (root.has("bandwidthBills")) {
-                val arr = root.getJSONArray("bandwidthBills")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val month = obj.optString("billingMonth", "")
-                    val amount = obj.optDouble("amount", 0.0)
-                    if (month.isNotBlank()) {
-                        bandwidthBillList.add(
-                            BandwidthBillEntity(
-                                billingMonth = month,
-                                amount = amount,
-                                updatedAt = System.currentTimeMillis(),
-                                syncStatus = 1
-                            )
-                        )
-                    }
-                }
-            }
-
-            val specificAdvanceList = mutableListOf<SpecificAdvanceEntity>()
-            if (root.has("specificAdvances")) {
-                val arr = root.getJSONArray("specificAdvances")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    specificAdvanceList.add(
-                        SpecificAdvanceEntity(
-                            id = if (obj.has("id")) obj.getLong("id") else 0L,
-                            customerId = obj.optLong("customerId", 0L),
-                            billingMonth = obj.optString("billingMonth", ""),
-                            amount = obj.optDouble("amount", 0.0),
-                            isConsumed = obj.optBoolean("isConsumed", false),
-                            updatedAt = System.currentTimeMillis(),
-                            syncStatus = 1
-                        )
-                    )
-                }
-            }
-
-            var settingsObj: BusinessSettingsEntity? = null
-            if (root.has("settings")) {
-                val obj = root.getJSONObject("settings")
-                settingsObj = BusinessSettingsEntity(
-                    id = if (obj.has("id")) obj.getInt("id") else 1,
-                    ispName = obj.optString("ispName", ""),
-                    hotline = obj.optString("hotline", ""),
-                    address = obj.optString("address", ""),
-                    currencySymbol = obj.optString("currencySymbol", "৳"),
-                    networkStatus = obj.optString("networkStatus", "Operational"),
-                    themeMode = obj.optString("themeMode", "SYSTEM"),
-                    logoUri = obj.optString("logoUri", "").ifEmpty { null },
-                    email = obj.optString("email", ""),
-                    updatedAt = System.currentTimeMillis(),
-                    syncStatus = 1
-                )
-            }
-
-            val logList = mutableListOf<AuditLogEntity>()
-            if (root.has("auditLogs")) {
-                val arr = root.getJSONArray("auditLogs")
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    logList.add(
-                        AuditLogEntity(
-                            id = optJsonLong(obj, "id", i),
-                            action = obj.optString("action", ""),
-                            actionType = obj.optString("actionType", ""),
-                            details = obj.optString("details", ""),
-                            userEmail = obj.optString("userEmail", ""),
-                            userRole = obj.optString("userRole", "Admin"),
-                            targetEntity = obj.optString("targetEntity", ""),
-                            targetId = obj.optString("targetId", ""),
-                            previousState = obj.optString("previousState", ""),
-                            newState = obj.optString("newState", ""),
-                            status = obj.optString("status", "SUCCESS"),
-                            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
-                            syncStatus = 0
-                        )
-                    )
-                }
-            }
-
-            db.withTransaction {
-                customerDao.deleteAllCustomers()
-                packageDao.deleteAllPackages()
-                billDao.deleteAllBills()
-                paymentDao.deleteAllPayments()
-                expenseDao.deleteAllExpenses()
-                expenseDao.deleteAllCategories()
-                db.bandwidthBillDao().deleteAllBandwidthBills()
-                db.specificAdvanceDao().deleteAllSpecificAdvances()
-                settingsDao.deleteSettings()
-                db.pendingDeletionDao().clearAllPendingDeletions()
-
-                if (logList.isNotEmpty() || root.has("auditLogs")) {
-                    db.auditLogDao().deleteAllLogs()
-                }
-
-                if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
-                if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
-                if (billList.isNotEmpty()) billDao.insertBills(billList)
-                if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
-                if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
-                if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
-                if (bandwidthBillList.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bandwidthBillList)
-                if (specificAdvanceList.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(specificAdvanceList)
-                if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
-                if (logList.isNotEmpty()) db.auditLogDao().insertLogs(logList)
-            }
-
-            if (root.has("appLanguage")) {
-                val lang = root.getString("appLanguage")
-                if (lang == "en" || lang == "bn") {
-                    context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-                        .edit().putString("app_lang", lang).apply()
+            val safetyFile = java.io.File(context.filesDir, "safety_backup_before_restore.json")
+            if (safetyBackupJson != null) {
+                try {
+                    safetyFile.writeText(safetyBackupJson, Charsets.UTF_8)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
 
             try {
-                if (com.example.util.HostingSyncManager.isNetworkAvailable(context)) {
-                    com.example.util.HostingSyncManager.syncLocalToHosting(context)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            if (safetyFile.exists()) {
                 try {
-                    val safetyJson = safetyFile.readText(Charsets.UTF_8)
-                    restoreFromSafetyBackupJson(safetyJson)
-                } catch (ex: Exception) {
-                    ex.printStackTrace()
+                    androidx.work.WorkManager.getInstance(context).cancelAllWorkByTag("isp_auto_backup")
+                    androidx.work.WorkManager.getInstance(context).cancelAllWorkByTag("isp_sms_worker")
+                } catch (we: Exception) {
+                    Log.w("IspRepository", "WorkManager pause notice: ${we.message}")
                 }
+
+                val root = JSONObject(jsonStr)
+
+                fun optJsonLong(obj: JSONObject, key: String, defaultIdx: Int): Long {
+                    if (obj.has(key) && !obj.isNull(key)) {
+                        val v = obj.get(key)
+                        val parsed = when (v) {
+                            is Number -> v.toLong()
+                            is String -> v.toLongOrNull() ?: v.filter { it.isDigit() }.toLongOrNull()
+                            else -> null
+                        }
+                        if (parsed != null && parsed != 0L) return parsed
+                    }
+                    return (defaultIdx + 1000).toLong()
+                }
+
+                val customerList = mutableListOf<CustomerEntity>()
+                if (root.has("customers")) {
+                    val arr = root.getJSONArray("customers")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val custId = optJsonLong(obj, "id", i)
+                        customerList.add(
+                            CustomerEntity(
+                                id = custId,
+                                customerCode = obj.optString("customerCode", "CUST-$custId"),
+                                name = obj.optString("name", ""),
+                                phone = obj.optString("phone", ""),
+                                address = obj.optString("address", ""),
+                                pppoeUsername = obj.optString("pppoeUsername", ""),
+                                ipAddress = obj.optString("ipAddress", ""),
+                                packageId = optJsonLong(obj, "packageId", 0),
+                                packageName = obj.optString("packageName", ""),
+                                monthlyFee = obj.optDouble("monthlyFee", 0.0),
+                                status = obj.optString("status", "ACTIVE"),
+                                joiningDate = obj.optString("joiningDate", ""),
+                                notes = obj.optString("notes", ""),
+                                area = obj.optString("area", ""),
+                                zone = obj.optString("zone", ""),
+                                latitude = obj.optDouble("latitude", 0.0),
+                                longitude = obj.optDouble("longitude", 0.0),
+                                oltName = obj.optString("oltName", ""),
+                                ponPort = obj.optString("ponPort", ""),
+                                onuSerial = obj.optString("onuSerial", ""),
+                                routerName = obj.optString("routerName", ""),
+                                advanceBalance = obj.optDouble("advanceBalance", 0.0),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val custCodeMap = customerList.associate { it.customerCode.trim().lowercase(Locale.ROOT) to it.id }
+                val custNameMap = customerList.associate { it.name.trim().lowercase(Locale.ROOT) to it.id }
+
+                val packageList = mutableListOf<IspPackageEntity>()
+                if (root.has("packages")) {
+                    val arr = root.getJSONArray("packages")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        packageList.add(
+                            IspPackageEntity(
+                                id = optJsonLong(obj, "id", i),
+                                name = obj.optString("name", ""),
+                                speedMbps = obj.optInt("speedMbps", 0),
+                                monthlyPrice = obj.optDouble("monthlyPrice", 0.0),
+                                description = obj.optString("description", ""),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val billList = mutableListOf<BillEntity>()
+                if (root.has("bills")) {
+                    val arr = root.getJSONArray("bills")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val billId = optJsonLong(obj, "id", i)
+                        val rawCustId = optJsonLong(obj, "customerId", -1)
+                        val cCode = obj.optString("customerCode", "")
+                        val cName = obj.optString("customerName", "")
+                        val resolvedCustId = if (rawCustId > 0L && customerList.any { it.id == rawCustId }) {
+                            rawCustId
+                        } else {
+                            custCodeMap[cCode.trim().lowercase(Locale.ROOT)]
+                                ?: custNameMap[cName.trim().lowercase(Locale.ROOT)]
+                                ?: if (rawCustId > 0L) rawCustId else 0L
+                        }
+
+                        billList.add(
+                            BillEntity(
+                                id = billId,
+                                billNumber = obj.optString("billNumber", ""),
+                                customerId = resolvedCustId,
+                                customerName = cName,
+                                customerCode = cCode,
+                                billingMonth = obj.optString("billingMonth", ""),
+                                amount = obj.optDouble("amount", 0.0),
+                                paidAmount = obj.optDouble("paidAmount", 0.0),
+                                dueAmount = obj.optDouble("dueAmount", 0.0),
+                                status = obj.optString("status", "UNPAID"),
+                                generatedDate = obj.optString("generatedDate", ""),
+                                dueDate = obj.optString("dueDate", ""),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val paymentList = mutableListOf<PaymentEntity>()
+                if (root.has("payments")) {
+                    val arr = root.getJSONArray("payments")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val payId = optJsonLong(obj, "id", i)
+                        val rawCustId = optJsonLong(obj, "customerId", -1)
+                        val cName = obj.optString("customerName", "")
+                        val resolvedCustId = if (rawCustId > 0L && customerList.any { it.id == rawCustId }) {
+                            rawCustId
+                        } else {
+                            custNameMap[cName.trim().lowercase(Locale.ROOT)] ?: if (rawCustId > 0L) rawCustId else 0L
+                        }
+
+                        paymentList.add(
+                            PaymentEntity(
+                                id = payId,
+                                paymentReceiptNo = obj.optString("paymentReceiptNo", ""),
+                                billId = optJsonLong(obj, "billId", 0),
+                                customerId = resolvedCustId,
+                                customerName = cName,
+                                amount = obj.optDouble("amount", 0.0),
+                                paymentDate = obj.optString("paymentDate", ""),
+                                paymentMethod = obj.optString("paymentMethod", "Cash"),
+                                notes = obj.optString("notes", ""),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val expenseList = mutableListOf<ExpenseEntity>()
+                if (root.has("expenses")) {
+                    val arr = root.getJSONArray("expenses")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        expenseList.add(
+                            ExpenseEntity(
+                                id = if (obj.has("id")) obj.getLong("id") else 0L,
+                                title = obj.optString("title", ""),
+                                amount = obj.optDouble("amount", 0.0),
+                                category = obj.optString("category", "Other"),
+                                date = obj.optString("date", ""),
+                                paymentMethod = obj.optString("paymentMethod", "Cash"),
+                                note = obj.optString("note", ""),
+                                receiptPath = obj.optString("receiptPath", "").ifEmpty { null },
+                                createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val categoryList = mutableListOf<ExpenseCategoryEntity>()
+                if (root.has("expenseCategories")) {
+                    val arr = root.getJSONArray("expenseCategories")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        categoryList.add(
+                            ExpenseCategoryEntity(
+                                id = if (obj.has("id")) obj.getLong("id") else 0L,
+                                name = obj.optString("name", ""),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val bandwidthBillList = mutableListOf<BandwidthBillEntity>()
+                if (root.has("bandwidthBills")) {
+                    val arr = root.getJSONArray("bandwidthBills")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val month = obj.optString("billingMonth", "")
+                        val amount = obj.optDouble("amount", 0.0)
+                        if (month.isNotBlank()) {
+                            bandwidthBillList.add(
+                                BandwidthBillEntity(
+                                    billingMonth = month,
+                                    amount = amount,
+                                    updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                    syncStatus = 0
+                                )
+                            )
+                        }
+                    }
+                }
+
+                val specificAdvanceList = mutableListOf<SpecificAdvanceEntity>()
+                if (root.has("specificAdvances")) {
+                    val arr = root.getJSONArray("specificAdvances")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        specificAdvanceList.add(
+                            SpecificAdvanceEntity(
+                                id = if (obj.has("id")) obj.getLong("id") else 0L,
+                                customerId = obj.optLong("customerId", 0L),
+                                billingMonth = obj.optString("billingMonth", ""),
+                                amount = obj.optDouble("amount", 0.0),
+                                isConsumed = obj.optBoolean("isConsumed", false),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                var settingsObj: BusinessSettingsEntity? = null
+                if (root.has("settings")) {
+                    val obj = root.getJSONObject("settings")
+                    settingsObj = BusinessSettingsEntity(
+                        id = if (obj.has("id")) obj.getInt("id") else 1,
+                        ispName = obj.optString("ispName", ""),
+                        hotline = obj.optString("hotline", ""),
+                        address = obj.optString("address", ""),
+                        currencySymbol = obj.optString("currencySymbol", "৳"),
+                        networkStatus = obj.optString("networkStatus", "Operational"),
+                        themeMode = obj.optString("themeMode", "SYSTEM"),
+                        logoUri = obj.optString("logoUri", "").ifEmpty { null },
+                        email = obj.optString("email", ""),
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                        syncStatus = 0
+                    )
+                }
+
+                val diagramList = mutableListOf<NetworkDiagramEntity>()
+                if (root.has("networkDiagrams")) {
+                    val arr = root.getJSONArray("networkDiagrams")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        diagramList.add(
+                            NetworkDiagramEntity(
+                                id = if (obj.has("id")) obj.getLong("id") else 0L,
+                                name = obj.optString("name", ""),
+                                isDefault = obj.optBoolean("isDefault", false),
+                                createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val nodeList = mutableListOf<NetworkNodeEntity>()
+                if (root.has("networkNodes")) {
+                    val arr = root.getJSONArray("networkNodes")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        nodeList.add(
+                            NetworkNodeEntity(
+                                id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                                diagramId = obj.optLong("diagramId", 0L),
+                                name = obj.optString("name", ""),
+                                type = obj.optString("type", "MIKROTIK"),
+                                ipAddress = obj.optString("ipAddress", ""),
+                                location = obj.optString("location", ""),
+                                areaZone = obj.optString("areaZone", ""),
+                                portInfo = obj.optString("portInfo", ""),
+                                customerRef = obj.optString("customerRef", ""),
+                                customerId = obj.optString("customerId", ""),
+                                notes = obj.optString("notes", ""),
+                                positionX = obj.optDouble("positionX", 0.0).toFloat(),
+                                positionY = obj.optDouble("positionY", 0.0).toFloat(),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val connList = mutableListOf<NetworkConnectionEntity>()
+                if (root.has("networkConnections")) {
+                    val arr = root.getJSONArray("networkConnections")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        connList.add(
+                            NetworkConnectionEntity(
+                                id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                                diagramId = obj.optLong("diagramId", 0L),
+                                fromNodeId = obj.optString("fromNodeId", ""),
+                                toNodeId = obj.optString("toNodeId", ""),
+                                label = obj.optString("label", ""),
+                                notes = obj.optString("notes", ""),
+                                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                val logList = mutableListOf<AuditLogEntity>()
+                if (root.has("auditLogs")) {
+                    val arr = root.getJSONArray("auditLogs")
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        logList.add(
+                            AuditLogEntity(
+                                id = optJsonLong(obj, "id", i),
+                                action = obj.optString("action", ""),
+                                actionType = obj.optString("actionType", ""),
+                                details = obj.optString("details", ""),
+                                userEmail = obj.optString("userEmail", ""),
+                                userRole = obj.optString("userRole", "Admin"),
+                                targetEntity = obj.optString("targetEntity", ""),
+                                targetId = obj.optString("targetId", ""),
+                                previousState = obj.optString("previousState", ""),
+                                newState = obj.optString("newState", ""),
+                                status = obj.optString("status", "SUCCESS"),
+                                timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                                syncStatus = 0
+                            )
+                        )
+                    }
+                }
+
+                db.withTransaction {
+                    db.pendingDeletionDao().clearAllPendingDeletions()
+                    db.auditLogDao().deleteAllLogs()
+                    db.networkDiagramDao().deleteAllConnections()
+                    db.networkDiagramDao().deleteAllNodes()
+                    db.networkDiagramDao().deleteAllDiagrams()
+                    db.specificAdvanceDao().deleteAllSpecificAdvances()
+                    db.bandwidthBillDao().deleteAllBandwidthBills()
+                    expenseDao.deleteAllExpenses()
+                    expenseDao.deleteAllCategories()
+                    paymentDao.deleteAllPayments()
+                    billDao.deleteAllBills()
+                    customerDao.deleteAllCustomers()
+                    packageDao.deleteAllPackages()
+                    settingsDao.deleteSettings()
+
+                    if (settingsObj != null) settingsDao.insertOrUpdateSettings(settingsObj)
+                    if (categoryList.isNotEmpty()) expenseDao.insertCategories(categoryList)
+                    if (packageList.isNotEmpty()) packageDao.insertPackages(packageList)
+                    if (customerList.isNotEmpty()) customerDao.insertCustomers(customerList)
+
+                    if (billList.isNotEmpty()) billDao.insertBills(billList)
+                    if (paymentList.isNotEmpty()) paymentDao.insertPayments(paymentList)
+                    if (expenseList.isNotEmpty()) expenseDao.insertExpenses(expenseList)
+                    if (bandwidthBillList.isNotEmpty()) db.bandwidthBillDao().insertOrUpdateBandwidthBills(bandwidthBillList)
+                    if (specificAdvanceList.isNotEmpty()) db.specificAdvanceDao().insertSpecificAdvances(specificAdvanceList)
+                    if (diagramList.isNotEmpty()) diagramList.forEach { db.networkDiagramDao().insertDiagram(it) }
+                    if (nodeList.isNotEmpty()) db.networkDiagramDao().insertNodes(nodeList)
+                    if (connList.isNotEmpty()) db.networkDiagramDao().insertConnections(connList)
+                    if (logList.isNotEmpty()) db.auditLogDao().insertLogs(logList)
+                }
+
+                if (root.has("appLanguage")) {
+                    val lang = root.getString("appLanguage")
+                    if (lang == "en" || lang == "bn") {
+                        context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                            .edit().putString("app_lang", lang).apply()
+                    }
+                }
+
+                try {
+                    context.getSharedPreferences("isp_deleted_monthly_bills", Context.MODE_PRIVATE)
+                        .edit().clear().apply()
+                } catch (e: Exception) {
+                    Log.w("IspRepository", "Failed to clear deleted monthly bills prefs: ${e.message}")
+                }
+
+                val activeUid = com.example.IspApplication.getUserId(context)
+                if (!activeUid.isNullOrBlank()) {
+                    try {
+                        context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                            .edit()
+                            .putLong("last_cloud_sync_time_$activeUid", System.currentTimeMillis())
+                            .putInt("pending_sync_count_$activeUid", 0)
+                            .apply()
+                    } catch (e: Exception) {
+                        Log.w("IspRepository", "Failed to reset sync prefs: ${e.message}")
+                    }
+                }
+
+                try {
+                    com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(context)
+                    com.example.util.AutoBackupWorker.schedulePeriodicBackup(context)
+                } catch (e: Exception) {
+                    Log.w("IspRepository", "Failed to restart background workers post-restore: ${e.message}")
+                }
+
+                true
+            } catch (e: Exception) {
+                Log.e("IspRepository", "Restore failed with error", e)
+                if (safetyFile.exists()) {
+                    try {
+                        val safetyJson = safetyFile.readText(Charsets.UTF_8)
+                        restoreFromSafetyBackupJson(safetyJson)
+                    } catch (ex: Exception) {
+                        Log.e("IspRepository", "Safety fallback restore failed", ex)
+                    }
+                }
+                false
             }
-            false
         }
     }
 
@@ -2583,22 +2710,12 @@ class IspRepository(
             if (rawJsonPayload.isBlank()) {
                 return@withContext Pair(false, "No local data to back up")
             }
-            val jsonPayload = try {
-                val jsonObject = org.json.JSONObject(rawJsonPayload)
-                jsonObject.remove("networkDiagrams")
-                jsonObject.remove("networkNodes")
-                jsonObject.remove("networkConnections")
-                jsonObject.toString()
-            } catch (ex: Exception) {
-                Log.e("IspRepository", "Failed to filter local network data from cloud backup", ex)
-                return@withContext Pair(false, "Failed to filter local network data from cloud backup: ${ex.message}")
-            }
             val timeStamp = java.text.SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", java.util.Locale.US).format(java.util.Date())
             val backupName = "ISP-Cloud-Backup-$timeStamp"
             val request = com.example.data.model.CloudBackupRequest(
                 userId = activeUid,
                 backupName = backupName,
-                backupData = jsonPayload,
+                backupData = rawJsonPayload,
                 version = 1
             )
             if (!com.example.util.HostingSyncManager.isSessionValid(context, activeUid)) {

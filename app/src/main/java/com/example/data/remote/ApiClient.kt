@@ -49,11 +49,21 @@ object ApiClient {
     }
 
     @Volatile
+    private var appContext: android.content.Context? = null
+
+    @Volatile
     var authToken: String? = null
+
+    fun init(context: android.content.Context) {
+        appContext = context.applicationContext
+        if (authToken.isNullOrBlank()) {
+            authToken = com.example.IspApplication.getAuthToken(context)
+        }
+    }
 
     private val authInterceptor = okhttp3.Interceptor { chain ->
         val original = chain.request()
-        val token = authToken
+        val token = authToken ?: appContext?.let { com.example.IspApplication.getAuthToken(it) }
         val request = if (!token.isNullOrBlank()) {
             original.newBuilder()
                 .header("Authorization", "Bearer $token")

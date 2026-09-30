@@ -13,6 +13,26 @@ class AutoBackupWorker(
 
     companion object {
         private const val TAG = "AutoBackupWorker"
+
+        fun schedulePeriodicBackup(context: Context) {
+            try {
+                val backupRequest = androidx.work.PeriodicWorkRequestBuilder<AutoBackupWorker>(
+                    24, java.util.concurrent.TimeUnit.HOURS
+                ).setConstraints(
+                    androidx.work.Constraints.Builder()
+                        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                        .build()
+                ).build()
+
+                androidx.work.WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                    "auto_hosting_backup",
+                    androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                    backupRequest
+                )
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed to schedule auto hosting backup: ${e.message}")
+            }
+        }
     }
 
     override suspend fun doWork(): Result {

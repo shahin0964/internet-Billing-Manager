@@ -337,7 +337,7 @@ fun PaymentReceiptModal(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Tab Selector: Digital View vs Crisp PDF Preview
+                // Tab Selector: Corporate Voucher vs Digital View vs Crisp PDF/JPG Preview
                 TabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -357,9 +357,9 @@ fun PaymentReceiptModal(
                         onClick = { selectedTab = 0 },
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = if (isBn) "ডিজিটাল রশিদ" else "Digital View", fontSize = 12.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal)
+                                Icon(imageVector = Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(text = if (isBn) "কর্পোরেট রসিদ" else "Corporate Voucher", fontSize = 11.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     )
@@ -368,9 +368,20 @@ fun PaymentReceiptModal(
                         onClick = { selectedTab = 1 },
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(imageVector = Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = if (isBn) "রশিদ ছবি (JPG)" else "JPG Preview", fontSize = 12.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal)
+                                Icon(imageVector = Icons.Default.Description, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(text = if (isBn) "ডিজিটাল ভিউ" else "Digital View", fontSize = 11.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+                    )
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.Preview, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(text = if (isBn) "JPG ছবি" else "JPG Preview", fontSize = 11.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     )
@@ -378,8 +389,23 @@ fun PaymentReceiptModal(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Tab 0: Digital Receipt View
+                // Tab 0: Corporate Money Receipt Voucher
                 if (selectedTab == 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        CorporateMoneyReceiptView(
+                            payment = payment,
+                            bill = bill,
+                            customer = customer,
+                            settings = settings,
+                            motto = if (isBn) "Stay Connected, Stay Ahead" else "Stay Connected, Stay Ahead"
+                        )
+                    }
+                } else if (selectedTab == 1) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()

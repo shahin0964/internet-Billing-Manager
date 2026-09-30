@@ -36,26 +36,17 @@ class IspApplication : Application() {
         }
 
         try {
+            com.example.data.remote.ApiClient.init(this)
             com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
+            com.example.util.AutoBackupWorker.schedulePeriodicBackup(this)
+            com.example.util.SyncWorker.schedulePeriodicSync(this)
 
-            val backupRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.util.AutoBackupWorker>(
-                24, java.util.concurrent.TimeUnit.HOURS
-            ).setConstraints(
-                androidx.work.Constraints.Builder()
-                    .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
-                    .build()
-            ).build()
-
-            androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-                "auto_hosting_backup",
-                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                backupRequest
-            )
+            if (isLoggedIn(this)) {
+                com.example.util.SyncWorker.enqueueSync(this, forceExpedited = false)
+            }
         } catch (e: Throwable) {
             Log.w(TAG, "WorkManager initialization/scheduling deferred or unavailable: ${e.message}")
         }
-
-        com.example.data.remote.ApiClient.authToken = getAuthToken(this)
 
         registerNetworkSyncCallback()
     }
@@ -88,6 +79,9 @@ class IspApplication : Application() {
     private fun triggerAutoSyncIfLoggedIn() {
         val uid = getUserId(this)
         if (!uid.isNullOrBlank() && isLoggedIn(this) && com.example.util.HostingSyncManager.isSessionValid(this, uid)) {
+            // 1. Enqueue guaranteed background sync worker
+            com.example.util.SyncWorker.enqueueSync(this@IspApplication, forceExpedited = true)
+            // 2. Also trigger immediate in-process coroutine sync if app is in foreground
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     com.example.util.HostingSyncManager.syncLocalToHosting(this@IspApplication)
