@@ -1080,6 +1080,7 @@ fun MainAppContent(
         PaymentDialog(
             unpaidBills = unpaidBills,
             preSelectedBill = preSelectedPaymentBill,
+            customers = customers,
             currencySymbol = settings.currencySymbol,
             onDismiss = { showPaymentDialog = false },
             onRecordPayment = { billId, customerId, amount, method, notes, advanceMonths, specificAdvances, discount ->

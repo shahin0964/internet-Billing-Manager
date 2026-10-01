@@ -71,13 +71,20 @@ fun DueManagementScreen(
 
     val totalDueAmount = unpaidBills.sumOf { it.dueAmount }
 
-    val sortedBills = remember(unpaidBills, searchQuery, sortOption) {
+    val customerMap = remember(customers) {
+        customers.associateBy { it.id }
+    }
+
+    val sortedBills = remember(unpaidBills, searchQuery, sortOption, customerMap) {
         unpaidBills
-            .filter {
+            .filter { bill ->
+                val cust = customerMap[bill.customerId]
+                val custPppoe = cust?.pppoeUsername ?: ""
                 searchQuery.isBlank() ||
-                        it.customerName.contains(searchQuery, ignoreCase = true) ||
-                        it.billNumber.contains(searchQuery, ignoreCase = true) ||
-                        it.billingMonth.contains(searchQuery, ignoreCase = true)
+                        bill.customerName.contains(searchQuery, ignoreCase = true) ||
+                        custPppoe.contains(searchQuery, ignoreCase = true) ||
+                        bill.billNumber.contains(searchQuery, ignoreCase = true) ||
+                        bill.billingMonth.contains(searchQuery, ignoreCase = true)
             }
             .sortedWith { b1, b2 ->
                 when (sortOption) {
@@ -168,10 +175,11 @@ fun DueManagementScreen(
             }
         } else {
             items(sortedBills, key = { it.id }) { bill ->
-                val customer = customers.find { it.id == bill.customerId }
+                val customer = customerMap[bill.customerId]
                 DueBillCard(
                     bill = bill,
                     phone = customer?.phone ?: "",
+                    pppoeUsername = customer?.pppoeUsername,
                     currencySymbol = currencySymbol,
                     ispName = ispName,
                     onRecordPayment = { onRecordPaymentForBill(bill) },
@@ -191,6 +199,7 @@ fun DueManagementScreen(
 fun DueBillCard(
     bill: BillEntity,
     phone: String,
+    pppoeUsername: String? = null,
     currencySymbol: String,
     ispName: String,
     onRecordPayment: () -> Unit,
@@ -199,8 +208,8 @@ fun DueBillCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-shadowElevation = 3.dp,
-tonalElevation = 2.dp,
+        shadowElevation = 3.dp,
+        tonalElevation = 2.dp,
         color = MaterialTheme.colorScheme.surface,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
@@ -219,6 +228,21 @@ tonalElevation = 2.dp,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    if (!pppoeUsername.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "PPPoE: ",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = pppoeUsername,
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Text(
                         text = "Month: ${bill.billingMonth} • Due Date: ${bill.dueDate}",
                         style = MaterialTheme.typography.labelSmall,

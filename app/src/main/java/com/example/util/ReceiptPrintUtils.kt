@@ -121,8 +121,7 @@ object ReceiptPrintUtils {
 
         val custName = customer?.name ?: payment.customerName
         val custCode = customer?.customerCode ?: "CUST-${payment.customerId}"
-        val custPhone = customer?.phone ?: "N/A"
-        val pppoeUser = customer?.pppoeUsername ?: "N/A"
+        val pppoeUser = (customer?.pppoeUsername?.ifBlank { null } ?: customer?.customerCode?.ifBlank { null } ?: payment.customerName).ifBlank { "N/A" }
         val packageName = customer?.packageName ?: "Standard Package"
         val custAddress = customer?.address ?: "N/A"
         val custBranch = (customer?.area?.ifBlank { null } ?: customer?.zone?.ifBlank { null } ?: "Main Branch")
@@ -274,8 +273,8 @@ object ReceiptPrintUtils {
             canvas.drawText(value, dotStartX + 6f, y - 2f, paint)
         }
 
-        // Row 1: Received with thanks from
-        drawFormDottedRow("Received with thanks from", "$custName ($custCode)", formY)
+        // Row 1: Received with thanks from (Customer's PPPoE Username)
+        drawFormDottedRow("Received with thanks from", pppoeUser, formY)
         formY += lineSpacing
 
         // Row 2: Amount
@@ -296,7 +295,7 @@ object ReceiptPrintUtils {
         // Row 5: ACCT. | PAID | DUE
         val col1End = leftMargin + (contentWidth * 0.38f)
         val col2End = leftMargin + (contentWidth * 0.68f)
-        drawFormDottedRow("ACCT.", pppoeUser, formY, leftMargin, col1End - 10f)
+        drawFormDottedRow("ACCT.", custCode, formY, leftMargin, col1End - 10f)
         drawFormDottedRow("PAID", "$currency $paidAmt", formY, col1End, col2End - 10f)
         drawFormDottedRow("DUE", "$currency $dueAmt", formY, col2End, rightMargin)
 

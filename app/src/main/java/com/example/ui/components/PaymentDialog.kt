@@ -48,10 +48,14 @@ import com.example.data.model.PreviousDueItem
 fun PaymentDialog(
     unpaidBills: List<BillEntity>,
     preSelectedBill: BillEntity? = null,
+    customers: List<com.example.data.model.CustomerEntity> = emptyList(),
     currencySymbol: String,
     onDismiss: () -> Unit,
     onRecordPayment: (billId: Long, customerId: Long, amount: Double, method: String, notes: String, advanceMonths: Int, specificAdvances: List<PreviousDueItem>, discount: Double) -> Unit
 ) {
+    val customerMap = remember(customers) {
+        customers.associateBy { it.id }
+    }
     var selectedBill by remember { mutableStateOf(preSelectedBill ?: unpaidBills.firstOrNull()) }
     var billDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -118,10 +122,12 @@ fun PaymentDialog(
                     OutlinedTextField(
                         value = selectedBill?.let { bill ->
                             val isBd = bill.billNumber.startsWith("BREAKDOWN|")
+                            val cust = customerMap[bill.customerId]
+                            val pppoeTag = if (!cust?.pppoeUsername.isNullOrBlank()) " [${cust?.pppoeUsername}]" else ""
                             if (isBd) {
-                                "${bill.customerName} (${bill.billingMonth} + Prev) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                                "${bill.customerName}$pppoeTag (${bill.billingMonth} + Prev) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
                             } else {
-                                "${bill.customerName} (${bill.billingMonth}) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                                "${bill.customerName}$pppoeTag (${bill.billingMonth}) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
                             }
                         } ?: androidx.compose.ui.res.stringResource(com.example.R.string.no_unpaid_bill_selected),
                         onValueChange = {},
@@ -137,10 +143,12 @@ fun PaymentDialog(
                     ) {
                         unpaidBills.forEach { bill ->
                             val isBd = bill.billNumber.startsWith("BREAKDOWN|")
+                            val cust = customerMap[bill.customerId]
+                            val pppoeTag = if (!cust?.pppoeUsername.isNullOrBlank()) " [PPPoE: ${cust?.pppoeUsername}]" else ""
                             val displayText = if (isBd) {
-                                "${bill.customerName} — ${bill.billingMonth} (with previous dues) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                                "${bill.customerName}$pppoeTag — ${bill.billingMonth} (with previous dues) — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
                             } else {
-                                "${bill.customerName} — ${bill.billingMonth} — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
+                                "${bill.customerName}$pppoeTag — ${bill.billingMonth} — Due: $currencySymbol${bill.dueAmount.formatAmount()}"
                             }
                             DropdownMenuItem(
                                 text = { Text(displayText) },

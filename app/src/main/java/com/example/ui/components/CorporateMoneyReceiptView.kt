@@ -616,11 +616,11 @@ fun CorporateMoneyReceiptView(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Line 1: Received with thanks from
+                    // Line 1: Received with thanks from (Customer PPPoE Username)
                     DottedFormRow(
                         icon = Icons.Default.Person,
                         label = "Received with thanks from",
-                        value = "$customerName ($customerCode)"
+                        value = pppoeUsername
                     )
 
                     // Line 2: Amount
@@ -666,7 +666,7 @@ fun CorporateMoneyReceiptView(
                         DottedFormRow(
                             icon = Icons.Default.CalendarMonth,
                             label = "ACCT.",
-                            value = pppoeUsername,
+                            value = customerCode,
                             modifier = Modifier.weight(1f)
                         )
 

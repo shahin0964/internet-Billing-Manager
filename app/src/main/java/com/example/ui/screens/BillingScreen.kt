@@ -68,12 +68,14 @@ fun BillingScreen(
     val filteredBills = remember(bills, searchQuery, selectedStatusFilter, customerMap) {
         bills.filter { bill ->
             val isUnpaid = bill.status == "UNPAID" || bill.status == "PARTIAL"
+            val cust = customerMap[bill.customerId]
+            val custPppoe = cust?.pppoeUsername ?: ""
             val matchesQuery = searchQuery.isBlank() ||
                     bill.customerName.contains(searchQuery, ignoreCase = true) ||
+                    custPppoe.contains(searchQuery, ignoreCase = true) ||
                     bill.getDisplayBillNumber().contains(searchQuery, ignoreCase = true) ||
                     bill.billingMonth.contains(searchQuery, ignoreCase = true)
 
-            val cust = customerMap[bill.customerId]
             val custStatus = cust?.status?.trim()?.uppercase(java.util.Locale.ROOT) ?: "ACTIVE"
             val matchesStatus = when (selectedStatusFilter) {
                 "ACTIVE" -> custStatus == "ACTIVE"
@@ -99,8 +101,8 @@ fun BillingScreen(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-shadowElevation = 3.dp,
-tonalElevation = 2.dp,
+            shadowElevation = 3.dp,
+            tonalElevation = 2.dp,
             color = MaterialTheme.colorScheme.surface,
             border = androidx.compose.foundation.BorderStroke(
                 1.dp,
@@ -203,6 +205,7 @@ tonalElevation = 2.dp,
                     BillItemCard(
                         bill = bill,
                         customerStatus = cust?.status,
+                        pppoeUsername = cust?.pppoeUsername,
                         currencySymbol = currencySymbol,
                         onCollectPayment = { onRecordPaymentForBill(bill) },
                         onEditBill = { onEditBill(bill) }
@@ -218,6 +221,7 @@ tonalElevation = 2.dp,
 fun BillItemCard(
     bill: BillEntity,
     customerStatus: String? = null,
+    pppoeUsername: String? = null,
     currencySymbol: String,
     onCollectPayment: () -> Unit,
     onEditBill: () -> Unit = {}
@@ -254,6 +258,21 @@ fun BillItemCard(
                         if (customerStatus != null && customerStatus.trim().uppercase(java.util.Locale.ROOT) != "ACTIVE") {
                             Spacer(modifier = Modifier.width(6.dp))
                             StatusBadge(status = customerStatus)
+                        }
+                    }
+                    if (!pppoeUsername.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "PPPoE: ",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = pppoeUsername,
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                     Text(
