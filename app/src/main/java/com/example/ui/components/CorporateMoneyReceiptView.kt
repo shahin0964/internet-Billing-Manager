@@ -620,21 +620,27 @@ fun CorporateMoneyReceiptView(
                     DottedFormRow(
                         icon = Icons.Default.Person,
                         label = "Received with thanks from",
-                        value = pppoeUsername
+                        value = pppoeUsername,
+                        valueFontSize = 14.sp,
+                        isBoldValue = true
                     )
 
                     // Line 2: Amount
                     DottedFormRow(
                         icon = Icons.Default.Paid,
                         label = "Amount",
-                        value = "$currency $formattedAmount"
+                        value = "$currency $formattedAmount",
+                        valueFontSize = 14.sp,
+                        isBoldValue = true
                     )
 
                     // Line 3: In word
                     DottedFormRow(
                         icon = Icons.Default.Description,
                         label = "In word",
-                        value = amountInWords
+                        value = amountInWords,
+                        valueFontSize = 12.5.sp,
+                        isBoldValue = true
                     )
 
                     // Line 4: For & Branch
@@ -646,6 +652,8 @@ fun CorporateMoneyReceiptView(
                             icon = Icons.Default.Place,
                             label = "For",
                             value = billingMonthFor,
+                            valueFontSize = 13.sp,
+                            isBoldValue = true,
                             modifier = Modifier.weight(1.3f)
                         )
 
@@ -654,6 +662,8 @@ fun CorporateMoneyReceiptView(
                         DottedInlineField(
                             label = "Branch",
                             value = customerArea,
+                            valueFontSize = 13.sp,
+                            isBold = true,
                             modifier = Modifier.weight(0.9f)
                         )
                     }
@@ -667,6 +677,8 @@ fun CorporateMoneyReceiptView(
                             icon = Icons.Default.CalendarMonth,
                             label = "ACCT.",
                             value = customerCode,
+                            valueFontSize = 13.sp,
+                            isBoldValue = true,
                             modifier = Modifier.weight(1f)
                         )
 
@@ -677,6 +689,7 @@ fun CorporateMoneyReceiptView(
                             value = "$currency $paidAmount",
                             valueColor = Color(0xFF16A34A),
                             isBold = true,
+                            valueFontSize = 13.sp,
                             modifier = Modifier.weight(0.9f)
                         )
 
@@ -686,6 +699,8 @@ fun CorporateMoneyReceiptView(
                             label = "DUE",
                             value = "$currency $dueAmount",
                             valueColor = if ((bill?.dueAmount ?: 0.0) > 0.0) Color(0xFFDC2626) else Color(0xFF475569),
+                            isBold = true,
+                            valueFontSize = 13.sp,
                             modifier = Modifier.weight(0.9f)
                         )
                     }
@@ -751,7 +766,8 @@ fun CorporateMoneyReceiptView(
                                     text = "$currency $formattedAmount",
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 14.sp
+                                        fontSize = 15.5.sp,
+                                        letterSpacing = 0.5.sp
                                     ),
                                     color = Color(0xFF0F172A),
                                     textAlign = TextAlign.Center,
@@ -792,7 +808,7 @@ fun CorporateMoneyReceiptView(
                                     fontFamily = FontFamily.Cursive,
                                     fontStyle = FontStyle.Italic,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
+                                    fontSize = 18.sp,
                                     color = Color(0xFF1E3A8A),
                                     modifier = Modifier.padding(bottom = 2.dp)
                                 )
@@ -863,7 +879,10 @@ private fun DottedFormRow(
     icon: ImageVector,
     label: String,
     value: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    valueColor: Color = Color(0xFF0F172A),
+    isBoldValue: Boolean = true,
+    valueFontSize: androidx.compose.ui.unit.TextUnit = 13.5.sp
 ) {
     Row(
         modifier = modifier,
@@ -893,7 +912,7 @@ private fun DottedFormRow(
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp
             ),
-            color = Color(0xFF0F172A)
+            color = Color(0xFF334155)
         )
 
         Spacer(modifier = Modifier.width(6.dp))
@@ -908,11 +927,12 @@ private fun DottedFormRow(
 
             Text(
                 text = value,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 11.sp
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = if (isBoldValue) FontWeight.Bold else FontWeight.SemiBold,
+                    fontSize = valueFontSize,
+                    letterSpacing = 0.2.sp
                 ),
-                color = Color(0xFF1E293B),
+                color = valueColor,
                 modifier = Modifier.padding(bottom = 2.dp, start = 4.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -929,8 +949,9 @@ private fun DottedInlineField(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
-    valueColor: Color = Color(0xFF1E293B),
-    isBold: Boolean = false
+    valueColor: Color = Color(0xFF0F172A),
+    isBold: Boolean = true,
+    valueFontSize: androidx.compose.ui.unit.TextUnit = 13.sp
 ) {
     Row(
         modifier = modifier,
@@ -942,7 +963,7 @@ private fun DottedInlineField(
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp
             ),
-            color = Color(0xFF0F172A)
+            color = Color(0xFF334155)
         )
 
         Spacer(modifier = Modifier.width(6.dp))
@@ -957,9 +978,10 @@ private fun DottedInlineField(
 
             Text(
                 text = value,
-                style = MaterialTheme.typography.bodySmall.copy(
+                style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = if (isBold) FontWeight.Bold else FontWeight.SemiBold,
-                    fontSize = 11.sp
+                    fontSize = valueFontSize,
+                    letterSpacing = 0.2.sp
                 ),
                 color = valueColor,
                 modifier = Modifier.padding(bottom = 2.dp, start = 4.dp),

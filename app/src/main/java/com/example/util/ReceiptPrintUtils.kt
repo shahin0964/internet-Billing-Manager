@@ -252,15 +252,24 @@ object ReceiptPrintUtils {
         var formY = 118f
         val lineSpacing = 30f
 
-        // Helper to draw dotted row
-        fun drawFormDottedRow(label: String, value: String, y: Float, startX: Float = leftMargin, endX: Float = rightMargin) {
+        // Helper to draw dotted row with prominent, bold dynamic value
+        fun drawFormDottedRow(
+            label: String,
+            value: String,
+            y: Float,
+            startX: Float = leftMargin,
+            endX: Float = rightMargin,
+            valueColor: Int = AndroidColor.parseColor("#0F172A"),
+            isBold: Boolean = true,
+            valueSize: Float = 11.5f
+        ) {
             paint.textAlign = Paint.Align.LEFT
-            paint.color = AndroidColor.parseColor("#0F172A")
+            paint.color = AndroidColor.parseColor("#334155")
             paint.textSize = 9.5f
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             canvas.drawText(label, startX, y, paint)
 
-            val labelW = paint.measureText(label) + 8f
+            val labelW = paint.measureText(label) + 6f
             val dotStartX = startX + labelW
             paint.color = AndroidColor.parseColor("#0284C7")
             paint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(4f, 4f), 0f)
@@ -268,36 +277,48 @@ object ReceiptPrintUtils {
             canvas.drawLine(dotStartX, y, endX, y, paint)
             paint.pathEffect = null
 
-            paint.color = AndroidColor.parseColor("#1E293B")
-            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            canvas.drawText(value, dotStartX + 6f, y - 2f, paint)
+            // Prominent, clear dynamic text value
+            paint.color = valueColor
+            paint.textSize = valueSize
+            paint.typeface = Typeface.create(Typeface.DEFAULT, if (isBold) Typeface.BOLD else Typeface.NORMAL)
+            
+            // Measure available width and truncate gracefully if needed
+            val availableW = endX - (dotStartX + 4f)
+            var displayVal = value
+            if (paint.measureText(displayVal) > availableW && availableW > 20f) {
+                while (displayVal.isNotEmpty() && paint.measureText("$displayVal...") > availableW) {
+                    displayVal = displayVal.dropLast(1)
+                }
+                displayVal = "$displayVal..."
+            }
+            canvas.drawText(displayVal, dotStartX + 4f, y - 2f, paint)
         }
 
         // Row 1: Received with thanks from (Customer's PPPoE Username)
-        drawFormDottedRow("Received with thanks from", pppoeUser, formY)
+        drawFormDottedRow("Received with thanks from", pppoeUser, formY, valueSize = 12.5f, isBold = true)
         formY += lineSpacing
 
         // Row 2: Amount
-        drawFormDottedRow("Amount", "$currency $paidAmt", formY)
+        drawFormDottedRow("Amount", "$currency $paidAmt", formY, valueSize = 12.5f, isBold = true)
         formY += lineSpacing
 
         // Row 3: In word
         val words = com.example.ui.components.convertNumberToWords(payment.amount.toLong())
-        drawFormDottedRow("In word", "$words Only", formY)
+        drawFormDottedRow("In word", "$words Only", formY, valueSize = 11.5f, isBold = true)
         formY += lineSpacing
 
         // Row 4: For & Branch
         val midX = leftMargin + (contentWidth * 0.6f)
-        drawFormDottedRow("For", billMonth, formY, leftMargin, midX - 10f)
-        drawFormDottedRow("Branch", custBranch, formY, midX, rightMargin)
+        drawFormDottedRow("For", billMonth, formY, leftMargin, midX - 10f, valueSize = 12f, isBold = true)
+        drawFormDottedRow("Branch", custBranch, formY, midX, rightMargin, valueSize = 12f, isBold = true)
         formY += lineSpacing
 
         // Row 5: ACCT. | PAID | DUE
         val col1End = leftMargin + (contentWidth * 0.38f)
         val col2End = leftMargin + (contentWidth * 0.68f)
-        drawFormDottedRow("ACCT.", custCode, formY, leftMargin, col1End - 10f)
-        drawFormDottedRow("PAID", "$currency $paidAmt", formY, col1End, col2End - 10f)
-        drawFormDottedRow("DUE", "$currency $dueAmt", formY, col2End, rightMargin)
+        drawFormDottedRow("ACCT.", custCode, formY, leftMargin, col1End - 10f, valueSize = 12f, isBold = true)
+        drawFormDottedRow("PAID", "$currency $paidAmt", formY, col1End, col2End - 10f, valueColor = AndroidColor.parseColor("#16A34A"), valueSize = 12f, isBold = true)
+        drawFormDottedRow("DUE", "$currency $dueAmt", formY, col2End, rightMargin, valueColor = if ((bill?.dueAmount ?: 0.0) > 0.0) AndroidColor.parseColor("#DC2626") else AndroidColor.parseColor("#475569"), valueSize = 12f, isBold = true)
 
         // 4. Highlighted Amount Box & Signatures
         val btmY = 285f
@@ -328,9 +349,9 @@ object ReceiptPrintUtils {
 
         paint.textAlign = Paint.Align.CENTER
         paint.color = AndroidColor.parseColor("#0F172A")
-        paint.textSize = 11f
+        paint.textSize = 13.5f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("$currency $paidAmt", amtInsetRect.centerX(), btmY + 24f, paint)
+        canvas.drawText("$currency $paidAmt", amtInsetRect.centerX(), btmY + 25f, paint)
 
         // Bottom Right: Received by & Authorized Signature
         val sigLineY = btmY + 24f
@@ -352,7 +373,7 @@ object ReceiptPrintUtils {
         if (sigName.isNotBlank()) {
             val sigPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = AndroidColor.parseColor("#1E3A8A")
-                textSize = 14f
+                textSize = 16.5f
                 try {
                     typeface = Typeface.create("cursive", Typeface.ITALIC)
                 } catch (_: Throwable) {
