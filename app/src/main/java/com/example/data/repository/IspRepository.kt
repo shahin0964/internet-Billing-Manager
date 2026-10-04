@@ -1509,10 +1509,36 @@ class IspRepository(
                 } else {
                     paymentMethod
                 }
-                val effectiveNotes = when {
-                    discount > 0.0 && notes.isNotBlank() -> "$notes (Discount: ৳${discount.formatAmount()})"
-                    discount > 0.0 -> "Discount: ৳${discount.formatAmount()}"
-                    else -> notes
+
+                val paidMonthsList = allocatedBills
+                    .map { it.first.billingMonth.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                val specificMonthsList = specificAdvances
+                    .map { "${it.month} ${it.year}".trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                val allCoveredMonths = (paidMonthsList + specificMonthsList).distinct()
+                val paidMonthsString = when {
+                    allCoveredMonths.isNotEmpty() -> allCoveredMonths.joinToString(", ")
+                    targetBill != null && targetBill.billingMonth.isNotBlank() -> targetBill.billingMonth.trim()
+                    else -> ""
+                }
+
+                val effectiveNotes = buildString {
+                    if (paidMonthsString.isNotBlank()) {
+                        append("For: $paidMonthsString")
+                    }
+                    if (discount > 0.0) {
+                        if (isNotEmpty()) append(" | ")
+                        append("Discount: ৳${discount.formatAmount()}")
+                    }
+                    if (notes.isNotBlank() && !notes.equals(paidMonthsString, ignoreCase = true)) {
+                        if (isNotEmpty()) append(" | ")
+                        append(notes)
+                    }
                 }
                 val payment = PaymentEntity(
                     id = generateUniqueId(),

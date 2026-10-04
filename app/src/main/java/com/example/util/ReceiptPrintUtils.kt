@@ -46,6 +46,102 @@ object ReceiptPrintUtils {
 
     private const val TAG = "ReceiptPrintUtils"
 
+    /**
+     * Formats billing month strings to standard 3-letter short month format (e.g. 'September 2026' -> 'Sep 2026').
+     * Handles comma-separated lists of multiple months (e.g. 'Sep 2026, Oct 2026').
+     */
+    fun formatToShortBillingMonth(monthText: String): String {
+        if (monthText.isBlank()) return monthText
+
+        val replacements = listOf(
+            "September" to "Sep",
+            "October" to "Oct",
+            "November" to "Nov",
+            "December" to "Dec",
+            "January" to "Jan",
+            "February" to "Feb",
+            "March" to "Mar",
+            "April" to "Apr",
+            "May" to "May",
+            "June" to "Jun",
+            "July" to "Jul",
+            "August" to "Aug"
+        )
+
+        var formatted = monthText
+        for ((full, short) in replacements) {
+            formatted = formatted.replace(Regex("(?i)\\b$full\\b"), short)
+        }
+
+        // Also handle 'yyyy-MM' format if present (e.g. '2026-09' -> 'Sep 2026')
+        val yyyyMmPattern = Regex("""\b(\d{4})-(\d{2})\b""")
+        formatted = yyyyMmPattern.replace(formatted) { matchResult ->
+            val year = matchResult.groupValues[1]
+            val monthNum = matchResult.groupValues[2].toIntOrNull() ?: 1
+            val monthName = when (monthNum) {
+                1 -> "Jan"
+                2 -> "Feb"
+                3 -> "Mar"
+                4 -> "Apr"
+                5 -> "May"
+                6 -> "Jun"
+                7 -> "Jul"
+                8 -> "Aug"
+                9 -> "Sep"
+                10 -> "Oct"
+                11 -> "Nov"
+                12 -> "Dec"
+                else -> "Jan"
+            }
+            "$monthName $year"
+        }
+
+        return formatted
+    }
+
+    /**
+     * Accurately resolves the actual billing month(s) covered by a payment transaction.
+     * Checks explicit notes tags, covered bills, and linked bill records.
+     * Formats month names to short 3-letter representation (e.g. 'Sep 2026, Oct 2026').
+     */
+    fun resolveReceiptBillingMonth(
+        payment: PaymentEntity,
+        bill: BillEntity? = null,
+        billingMonthOverride: String? = null
+    ): String {
+        if (!billingMonthOverride.isNullOrBlank()) {
+            return formatToShortBillingMonth(billingMonthOverride.trim())
+        }
+
+        // 1. Check notes for explicit 'For: ...' or '[Months: ...]' or 'Billing Month: ...'
+        val notes = payment.notes.trim()
+        if (notes.isNotBlank()) {
+            val forPattern = Regex("""(?:For\s*:\s*|\[Months:\s*|Billing Month:\s*)([^|()\[\]\n]+)""", RegexOption.IGNORE_CASE)
+            val match = forPattern.find(notes)
+            if (match != null) {
+                val extracted = match.groupValues[1].trim()
+                if (extracted.isNotBlank()) {
+                    return formatToShortBillingMonth(extracted)
+                }
+            }
+        }
+
+        // 2. Check if linked bill has a valid billing month
+        if (bill != null && bill.billingMonth.isNotBlank()) {
+            return formatToShortBillingMonth(bill.billingMonth.trim())
+        }
+
+        // 3. If notes has content not starting with 'Discount:', use the notes prefix
+        if (notes.isNotBlank() && !notes.startsWith("Discount:", ignoreCase = true)) {
+            val cleaned = notes.substringBefore("|").substringBefore("(").trim()
+            if (cleaned.isNotBlank()) {
+                return formatToShortBillingMonth(cleaned)
+            }
+        }
+
+        return "Monthly Internet Bill"
+    }
+
     private fun findActivity(context: Context): Activity? {
         var current = context
         while (current is ContextWrapper) {
@@ -128,7 +224,7 @@ object ReceiptPrintUtils {
 
         val invNo = bill?.billNumber ?: "INV-${payment.billId}"
         val receiptNo = payment.paymentReceiptNo
-        val billMonth = bill?.billingMonth ?: payment.paymentDate.take(7)
+        val billMonth = resolveReceiptBillingMonth(payment, bill)
         val billAmt = String.format(Locale.US, "%.2f", bill?.amount ?: payment.amount)
         val paidAmt = String.format(Locale.US, "%.2f", payment.amount)
         val dueAmt = String.format(Locale.US, "%.2f", bill?.dueAmount ?: 0.0)

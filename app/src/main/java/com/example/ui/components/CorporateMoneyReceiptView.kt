@@ -103,9 +103,9 @@ fun CorporateMoneyReceiptView(
         convertNumberToWords(payment.amount.toLong()) + " Only"
     }
 
-    val billingMonthFor = bill?.billingMonth?.ifBlank { null }
-        ?: payment.notes.takeIf { it.isNotBlank() && it.contains("Bill", ignoreCase = true) }
-        ?: "Monthly Internet Bill"
+    val billingMonthFor = remember(payment.notes, bill?.billingMonth) {
+        com.example.util.ReceiptPrintUtils.resolveReceiptBillingMonth(payment, bill)
+    }
 
     val paidAmount = String.format(Locale.US, "%.2f", payment.amount)
     val dueAmount = String.format(Locale.US, "%.2f", bill?.dueAmount ?: 0.0)

@@ -257,7 +257,7 @@ fun PaymentReceiptModal(
 
     val invNo = bill?.billNumber ?: "INV-${payment.billId}"
     val receiptNo = payment.paymentReceiptNo
-    val billMonth = bill?.billingMonth ?: payment.paymentDate.take(7)
+    val billMonth = ReceiptPrintUtils.resolveReceiptBillingMonth(payment, bill)
     val billAmt = String.format(java.util.Locale.US, "%.2f", bill?.amount ?: payment.amount)
     val paidAmt = String.format(java.util.Locale.US, "%.2f", payment.amount)
     val dueAmt = String.format(java.util.Locale.US, "%.2f", bill?.dueAmount ?: 0.0)
