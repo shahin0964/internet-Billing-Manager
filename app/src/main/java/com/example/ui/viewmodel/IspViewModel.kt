@@ -41,22 +41,22 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     @OptIn(ExperimentalCoroutinesApi::class)
     val customers: StateFlow<List<CustomerEntity>> = _activeRepository
         .flatMapLatest { it.customers }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val packages: StateFlow<List<IspPackageEntity>> = _activeRepository
         .flatMapLatest { it.packages }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val bills: StateFlow<List<BillEntity>> = _activeRepository
         .flatMapLatest { it.bills }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val payments: StateFlow<List<PaymentEntity>> = _activeRepository
         .flatMapLatest { it.payments }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val settings: StateFlow<BusinessSettingsEntity> = _activeRepository
@@ -82,29 +82,29 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(5000),
+            SharingStarted.Eagerly,
             BusinessSettingsEntity(ispName = "", hotline = "", address = "")
         )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val expenses: StateFlow<List<ExpenseEntity>> = _activeRepository
         .flatMapLatest { it.expenses }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val expenseCategories: StateFlow<List<ExpenseCategoryEntity>> = _activeRepository
         .flatMapLatest { it.expenseCategories }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val bandwidthBills: StateFlow<List<BandwidthBillEntity>> = _activeRepository
         .flatMapLatest { it.bandwidthBills }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val auditLogs: StateFlow<List<com.example.data.model.AuditLogEntity>> = _activeRepository
         .flatMapLatest { it.auditLogs }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val todayCollectionAmount: StateFlow<Double> = _activeRepository
@@ -113,7 +113,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             val todayStr = sdf.format(java.util.Date())
             repo.getCollectedAmountForDate(todayStr)
         }.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0
+            viewModelScope, SharingStarted.Eagerly, 0.0
         )
 
     // UI state filters & queries

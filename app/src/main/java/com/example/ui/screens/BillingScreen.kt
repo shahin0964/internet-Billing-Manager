@@ -67,7 +67,6 @@ fun BillingScreen(
 
     val filteredBills = remember(bills, searchQuery, selectedStatusFilter, customerMap) {
         bills.filter { bill ->
-            val isUnpaid = bill.status == "UNPAID" || bill.status == "PARTIAL"
             val cust = customerMap[bill.customerId]
             val custPppoe = cust?.pppoeUsername ?: ""
             val matchesQuery = searchQuery.isBlank() ||
@@ -78,12 +77,14 @@ fun BillingScreen(
 
             val custStatus = cust?.status?.trim()?.uppercase(java.util.Locale.ROOT) ?: "ACTIVE"
             val matchesStatus = when (selectedStatusFilter) {
+                "UNPAID" -> bill.status == "UNPAID" || bill.status == "PARTIAL" || bill.dueAmount > 0
+                "PAID" -> bill.status == "PAID" || bill.dueAmount <= 0
                 "ACTIVE" -> custStatus == "ACTIVE"
                 "SUSPENDED" -> custStatus == "SUSPENDED" || custStatus == "INACTIVE"
                 else -> true
             }
 
-            isUnpaid && matchesQuery && matchesStatus
+            matchesQuery && matchesStatus
         }.sortedWith { b1, b2 ->
             com.example.util.CustomerSortUtils.compareCustomerNames(b1.customerName, b2.customerName)
         }
@@ -167,8 +168,10 @@ fun BillingScreen(
         ) {
             listOf(
                 "ALL" to "All Bills",
+                "UNPAID" to "Unpaid / Due",
+                "PAID" to "Paid",
                 "ACTIVE" to "Active Lines",
-                "SUSPENDED" to "Suspended / Inactive"
+                "SUSPENDED" to "Suspended"
             ).forEach { (key, label) ->
                 FilterChip(
                     selected = (selectedStatusFilter == key),
