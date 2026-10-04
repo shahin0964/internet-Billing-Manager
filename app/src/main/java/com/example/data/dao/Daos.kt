@@ -118,6 +118,27 @@ interface BillDao {
     @Query("SELECT * FROM bills WHERE id = :id")
     fun getBillById(id: Long): Flow<BillEntity?>
 
+    @Query("SELECT * FROM bills WHERE id = :id LIMIT 1")
+    suspend fun getBillByIdDirect(id: Long): BillEntity?
+
+    @Query("""
+        UPDATE bills 
+        SET paidAmount = :paidAmount, 
+            dueAmount = :dueAmount, 
+            status = :status, 
+            updatedAt = :updatedAt, 
+            syncStatus = :syncStatus 
+        WHERE id = :id
+    """)
+    suspend fun updateBillPaymentStatus(
+        id: Long,
+        paidAmount: Double,
+        dueAmount: Double,
+        status: String,
+        updatedAt: Long = System.currentTimeMillis(),
+        syncStatus: Int = 1
+    )
+
     @Query("SELECT * FROM bills WHERE (customerId = :customerId OR (:customerCode != '' AND LOWER(TRIM(customerCode)) = LOWER(TRIM(:customerCode)))) AND LOWER(TRIM(billingMonth)) = LOWER(TRIM(:billingMonth)) LIMIT 1")
     suspend fun findBillForCustomerAndMonth(customerId: Long, customerCode: String, billingMonth: String): BillEntity?
 

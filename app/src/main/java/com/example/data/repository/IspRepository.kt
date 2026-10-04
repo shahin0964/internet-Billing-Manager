@@ -83,6 +83,7 @@ class IspRepository(
     val databaseOwner: String? = null
 ) {
     private val restoreLockMutex = Mutex()
+    private val repositoryScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     @Volatile private var idCounter = 0
     private fun generateUniqueId(): Long {
         val count = synchronized(this) { idCounter++ }
@@ -1402,9 +1403,25 @@ class IspRepository(
                 var remainingEffective = totalEffective
                 val allocatedBills = mutableListOf<Pair<BillEntity, Double>>()
 
-                // 4. Apply total effective payment (cash + discount) to unpaid bills for this customer (oldest to newest)
+                // 4. Apply total effective payment (cash + discount) using strict FIFO (Oldest Bill First)
+                val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH)
+                fun parseBillMonthTime(monthStr: String): Long {
+                    return try {
+                        monthFormat.parse(monthStr.trim())?.time ?: 0L
+                    } catch (e: Exception) {
+                        try {
+                            SimpleDateFormat("yyyy-MM", Locale.ENGLISH).parse(monthStr.trim())?.time ?: 0L
+                        } catch (e2: Exception) {
+                            0L
+                        }
+                    }
+                }
+
                 if (effectiveCustId != 0L) {
-                    val unpaidBills = allBills.filter { it.customerId == effectiveCustId && it.dueAmount > 0 }.sortedBy { it.id }
+                    val unpaidBills = allBills
+                        .filter { it.customerId == effectiveCustId && it.dueAmount > 0 }
+                        .sortedWith(compareBy({ parseBillMonthTime(it.billingMonth) }, { it.id }))
+
                     for (b in unpaidBills) {
                         if (remainingEffective <= 0.0) break
                         val due = b.dueAmount
@@ -1527,33 +1544,36 @@ class IspRepository(
                 } catch (e: Exception) {
                     Log.e("IspRepository", "Failed to queue payment SMS: ${e.message}")
                 }
-                notifyCloudSync()
 
-                context?.let { ctx ->
-                    val userId = com.example.IspApplication.getUserId(ctx)
-                    if (userId != null) {
-                        try {
-                            val request = PaymentRequest(
-                                id = createdPayment.id.toString(),
-                                userId = userId,
-                                paymentReceiptNo = createdPayment.paymentReceiptNo,
-                                billId = createdPayment.billId.toString(),
-                                customerId = createdPayment.customerId.toString(),
-                                customerName = createdPayment.customerName,
-                                amount = createdPayment.amount,
-                                paymentDate = createdPayment.paymentDate,
-                                paymentMethod = createdPayment.paymentMethod,
-                                notes = createdPayment.notes,
-                                updatedAt = createdPayment.updatedAt
-                            )
-                            val response = ApiClient.apiService.savePayment(request)
-                            if (response.status) {
-                                paymentDao.markPaymentsSynced(listOf(createdPayment.id))
-                            } else {
-                                Log.w("IspRepository", "Server rejected payment save: ${response.message}")
+                // Launch non-blocking background synchronization
+                repositoryScope.launch {
+                    notifyCloudSync()
+                    context?.let { ctx ->
+                        val userId = com.example.IspApplication.getUserId(ctx)
+                        if (userId != null) {
+                            try {
+                                val request = PaymentRequest(
+                                    id = createdPayment.id.toString(),
+                                    userId = userId,
+                                    paymentReceiptNo = createdPayment.paymentReceiptNo,
+                                    billId = createdPayment.billId.toString(),
+                                    customerId = createdPayment.customerId.toString(),
+                                    customerName = createdPayment.customerName,
+                                    amount = createdPayment.amount,
+                                    paymentDate = createdPayment.paymentDate,
+                                    paymentMethod = createdPayment.paymentMethod,
+                                    notes = createdPayment.notes,
+                                    updatedAt = createdPayment.updatedAt
+                                )
+                                val response = ApiClient.apiService.savePayment(request)
+                                if (response.status) {
+                                    paymentDao.markPaymentsSynced(listOf(createdPayment.id))
+                                } else {
+                                    Log.w("IspRepository", "Server rejected payment save: ${response.message}")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("IspRepository", "Failed to save payment via Hosting API: ${e.message}")
                             }
-                        } catch (e: Exception) {
-                            Log.e("IspRepository", "Failed to save payment via Hosting API: ${e.message}")
                         }
                     }
                 }
