@@ -3752,30 +3752,45 @@ class IspRepository(
                 return@withContext false
             }
             val dirtySettings = settingsDao.getDirtySettings()
-            if (dirtySettings != null) {
-                Log.d("IspRepository", "Local settings have unpushed changes; skipping overwrite from Hosting.")
-                return@withContext true
-            }
-
             val existing = settingsDao.getSettingsSingle()
-            val entity = BusinessSettingsEntity(
-                id = 1,
-                ispName = remote.ispName.ifBlank { existing?.ispName ?: "" },
-                hotline = remote.hotline.ifBlank { existing?.hotline ?: "" },
-                address = remote.address.ifBlank { existing?.address ?: "" },
-                currencySymbol = remote.currencySymbol.ifBlank { existing?.currencySymbol ?: "৳" },
-                networkStatus = remote.networkStatus.ifBlank { existing?.networkStatus ?: "Operational" },
-                themeMode = remote.themeMode.ifBlank { existing?.themeMode ?: "SYSTEM" },
-                logoUri = remote.logoUri ?: existing?.logoUri,
-                email = remote.email.ifBlank { existing?.email ?: "" },
-                updatedAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis(),
-                syncStatus = 0
-            )
-            if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
-                return@withContext false
+            val isLocalDefaultOrBlank = existing == null || existing.ispName.isBlank()
+
+            if (dirtySettings == null || isLocalDefaultOrBlank || (remote.updatedAt ?: 0L) >= (existing?.updatedAt ?: 0L)) {
+                val entity = BusinessSettingsEntity(
+                    id = 1,
+                    ispName = remote.ispName.ifBlank { existing?.ispName ?: "" },
+                    hotline = remote.hotline.ifBlank { existing?.hotline ?: "" },
+                    address = remote.address.ifBlank { existing?.address ?: "" },
+                    currencySymbol = remote.currencySymbol.ifBlank { existing?.currencySymbol ?: "৳" },
+                    networkStatus = remote.networkStatus.ifBlank { existing?.networkStatus ?: "Operational" },
+                    themeMode = remote.themeMode.ifBlank { existing?.themeMode ?: "SYSTEM" },
+                    logoUri = remote.logoUri ?: existing?.logoUri,
+                    email = remote.email.ifBlank { existing?.email ?: "" },
+                    updatedAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis(),
+                    syncStatus = 0
+                )
+                if (ctx != null && !com.example.util.HostingSyncManager.isSessionValid(ctx, userId)) {
+                    return@withContext false
+                }
+                settingsDao.insertOrUpdateSettings(entity)
+
+                if (ctx != null) {
+                    try {
+                        val prefs = ctx.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                        prefs.edit()
+                            .putString("cached_isp_name_$userId", entity.ispName)
+                            .putString("cached_hotline_$userId", entity.hotline)
+                            .putString("cached_address_$userId", entity.address)
+                            .putString("cached_currency_$userId", entity.currencySymbol)
+                            .putString("cached_logo_$userId", entity.logoUri ?: "")
+                            .putString("cached_email_$userId", entity.email)
+                            .apply()
+                    } catch (e: Exception) {
+                        // ignore prefs error
+                    }
+                }
+                Log.d("IspRepository", "Successfully synced and updated business settings (ID=1) from Hosting.")
             }
-            settingsDao.insertOrUpdateSettings(entity)
-            Log.d("IspRepository", "Successfully synced and updated business settings from Hosting.")
             true
         } catch (e: Exception) {
             Log.e("IspRepository", "Database error while persisting Hosting settings to Room: ${e.message}", e)

@@ -288,28 +288,28 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 // If cloud settings exist for this user in SharedPreferences, restore them first
                 val app = getApplication<Application>()
                 val uid = com.example.IspApplication.getUserId(app)
-                val userIspName = if (uid != null) {
-                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-                    prefs.getString("cached_isp_name_$uid", "") ?: ""
-                } else ""
-                val userHotline = if (uid != null) {
-                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-                    prefs.getString("cached_hotline_$uid", "") ?: ""
-                } else ""
-                val userAddress = if (uid != null) {
-                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
-                    prefs.getString("cached_address_$uid", "") ?: ""
-                } else ""
+                val prefs = if (uid != null) app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE) else null
+                val userIspName = if (uid != null) prefs?.getString("cached_isp_name_$uid", "") ?: "" else ""
+                val userHotline = if (uid != null) prefs?.getString("cached_hotline_$uid", "") ?: "" else ""
+                val userAddress = if (uid != null) prefs?.getString("cached_address_$uid", "") ?: "" else ""
+                val userCurrency = if (uid != null) prefs?.getString("cached_currency_$uid", "৳") ?: "৳" else "৳"
+                val userLogo = if (uid != null) prefs?.getString("cached_logo_$uid", null) else null
+                val userEmail = if (uid != null) prefs?.getString("cached_email_$uid", "") ?: "" else ""
 
-                repository.saveSettings(
+                // Insert with syncStatus = 0 so it DOES NOT mark local settings as dirty and DOES NOT block cloud sync
+                repository.db.settingsDao().insertOrUpdateSettings(
                     BusinessSettingsEntity(
                         id = 1,
                         ispName = userIspName,
                         hotline = userHotline,
                         address = userAddress,
-                        currencySymbol = "৳",
+                        currencySymbol = userCurrency.ifBlank { "৳" },
                         networkStatus = "Operational",
-                        themeMode = "SYSTEM"
+                        themeMode = "SYSTEM",
+                        logoUri = userLogo,
+                        email = userEmail,
+                        updatedAt = System.currentTimeMillis(),
+                        syncStatus = 0
                     )
                 )
             } else {
@@ -318,12 +318,13 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 val cleanAddress = if (currentSettings.address in listOf("Central NOC, Tech City", "Main NOC, Plaza Suite 10")) "" else currentSettings.address
                 val cleanSymbol = if (currentSettings.currencySymbol == "$") "৳" else currentSettings.currencySymbol
                 if (cleanIspName != currentSettings.ispName || cleanHotline != currentSettings.hotline || cleanAddress != currentSettings.address || cleanSymbol != currentSettings.currencySymbol) {
-                    repository.saveSettings(
+                    repository.db.settingsDao().insertOrUpdateSettings(
                         currentSettings.copy(
                             ispName = cleanIspName,
                             hotline = cleanHotline,
                             address = cleanAddress,
-                            currencySymbol = cleanSymbol
+                            currencySymbol = cleanSymbol,
+                            syncStatus = 0
                         )
                     )
                 }
@@ -687,6 +688,23 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSettings(newSettings: BusinessSettingsEntity) {
         viewModelScope.launch {
             repository.saveSettings(newSettings)
+            val app = getApplication<Application>()
+            val uid = com.example.IspApplication.getUserId(app)
+            if (uid != null) {
+                try {
+                    val prefs = app.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString("cached_isp_name_$uid", newSettings.ispName)
+                        .putString("cached_hotline_$uid", newSettings.hotline)
+                        .putString("cached_address_$uid", newSettings.address)
+                        .putString("cached_currency_$uid", newSettings.currencySymbol)
+                        .putString("cached_logo_$uid", newSettings.logoUri ?: "")
+                        .putString("cached_email_$uid", newSettings.email)
+                        .apply()
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
             _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_business_updated)
         }
     }

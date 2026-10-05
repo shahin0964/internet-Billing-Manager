@@ -619,21 +619,37 @@ object HostingSyncManager {
         // 7. Business Settings Reconciliation
         if (!isSessionValid(context, operationUserId)) return
         fullData.settings?.let { s ->
-            if (!isSettingsDirty) {
+            val existing = db.settingsDao().getSettingsSingle()
+            val isLocalDefaultOrBlank = existing == null || existing.ispName.isBlank()
+            if (!isSettingsDirty || isLocalDefaultOrBlank || (s.updatedAt ?: 0L) >= (existing?.updatedAt ?: 0L)) {
                 val entity = BusinessSettingsEntity(
                     id = 1,
-                    ispName = s.ispName,
-                    hotline = s.hotline,
-                    address = s.address ?: "",
-                    currencySymbol = s.currencySymbol,
-                    networkStatus = s.networkStatus,
-                    themeMode = s.themeMode,
-                    logoUri = s.logoUri,
-                    email = s.email,
-                    updatedAt = s.updatedAt,
+                    ispName = s.ispName.ifBlank { existing?.ispName ?: "" },
+                    hotline = s.hotline.ifBlank { existing?.hotline ?: "" },
+                    address = s.address ?: existing?.address ?: "",
+                    currencySymbol = s.currencySymbol.ifBlank { existing?.currencySymbol ?: "৳" },
+                    networkStatus = s.networkStatus.ifBlank { existing?.networkStatus ?: "Operational" },
+                    themeMode = s.themeMode.ifBlank { existing?.themeMode ?: "SYSTEM" },
+                    logoUri = s.logoUri ?: existing?.logoUri,
+                    email = s.email.ifBlank { existing?.email ?: "" },
+                    updatedAt = s.updatedAt ?: System.currentTimeMillis(),
                     syncStatus = 0
                 )
                 db.settingsDao().insertOrUpdateSettings(entity)
+
+                try {
+                    val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString("cached_isp_name_$operationUserId", entity.ispName)
+                        .putString("cached_hotline_$operationUserId", entity.hotline)
+                        .putString("cached_address_$operationUserId", entity.address)
+                        .putString("cached_currency_$operationUserId", entity.currencySymbol)
+                        .putString("cached_logo_$operationUserId", entity.logoUri ?: "")
+                        .putString("cached_email_$operationUserId", entity.email)
+                        .apply()
+                } catch (e: Exception) {
+                    // Ignore prefs cache errors
+                }
             }
         }
 
