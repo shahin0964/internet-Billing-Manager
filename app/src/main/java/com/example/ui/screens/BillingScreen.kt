@@ -67,6 +67,9 @@ fun BillingScreen(
 
     val filteredBills = remember(bills, searchQuery, selectedStatusFilter, customerMap) {
         bills.filter { bill ->
+            // Only active, unpaid, or partial bills with outstanding dueAmount > 0 are displayed as running cards
+            val isDueOrUnpaid = bill.dueAmount > 0.0 && bill.status != "PAID"
+
             val cust = customerMap[bill.customerId]
             val custPppoe = cust?.pppoeUsername ?: ""
             val matchesQuery = searchQuery.isBlank() ||
@@ -77,14 +80,12 @@ fun BillingScreen(
 
             val custStatus = cust?.status?.trim()?.uppercase(java.util.Locale.ROOT) ?: "ACTIVE"
             val matchesStatus = when (selectedStatusFilter) {
-                "UNPAID" -> bill.status == "UNPAID" || bill.status == "PARTIAL" || bill.dueAmount > 0
-                "PAID" -> bill.status == "PAID" || bill.dueAmount <= 0
                 "ACTIVE" -> custStatus == "ACTIVE"
                 "SUSPENDED" -> custStatus == "SUSPENDED" || custStatus == "INACTIVE"
                 else -> true
             }
 
-            matchesQuery && matchesStatus
+            isDueOrUnpaid && matchesQuery && matchesStatus
         }.sortedWith { b1, b2 ->
             com.example.util.CustomerSortUtils.compareCustomerNames(b1.customerName, b2.customerName)
         }
@@ -167,9 +168,7 @@ fun BillingScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             listOf(
-                "ALL" to "All Bills",
-                "UNPAID" to "Unpaid / Due",
-                "PAID" to "Paid",
+                "ALL" to "All Due Bills",
                 "ACTIVE" to "Active Lines",
                 "SUSPENDED" to "Suspended"
             ).forEach { (key, label) ->
