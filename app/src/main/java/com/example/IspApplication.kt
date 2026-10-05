@@ -37,6 +37,8 @@ class IspApplication : Application() {
 
         try {
             com.example.data.remote.ApiClient.init(this)
+            com.example.util.PinLockManager.init(this)
+            com.example.util.PrivacyModeManager.init(this)
             com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
             com.example.util.AutoBackupWorker.schedulePeriodicBackup(this)
             com.example.util.SyncWorker.schedulePeriodicSync(this)

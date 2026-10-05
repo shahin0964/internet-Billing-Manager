@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
 import android.content.Context
-import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,23 +28,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.InputStream
-import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.net.URL
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ui.viewmodel.SpeedTestViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -174,507 +162,75 @@ val DEFAULT_BD_SERVERS = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SpeedTestScreen(onBackClick: () -> Unit) {
+fun SpeedTestScreen(
+    onBackClick: () -> Unit,
+    viewModel: SpeedTestViewModel = viewModel()
+) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("speed_test_prefs", Context.MODE_PRIVATE) }
-    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    var serverList by remember { mutableStateOf(DEFAULT_BD_SERVERS) }
-    var selectedServerId by remember { mutableStateOf(prefs.getString("selected_server_id", "auto") ?: "auto") }
-    
+    LaunchedEffect(Unit) {
+        viewModel.initialize(context)
+    }
+
+    val networkInfo by viewModel.networkInfo.collectAsStateWithLifecycle()
+    val serverList by viewModel.serverList.collectAsStateWithLifecycle()
+    val selectedServerId by viewModel.selectedServerId.collectAsStateWithLifecycle()
+    val isUpdatingServers by viewModel.isUpdatingServers.collectAsStateWithLifecycle()
+    val serverUpdateStatus by viewModel.serverUpdateStatus.collectAsStateWithLifecycle()
+    val lastServerUpdateTime by viewModel.lastServerUpdateTime.collectAsStateWithLifecycle()
+    val isProbingServers by viewModel.isProbingServers.collectAsStateWithLifecycle()
+
+    val testPhase by viewModel.testPhase.collectAsStateWithLifecycle()
+    val isTesting by viewModel.isTesting.collectAsStateWithLifecycle()
+    val testProgress by viewModel.testProgress.collectAsStateWithLifecycle()
+
+    val pingMs by viewModel.pingMs.collectAsStateWithLifecycle()
+    val jitterMs by viewModel.jitterMs.collectAsStateWithLifecycle()
+    val downloadMbps by viewModel.downloadMbps.collectAsStateWithLifecycle()
+    val uploadMbps by viewModel.uploadMbps.collectAsStateWithLifecycle()
+
+    val activeTestServer by viewModel.activeTestServer.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val historyList by viewModel.historyList.collectAsStateWithLifecycle()
+
     val selectedServer = remember(selectedServerId, serverList) {
-        serverList.find { it.id == selectedServerId } ?: serverList.first()
+        serverList.find { it.id == selectedServerId } ?: serverList.firstOrNull() ?: DEFAULT_BD_SERVERS.first()
     }
 
     var showServerSelector by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var isProbingServers by remember { mutableStateOf(false) }
-
-    var testPhase by remember { mutableStateOf(TestPhase.IDLE) }
-    var isTesting by remember { mutableStateOf(false) }
-    var testProgress by remember { mutableFloatStateOf(0f) }
-
-    var pingMs by remember { mutableLongStateOf(0L) }
-    var jitterMs by remember { mutableLongStateOf(0L) }
-    var downloadMbps by remember { mutableFloatStateOf(0f) }
-    var uploadMbps by remember { mutableFloatStateOf(0f) }
-
-    var activeTestServer by remember { mutableStateOf<SpeedTestServer?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    var historyList by remember { mutableStateOf<List<SpeedTestHistoryEntry>>(emptyList()) }
-    var testJob by remember { mutableStateOf<Job?>(null) }
-
-    // Load History
-    fun loadHistory() {
-        val jsonStr = prefs.getString("history_json", "[]") ?: "[]"
-        try {
-            val arr = JSONArray(jsonStr)
-            val list = mutableListOf<SpeedTestHistoryEntry>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                list.add(
-                    SpeedTestHistoryEntry(
-                        timestamp = obj.optLong("timestamp", 0L),
-                        serverName = obj.optString("serverName", "Unknown"),
-                        serverCity = obj.optString("serverCity", "BD"),
-                        pingMs = obj.optLong("pingMs", 0L),
-                        jitterMs = obj.optLong("jitterMs", 0L),
-                        downloadMbps = obj.optDouble("downloadMbps", 0.0).toFloat(),
-                        uploadMbps = obj.optDouble("uploadMbps", 0.0).toFloat()
-                    )
-                )
-            }
-            historyList = list.sortedByDescending { it.timestamp }
-        } catch (e: Exception) {
-            historyList = emptyList()
-        }
-    }
-
-    fun saveHistoryEntry(entry: SpeedTestHistoryEntry) {
-        try {
-            val currentList = historyList.toMutableList()
-            currentList.add(0, entry)
-            if (currentList.size > 20) currentList.removeAt(currentList.size - 1)
-            historyList = currentList
-
-            val arr = JSONArray()
-            for (item in currentList) {
-                val obj = JSONObject()
-                obj.put("timestamp", item.timestamp)
-                obj.put("serverName", item.serverName)
-                obj.put("serverCity", item.serverCity)
-                obj.put("pingMs", item.pingMs)
-                obj.put("jitterMs", item.jitterMs)
-                obj.put("downloadMbps", item.downloadMbps)
-                obj.put("uploadMbps", item.uploadMbps)
-                arr.put(obj)
-            }
-            prefs.edit().putString("history_json", arr.toString()).apply()
-        } catch (e: Exception) {
-            Log.e("SpeedTest", "Failed to save history: ${e.message}")
-        }
-    }
-
-    fun clearHistory() {
-        prefs.edit().remove("history_json").apply()
-        historyList = emptyList()
-    }
-
-    fun stopTest() {
-        testJob?.cancel()
-        testJob = null
-        isTesting = false
-        testPhase = TestPhase.IDLE
-    }
 
     DisposableEffect(Unit) {
         onDispose {
-            stopTest()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        loadHistory()
-        // Discover verified servers online
-        withContext(Dispatchers.IO) {
-            try {
-                val url = URL("https://www.speedtest.net/api/js/servers?engine=js&search=Bangladesh")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.connectTimeout = 4000
-                conn.readTimeout = 4000
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                conn.setRequestProperty("Accept", "application/json")
-
-                if (conn.responseCode == 200) {
-                    val stream = conn.inputStream
-                    val jsonStr = stream.bufferedReader().use { it.readText() }
-                    conn.disconnect()
-
-                    val arr = JSONArray(jsonStr)
-                    val discovered = mutableListOf<SpeedTestServer>()
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.getJSONObject(i)
-                        val id = obj.optString("id", "")
-                        val sponsor = obj.optString("sponsor", "")
-                        val city = obj.optString("name", "Bangladesh")
-                        val host = obj.optString("host", "")
-                        val uploadUrl = obj.optString("url", "")
-                        val httpsFunc = obj.optInt("https_functional", 0) == 1
-
-                        if (host.isNotBlank() && uploadUrl.isNotBlank()) {
-                            val dlUrl = uploadUrl.replace("upload.php", "random1000x1000.jpg")
-                            discovered.add(
-                                SpeedTestServer(
-                                    id = id.ifBlank { host },
-                                    sponsor = sponsor.ifBlank { "BD Speed Server" },
-                                    city = city,
-                                    host = host,
-                                    uploadUrl = uploadUrl,
-                                    downloadUrl = dlUrl,
-                                    isHttpsSupported = httpsFunc
-                                )
-                            )
-                        }
-                    }
-
-                    if (discovered.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            val autoServer = DEFAULT_BD_SERVERS.first()
-                            val combined = mutableListOf(autoServer)
-                            for (d in discovered) {
-                                if (combined.none { it.id == d.id }) {
-                                    combined.add(d)
-                                }
-                            }
-                            serverList = combined
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("SpeedTest", "Failed to fetch live server list: ${e.message}")
-            }
-        }
-    }
-
-    // Measure latency to a server via TCP Socket probe
-    suspend fun probeServerLatency(server: SpeedTestServer): Long? = withContext(Dispatchers.IO) {
-        if (server.isAuto) return@withContext null
-        val hostParts = server.host.split(":")
-        val hostName = hostParts[0]
-        val port = hostParts.getOrNull(1)?.toIntOrNull() ?: 8080
-
-        var minMs: Long? = null
-        for (attempt in 0..1) {
-            try {
-                val start = System.currentTimeMillis()
-                val socket = Socket()
-                socket.connect(InetSocketAddress(hostName, port), 1200)
-                socket.close()
-                val elapsed = System.currentTimeMillis() - start
-                if (minMs == null || elapsed < minMs) {
-                    minMs = elapsed
-                }
-            } catch (e: Exception) {
-                // Try HTTP HEAD request
-                try {
-                    val start = System.currentTimeMillis()
-                    val url = URL("http://$hostName:$port/speedtest/latency.txt")
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.connectTimeout = 1200
-                    conn.readTimeout = 1200
-                    conn.requestMethod = "HEAD"
-                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-                    conn.connect()
-                    conn.disconnect()
-                    val elapsed = System.currentTimeMillis() - start
-                    if (minMs == null || elapsed < minMs) {
-                        minMs = elapsed
-                    }
-                } catch (ex: Exception) {
-                    // unreachable
-                }
-            }
-        }
-        minMs
-    }
-
-    fun probeAllServers() {
-        scope.launch {
-            isProbingServers = true
-            val updated = withContext(Dispatchers.IO) {
-                serverList.map { srv ->
-                    if (srv.isAuto) srv
-                    else {
-                        val lat = probeServerLatency(srv)
-                        srv.copy(latencyMs = lat)
-                    }
-                }
-            }
-            serverList = updated
-            isProbingServers = false
-        }
-    }
-
-    fun startTest() {
-        stopTest()
-        errorMessage = null
-        isTesting = true
-        testProgress = 0f
-        pingMs = 0L
-        jitterMs = 0L
-        downloadMbps = 0f
-        uploadMbps = 0f
-
-        testJob = scope.launch {
-            try {
-                // Phase 1: Finding Server
-                testPhase = TestPhase.FINDING_SERVER
-                testProgress = 0.05f
-
-                var targetServer = selectedServer
-                if (targetServer.isAuto) {
-                    val candidates = serverList.filter { !it.isAuto }
-                    var bestServer: SpeedTestServer? = null
-                    var lowestPing = Long.MAX_VALUE
-
-                    val deferreds = candidates.map { srv ->
-                        async(Dispatchers.IO) {
-                            val p = probeServerLatency(srv)
-                            Pair(srv, p)
-                        }
-                    }
-                    val probed = deferreds.awaitAll()
-                    for ((srv, lat) in probed) {
-                        if (lat != null && lat < lowestPing) {
-                            lowestPing = lat
-                            bestServer = srv.copy(latencyMs = lat)
-                        }
-                    }
-
-                    targetServer = bestServer ?: candidates.firstOrNull() ?: DEFAULT_BD_SERVERS[1]
-                }
-                activeTestServer = targetServer
-                testProgress = 0.15f
-
-                // Phase 2: Testing Ping & Jitter
-                testPhase = TestPhase.TESTING_PING
-                val pingSamples = mutableListOf<Long>()
-                val hostParts = targetServer.host.split(":")
-                val hostName = hostParts[0]
-                val port = hostParts.getOrNull(1)?.toIntOrNull() ?: 8080
-
-                for (i in 0..4) {
-                    if (!isActive) break
-                    val start = System.currentTimeMillis()
-                    var success = false
-                    try {
-                        withContext(Dispatchers.IO) {
-                            val socket = Socket()
-                            socket.connect(InetSocketAddress(hostName, port), 1500)
-                            socket.close()
-                        }
-                        success = true
-                    } catch (e: Exception) {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val url = URL("http://$hostName:$port/speedtest/latency.txt")
-                                val conn = url.openConnection() as HttpURLConnection
-                                conn.connectTimeout = 1500
-                                conn.readTimeout = 1500
-                                conn.connect()
-                                conn.disconnect()
-                            }
-                            success = true
-                        } catch (ex: Exception) {
-                            // ignore probe failure
-                        }
-                    }
-                    val elapsed = System.currentTimeMillis() - start
-                    if (success) {
-                        pingSamples.add(elapsed)
-                        pingMs = pingSamples.average().toLong()
-                        if (pingSamples.size > 1) {
-                            jitterMs = (pingSamples.maxOrNull()!! - pingSamples.minOrNull()!!)
-                        }
-                    }
-                    testProgress = 0.15f + (i + 1) * 0.03f
-                    delay(80)
-                }
-
-                if (pingSamples.isEmpty()) {
-                    // Fallback to Cloudflare edge ping
-                    val start = System.currentTimeMillis()
-                    withContext(Dispatchers.IO) {
-                        val url = URL("https://1.1.1.1")
-                        val conn = url.openConnection() as HttpURLConnection
-                        conn.connectTimeout = 2000
-                        conn.readTimeout = 2000
-                        conn.connect()
-                        conn.disconnect()
-                    }
-                    val elapsed = System.currentTimeMillis() - start
-                    pingMs = elapsed
-                    jitterMs = 2L
-                }
-
-                // Phase 3: Testing Download
-                testPhase = TestPhase.TESTING_DOWNLOAD
-                val dlDurationMs = 6000L
-                var totalDlBytes = 0L
-
-                val dlUrls = mutableListOf<String>()
-                if (targetServer.downloadUrl.isNotBlank() && targetServer.downloadUrl != "auto") {
-                    dlUrls.add(targetServer.downloadUrl)
-                    if (targetServer.isHttpsSupported && targetServer.downloadUrl.startsWith("http://")) {
-                        dlUrls.add(targetServer.downloadUrl.replace("http://", "https://"))
-                    }
-                }
-                // High performance HTTPS fallback endpoints
-                dlUrls.add("https://speed.cloudflare.com/__down?bytes=25000000")
-
-                var connectedDl = false
-                var dlStartTime = 0L
-
-                for (dUrl in dlUrls) {
-                    if (connectedDl) break
-                    try {
-                        withContext(Dispatchers.IO) {
-                            val url = URL(dUrl)
-                            val conn = url.openConnection() as HttpURLConnection
-                            conn.connectTimeout = 4000
-                            conn.readTimeout = 4000
-                            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-                            conn.setRequestProperty("Accept-Encoding", "identity") // Disable GZIP compression for accurate byte count
-                            conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
-                            conn.setRequestProperty("Pragma", "no-cache")
-                            conn.connect()
-
-                            if (conn.responseCode == 200) {
-                                connectedDl = true
-                                val input: InputStream = conn.inputStream
-                                val buffer = ByteArray(16384)
-                                var bytesRead: Int
-                                dlStartTime = System.currentTimeMillis()
-
-                                while (isActive && (System.currentTimeMillis() - dlStartTime) < dlDurationMs) {
-                                    bytesRead = input.read(buffer)
-                                    if (bytesRead <= 0) break
-                                    totalDlBytes += bytesRead
-
-                                    val now = System.currentTimeMillis()
-                                    val elapsedSec = (now - dlStartTime) / 1000.0
-                                    if (elapsedSec > 0.1) {
-                                        val mbps = ((totalDlBytes * 8.0) / (elapsedSec * 1_000_000.0)).toFloat()
-                                        withContext(Dispatchers.Main) {
-                                            downloadMbps = mbps
-                                            testProgress = 0.30f + ((elapsedSec / 6.0) * 0.35f).toFloat()
-                                        }
-                                    }
-                                }
-                                try { input.close() } catch (_: Exception) {}
-                                try { conn.disconnect() } catch (_: Exception) {}
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w("SpeedTest", "DL url $dUrl failed: ${e.message}")
-                    }
-                }
-
-                if (dlStartTime > 0 && totalDlBytes > 0) {
-                    val finalDlTime = (System.currentTimeMillis() - dlStartTime) / 1000.0
-                    if (finalDlTime > 0.1) {
-                        downloadMbps = ((totalDlBytes * 8.0) / (finalDlTime * 1_000_000.0)).toFloat()
-                    }
-                }
-
-                // Phase 4: Testing Upload
-                testPhase = TestPhase.TESTING_UPLOAD
-                val ulDurationMs = 5000L
-                var totalUlBytes = 0L
-
-                val ulUrls = mutableListOf<String>()
-                if (targetServer.uploadUrl.isNotBlank() && targetServer.uploadUrl != "auto") {
-                    ulUrls.add(targetServer.uploadUrl)
-                    if (targetServer.isHttpsSupported && targetServer.uploadUrl.startsWith("http://")) {
-                        ulUrls.add(targetServer.uploadUrl.replace("http://", "https://"))
-                    }
-                }
-                ulUrls.add("https://speed.cloudflare.com/__up")
-
-                val payloadChunk = ByteArray(16384) { 0x55 }
-                var connectedUl = false
-                var ulStartTime = 0L
-
-                for (uUrl in ulUrls) {
-                    if (connectedUl) break
-                    try {
-                        withContext(Dispatchers.IO) {
-                            val url = URL(uUrl)
-                            val conn = url.openConnection() as HttpURLConnection
-                            conn.connectTimeout = 3500
-                            conn.readTimeout = 3500
-                            conn.doOutput = true
-                            conn.requestMethod = "POST"
-                            // CRITICAL: Chunked streaming mode prevents in-memory byte buffering
-                            conn.setChunkedStreamingMode(16384)
-                            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-                            conn.setRequestProperty("Content-Type", "application/octet-stream")
-                            conn.setRequestProperty("Cache-Control", "no-cache")
-
-                            val output: OutputStream = conn.outputStream
-                            connectedUl = true
-                            ulStartTime = System.currentTimeMillis()
-
-                            while (isActive && (System.currentTimeMillis() - ulStartTime) < ulDurationMs) {
-                                output.write(payloadChunk)
-                                totalUlBytes += payloadChunk.size
-
-                                val now = System.currentTimeMillis()
-                                val elapsedSec = (now - ulStartTime) / 1000.0
-                                if (elapsedSec > 0.1) {
-                                    val mbps = ((totalUlBytes * 8.0) / (elapsedSec * 1_000_000.0)).toFloat()
-                                    withContext(Dispatchers.Main) {
-                                        uploadMbps = mbps
-                                        testProgress = 0.65f + ((elapsedSec / 5.0) * 0.35f).toFloat()
-                                    }
-                                }
-                            }
-                            try { output.flush() } catch (_: Exception) {}
-                            try { output.close() } catch (_: Exception) {}
-                            try { conn.disconnect() } catch (_: Exception) {}
-                        }
-                    } catch (e: Exception) {
-                        Log.w("SpeedTest", "UL url $uUrl failed: ${e.message}")
-                    }
-                }
-
-                if (ulStartTime > 0 && totalUlBytes > 0) {
-                    val finalUlTime = (System.currentTimeMillis() - ulStartTime) / 1000.0
-                    if (finalUlTime > 0.1) {
-                        uploadMbps = ((totalUlBytes * 8.0) / (finalUlTime * 1_000_000.0)).toFloat()
-                    }
-                }
-
-                // Finish
-                testPhase = TestPhase.COMPLETED
-                testProgress = 1f
-
-                // Save to history
-                saveHistoryEntry(
-                    SpeedTestHistoryEntry(
-                        timestamp = System.currentTimeMillis(),
-                        serverName = activeTestServer?.sponsor ?: targetServer.sponsor,
-                        serverCity = activeTestServer?.city ?: targetServer.city,
-                        pingMs = pingMs,
-                        jitterMs = jitterMs,
-                        downloadMbps = downloadMbps,
-                        uploadMbps = uploadMbps
-                    )
-                )
-
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) {
-                    throw e
-                } else {
-                    Log.e("SpeedTest", "Test failed: ${e.message}", e)
-                    errorMessage = "Speed test could not be completed. Please check your internet connection and try again."
-                    testPhase = TestPhase.FAILED
-                }
-            } finally {
-                isTesting = false
-            }
+            viewModel.stopTest()
         }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "⚡ Speed Test",
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "⚡ Speed Test",
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "Pro",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
@@ -685,6 +241,17 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            viewModel.fetchCurrentNetworkInfo(context) { _, _ -> }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NetworkCheck,
+                            contentDescription = "Refresh Network",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     IconButton(onClick = { showServerSelector = true }) {
                         Icon(
                             imageVector = Icons.Default.Dns,
@@ -705,10 +272,277 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Server Selector Card
+            // Feature 2: Real Network IP & ISP Auto-Detection Card
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    ),
+                    shadowElevation = 2.dp
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (networkInfo.connectionType.contains("Wi-Fi"))
+                                        Color(0xFFE8F5E9) else Color(0xFFE3F2FD),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (networkInfo.connectionType.contains("Wi-Fi"))
+                                            Icons.Default.Wifi else Icons.Default.Public,
+                                        contentDescription = null,
+                                        tint = if (networkInfo.connectionType.contains("Wi-Fi"))
+                                            Color(0xFF2E7D32) else Color(0xFF1565C0),
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Active Network Connection",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = networkInfo.connectionType,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    viewModel.fetchCurrentNetworkInfo(context) { _, _ -> }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                if (networkInfo.isDetecting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Detect IP & ISP",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Public IP Box
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "PUBLIC IP",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = networkInfo.ip,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            // Detected ISP Name Box
+                            Column(
+                                modifier = Modifier.weight(1.3f),
+                                horizontalAlignment = Alignment.End
+                            ) {
+                                Text(
+                                    text = "DETECTED ISP",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = networkInfo.ispName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        if (networkInfo.cityCountry.isNotBlank()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = networkInfo.cityCountry,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Feature 1: Server Update Card UI ("Live ISP Server Update")
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudSync,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.padding(9.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Live ISP Server Update",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Online Speed Test Servers (${serverList.size - 1} Ready)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            // Update Now Button
+                            Button(
+                                onClick = {
+                                    viewModel.refreshOnlineServers { _, _ -> }
+                                },
+                                enabled = !isUpdatingServers,
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                if (isUpdatingServers) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Updating...", style = MaterialTheme.typography.labelMedium)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Sync,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Update Now", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        // Last updated or sync message
+                        val updateTimeStr = remember(lastServerUpdateTime) {
+                            if (lastServerUpdateTime > 0L) {
+                                SimpleDateFormat("MMM dd, yyyy • hh:mm a", Locale.US).format(Date(lastServerUpdateTime))
+                            } else {
+                                "Built-in verified endpoints"
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFF4CAF50),
+                                    modifier = Modifier.size(8.dp)
+                                ) {}
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isUpdatingServers) "Fetching online ISP endpoints..." else "Last Synced: $updateTimeStr",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Text(
+                                text = "Auto-Failover Active",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Selected Server Card
             item {
                 Surface(
                     modifier = Modifier
@@ -735,20 +569,20 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                         ) {
                             Surface(
                                 shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
                                 modifier = Modifier.size(44.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Dns,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                     modifier = Modifier.padding(10.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = "Selected Server",
+                                    text = "Target Speed Test Server",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -760,7 +594,7 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = if (selectedServer.isAuto) "Automatic Server Discovery (BD)" else "${selectedServer.city} • ${selectedServer.host}",
+                                    text = if (selectedServer.isAuto) "Automatic Server Discovery (Lowest Ping)" else "${selectedServer.city} • ${selectedServer.host}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -801,12 +635,12 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                         // Display Phase Banner
                         val phaseText = when (testPhase) {
                             TestPhase.IDLE -> "Ready to test"
-                            TestPhase.FINDING_SERVER -> "Finding lowest-latency server..."
+                            TestPhase.FINDING_SERVER -> "Finding lowest-latency ISP server..."
                             TestPhase.TESTING_PING -> "Testing Ping & Jitter..."
                             TestPhase.TESTING_DOWNLOAD -> "Testing Download Speed..."
                             TestPhase.TESTING_UPLOAD -> "Testing Upload Speed..."
-                            TestPhase.COMPLETED -> "Test Complete!"
-                            TestPhase.FAILED -> "Test Failed"
+                            TestPhase.COMPLETED -> "Speed Test Complete!"
+                            TestPhase.FAILED -> "Speed Test Failed"
                         }
 
                         Text(
@@ -928,7 +762,7 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                         // Start / Stop Button
                         if (isTesting) {
                             Button(
-                                onClick = { stopTest() },
+                                onClick = { viewModel.stopTest() },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.error
@@ -941,7 +775,7 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                             }
                         } else {
                             Button(
-                                onClick = { startTest() },
+                                onClick = { viewModel.startTest(context) },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -967,7 +801,7 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                     if (historyList.isNotEmpty()) {
-                        TextButton(onClick = { clearHistory() }) {
+                        TextButton(onClick = { viewModel.clearHistory(context) }) {
                             Text("Clear", color = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -1087,7 +921,7 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                     TextButton(
-                        onClick = { probeAllServers() },
+                        onClick = { viewModel.probeAllServers() },
                         enabled = !isProbingServers
                     ) {
                         if (isProbingServers) {
@@ -1143,8 +977,7 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    selectedServerId = srv.id
-                                    prefs.edit().putString("selected_server_id", srv.id).apply()
+                                    viewModel.selectServer(srv.id, context)
                                     showServerSelector = false
                                 },
                             shape = RoundedCornerShape(12.dp),
@@ -1170,8 +1003,7 @@ fun SpeedTestScreen(onBackClick: () -> Unit) {
                                     RadioButton(
                                         selected = isSelected,
                                         onClick = {
-                                            selectedServerId = srv.id
-                                            prefs.edit().putString("selected_server_id", srv.id).apply()
+                                            viewModel.selectServer(srv.id, context)
                                             showServerSelector = false
                                         }
                                     )

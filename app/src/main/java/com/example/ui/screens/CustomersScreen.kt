@@ -2,6 +2,9 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import com.example.ui.components.formatAmount
+import com.example.ui.components.formatAmountPrivacy
+import com.example.ui.components.formatPhonePrivacy
+import androidx.compose.runtime.collectAsState
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -132,6 +135,7 @@ fun CustomersScreen(
     var previewCustomerState by remember { mutableStateOf<CustomerEntity?>(null) }
     var customerToDelete by remember { mutableStateOf<CustomerEntity?>(null) }
     var showBulkSmsDialog by remember { mutableStateOf(false) }
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
 
     if (showBulkSmsDialog) {
         BulkSmsDialog(
@@ -491,6 +495,7 @@ fun CustomerItemCard(
 ) {
     val context = LocalContext.current
     val totalDue = bills.sumOf { it.dueAmount }
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
 
     Surface(
         onClick = onClick,
@@ -556,7 +561,7 @@ tonalElevation = 3.dp,
                         Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
-                            text = "Fee: $currencySymbol${customer.monthlyFee.formatAmount()}/mo" + (if (totalDue > 0) androidx.compose.ui.res.stringResource(com.example.R.string.msg_due, currencySymbol, totalDue.formatAmount()) else ""),
+                            text = "Fee: ${customer.monthlyFee.formatAmountPrivacy(currencySymbol, isPrivacyModeActive)}/mo" + (if (totalDue > 0) " (Due: ${totalDue.formatAmountPrivacy(currencySymbol, isPrivacyModeActive)})" else ""),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                             color = if (totalDue > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -682,7 +687,7 @@ tonalElevation = 3.dp,
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = customer.phone,
+                        text = customer.phone.formatPhonePrivacy(isPrivacyModeActive),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -744,6 +749,7 @@ fun CustomerPreviewScreen(
     onViewReceiptClick: ((PaymentEntity) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
     val totalDue = bills.sumOf { it.dueAmount }
     val matchedPackage = packages.find { it.id == customer.packageId }
 
@@ -1022,7 +1028,7 @@ tonalElevation = 3.dp,
 
                     PreviewInfoRow(androidx.compose.ui.res.stringResource(com.example.R.string.customer_name), customer.name)
                     PreviewInfoRow(androidx.compose.ui.res.stringResource(com.example.R.string.customer_code), customer.customerCode)
-                    PreviewInfoRow(androidx.compose.ui.res.stringResource(com.example.R.string.phone_number), customer.phone)
+                    PreviewInfoRow(androidx.compose.ui.res.stringResource(com.example.R.string.phone_number), customer.phone.formatPhonePrivacy(isPrivacyModeActive))
                     PreviewInfoRow(
                         androidx.compose.ui.res.stringResource(com.example.R.string.address_location),
                         if (customer.address.isNotBlank()) customer.address else androidx.compose.ui.res.stringResource(com.example.R.string.not_provided)
@@ -1082,10 +1088,10 @@ tonalElevation = 3.dp,
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    PreviewInfoRow(androidx.compose.ui.res.stringResource(com.example.R.string.monthly_fee), "$currencySymbol${customer.monthlyFee.formatAmount()}")
+                    PreviewInfoRow(androidx.compose.ui.res.stringResource(com.example.R.string.monthly_fee), customer.monthlyFee.formatAmountPrivacy(currencySymbol, isPrivacyModeActive))
                     PreviewInfoRow(
                         androidx.compose.ui.res.stringResource(com.example.R.string.msg_outstanding_balance),
-                        "$currencySymbol${totalDue.formatAmount()}",
+                        totalDue.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                         isBold = true,
                         valueColor = if (totalDue > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                     )

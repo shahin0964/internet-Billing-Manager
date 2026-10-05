@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
 import com.example.ui.components.formatAmount
+import com.example.ui.components.formatAmountPrivacy
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -60,6 +64,7 @@ fun BillingScreen(
     onEditBill: (BillEntity) -> Unit = {}
 ) {
     var selectedStatusFilter by remember { mutableStateOf("ALL") }
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
 
     val customerMap = remember(customers) {
         customers.associateBy { it.id }
@@ -209,6 +214,7 @@ fun BillingScreen(
                         customerStatus = cust?.status,
                         pppoeUsername = cust?.pppoeUsername,
                         currencySymbol = currencySymbol,
+                        isPrivacyModeActive = isPrivacyModeActive,
                         onCollectPayment = { onRecordPaymentForBill(bill) },
                         onEditBill = { onEditBill(bill) }
                     )
@@ -225,6 +231,7 @@ fun BillItemCard(
     customerStatus: String? = null,
     pppoeUsername: String? = null,
     currencySymbol: String,
+    isPrivacyModeActive: Boolean = false,
     onCollectPayment: () -> Unit,
     onEditBill: () -> Unit = {}
 ) {
@@ -382,7 +389,7 @@ fun BillItemCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "$currencySymbol${bill.amount.formatAmount()}",
+                        text = bill.amount.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
                     )
                 }
@@ -394,7 +401,7 @@ fun BillItemCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "$currencySymbol${bill.paidAmount.formatAmount()}",
+                        text = bill.paidAmount.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             color = EmeraldSuccess
@@ -409,7 +416,7 @@ fun BillItemCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "$currencySymbol${bill.dueAmount.formatAmount()}",
+                        text = bill.dueAmount.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = if (bill.dueAmount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary

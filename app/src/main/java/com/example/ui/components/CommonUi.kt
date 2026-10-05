@@ -357,3 +357,11 @@ fun SectionHeader(
     }
 }
 fun Double.formatAmount(): String { return if (this % 1.0 == 0.0) this.toLong().toString() else this.toString() }
+
+fun Double.formatAmountPrivacy(currencySymbol: String, isPrivacy: Boolean): String {
+    return if (isPrivacy) "$currencySymbol••••••" else "$currencySymbol${this.formatAmount()}"
+}
+
+fun String.formatPhonePrivacy(isPrivacy: Boolean): String {
+    return com.example.util.PrivacyModeManager.maskPhone(this, isPrivacy)
+}

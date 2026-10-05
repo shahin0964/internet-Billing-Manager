@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,22 +15,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.GroupAdd
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.ReceiptLong
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.ui.viewmodel.IspViewModel
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,17 +40,19 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
-import com.example.ui.components.SectionHeader
-
+import com.example.ui.viewmodel.IspViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,26 +61,52 @@ fun AdvancedFeaturesScreen(
     onOpenExpenseManagement: () -> Unit = {},
     viewModel: IspViewModel = viewModel()
 ) {
-    var showActivityAndAuditLog by remember { mutableStateOf(false) }
+    var showAdvancedNetwork by remember { mutableStateOf(false) }
+    var showNetworkTools by remember { mutableStateOf(false) }
     var showSpeedTest by remember { mutableStateOf(false) }
     var showWifiAnalyzer by remember { mutableStateOf(false) }
+    var showReceiptCustomization by remember { mutableStateOf(false) }
     var showImportCustomers by remember { mutableStateOf(false) }
     var showAutomaticSms by remember { mutableStateOf(false) }
-    var showReceiptCustomization by remember { mutableStateOf(false) }
+    var showActivityAndAuditLog by remember { mutableStateOf(false) }
+
+    if (showAdvancedNetwork) {
+        BackHandler { showAdvancedNetwork = false }
+        AdvancedNetworkScreen(
+            onBackClick = { showAdvancedNetwork = false }
+        )
+        return
+    }
+
+    if (showNetworkTools) {
+        BackHandler { showNetworkTools = false }
+        NetworkToolsScreen(
+            onBackClick = { showNetworkTools = false }
+        )
+        return
+    }
+
+    if (showSpeedTest) {
+        BackHandler { showSpeedTest = false }
+        SpeedTestScreen(
+            onBackClick = { showSpeedTest = false }
+        )
+        return
+    }
+
+    if (showWifiAnalyzer) {
+        BackHandler { showWifiAnalyzer = false }
+        WiFiAnalyzerScreen(
+            onBackClick = { showWifiAnalyzer = false }
+        )
+        return
+    }
 
     if (showReceiptCustomization) {
         BackHandler { showReceiptCustomization = false }
         ReceiptCustomizationScreen(
             viewModel = viewModel,
             onBackClick = { showReceiptCustomization = false }
-        )
-        return
-    }
-
-    if (showAutomaticSms) {
-        BackHandler { showAutomaticSms = false }
-        AutomaticSmsScreen(
-            onBackClick = { showAutomaticSms = false }
         )
         return
     }
@@ -92,10 +119,11 @@ fun AdvancedFeaturesScreen(
         )
         return
     }
-    if (showWifiAnalyzer) {
-        BackHandler { showWifiAnalyzer = false }
-        WiFiAnalyzerScreen(
-            onBackClick = { showWifiAnalyzer = false }
+
+    if (showAutomaticSms) {
+        BackHandler { showAutomaticSms = false }
+        AutomaticSmsScreen(
+            onBackClick = { showAutomaticSms = false }
         )
         return
     }
@@ -104,14 +132,6 @@ fun AdvancedFeaturesScreen(
         BackHandler { showActivityAndAuditLog = false }
         ActivityAndAuditLogScreen(
             onBackClick = { showActivityAndAuditLog = false }
-        )
-        return
-    }
-    
-    if (showSpeedTest) {
-        BackHandler { showSpeedTest = false }
-        SpeedTestScreen(
-            onBackClick = { showSpeedTest = false }
         )
         return
     }
@@ -145,529 +165,297 @@ fun AdvancedFeaturesScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Receipt Customization Feature Entry
+            // ==========================================
+            // SECTION 1: NETWORK & DIAGNOSTICS
+            // ==========================================
             item {
+                CategorySectionHeader(
+                    title = "Network & Diagnostics",
+                    subtitle = "Diagnostic suite, speed test, and wireless analysis",
+                    badgeText = "4 Tools",
+                    badgeColor = MaterialTheme.colorScheme.primaryContainer,
+                    badgeTextColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+
+            // 1. Network 🛜 (Advanced Suite)
+            item {
+                AdvancedFeatureCard(
+                    title = "Network 🛜",
+                    subtitle = "Port Scanner, Subnet/CIDR, Traceroute, MAC Lookup, Whois",
+                    badge = "Advanced",
+                    icon = Icons.Default.Dns,
+                    iconContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    iconTintColor = MaterialTheme.colorScheme.primary,
+                    onClick = { showAdvancedNetwork = true }
+                )
+            }
+
+            // 2. Network Tools (Ping, DNS, IP, Reachability)
+            item {
+                AdvancedFeatureCard(
+                    title = "Network Tools 🛠️",
+                    subtitle = "Ping latency, DNS lookup, IP check, and router reachability",
+                    badge = "Essential",
+                    icon = Icons.Default.Language,
+                    iconContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    iconTintColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    onClick = { showNetworkTools = true }
+                )
+            }
+
+            // 3. Speed Test (Internet download & upload speed)
+            item {
+                AdvancedFeatureCard(
+                    title = "⚡ Speed Test",
+                    subtitle = "Benchmark download, upload speed, latency, and jitter",
+                    badge = "Live ISP",
+                    icon = Icons.Default.Speed,
+                    iconContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    iconTintColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    onClick = { showSpeedTest = true }
+                )
+            }
+
+            // 4. Wi-Fi Analyzer (Analyze Wi-Fi signal and nearby networks)
+            item {
+                AdvancedFeatureCard(
+                    title = "📡 Wi-Fi Analyzer",
+                    subtitle = "Real-time 2.4/5/6 GHz channels, signal graph, and ratings",
+                    badge = "Real Scan",
+                    icon = Icons.Default.Wifi,
+                    iconContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                    iconTintColor = MaterialTheme.colorScheme.primary,
+                    onClick = { showWifiAnalyzer = true }
+                )
+            }
+
+            // ==========================================
+            // SECTION 2: BUSINESS & OPERATIONS
+            // ==========================================
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                CategorySectionHeader(
+                    title = "Business & Operations",
+                    subtitle = "Customer billing, operations, automation, and logs",
+                    badgeText = "Management",
+                    badgeColor = MaterialTheme.colorScheme.secondaryContainer,
+                    badgeTextColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+
+            // 1. Receipt Customization
+            item {
+                AdvancedFeatureCard(
+                    title = stringResource(R.string.receipt_customization),
+                    subtitle = stringResource(R.string.receipt_customization_subtitle),
+                    badge = null,
+                    icon = Icons.Default.ReceiptLong,
+                    iconContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    iconTintColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { showReceiptCustomization = true }
+                )
+            }
+
+            // 2. Customer Import & Export
+            item {
+                AdvancedFeatureCard(
+                    title = stringResource(R.string.customer_import_export_title),
+                    subtitle = stringResource(R.string.customer_import_export_subtitle),
+                    badge = "CSV / JSON",
+                    icon = Icons.Default.GroupAdd,
+                    iconContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    iconTintColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { showImportCustomers = true }
+                )
+            }
+
+            // 3. Expense Management
+            item {
+                AdvancedFeatureCard(
+                    title = stringResource(R.string.expense_management),
+                    subtitle = stringResource(R.string.expense_management_subtitle),
+                    badge = "Finance",
+                    icon = Icons.Default.Payments,
+                    iconContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    iconTintColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { onOpenExpenseManagement() }
+                )
+            }
+
+            // 4. Automatic SMS & Notifications
+            item {
+                AdvancedFeatureCard(
+                    title = stringResource(R.string.automatic_sms),
+                    subtitle = stringResource(R.string.automatic_sms_subtitle),
+                    badge = "Automated",
+                    icon = Icons.AutoMirrored.Filled.Send,
+                    iconContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    iconTintColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { showAutomaticSms = true }
+                )
+            }
+
+            // 5. Activity & Audit Log
+            item {
+                AdvancedFeatureCard(
+                    title = "🔐 Activity & Audit Log",
+                    subtitle = "Track user actions, billing operations, and system events",
+                    badge = "Security",
+                    icon = Icons.Default.Security,
+                    iconContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    iconTintColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = { showActivityAndAuditLog = true }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategorySectionHeader(
+    title: String,
+    subtitle: String,
+    badgeText: String? = null,
+    badgeColor: Color = MaterialTheme.colorScheme.primaryContainer,
+    badgeTextColor: Color = MaterialTheme.colorScheme.onPrimaryContainer
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (!badgeText.isNullOrBlank()) {
                 Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showReceiptCustomization = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
+                    shape = RoundedCornerShape(6.dp),
+                    color = badgeColor
                 ) {
-                    Row(
+                    Text(
+                        text = badgeText,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = badgeTextColor,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+        }
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun AdvancedFeatureCard(
+    title: String,
+    subtitle: String,
+    badge: String? = null,
+    icon: ImageVector,
+    iconContainerColor: Color,
+    iconTintColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 2.dp,
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = iconContainerColor,
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconTintColor,
                         modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
+                            .padding(11.dp)
+                            .fillMaxSize()
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (!badge.isNullOrBlank()) {
                             Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.tertiaryContainer,
-                                modifier = Modifier.size(44.dp)
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.ReceiptLong,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
                                 Text(
-                                    text = stringResource(R.string.receipt_customization),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.receipt_customization_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = badge,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
                                 )
                             }
                         }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
-                }
-            }
-
-            // Import Customers Feature Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showImportCustomers = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.GroupAdd,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.customer_import_export_title),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.customer_import_export_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
             }
-
-            // Expense Management Feature Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenExpenseManagement() },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Payments,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.expense_management),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.expense_management_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            // Automatic SMS Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showAutomaticSms = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.automatic_sms),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.automatic_sms_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-            
-
-
-            // Network Tools Feature Entry
-            item {
-                var showNetworkTools by remember { mutableStateOf(false) }
-                if (showNetworkTools) {
-                    androidx.compose.ui.window.Dialog(
-                        onDismissRequest = { showNetworkTools = false },
-                        properties = androidx.compose.ui.window.DialogProperties(
-                            usePlatformDefaultWidth = false
-                        )
-                    ) {
-                        NetworkToolsScreen(
-                            onBackClick = { showNetworkTools = false }
-                        )
-                    }
-                }
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showNetworkTools = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Language,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.network_tools),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.network_tools_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            // Speed Test Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showSpeedTest = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Speed,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = "⚡ Speed Test",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Test internet download & upload speed",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            // Activity & Audit Log Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showActivityAndAuditLog = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Security,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = "🔐 Activity & Audit Log",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Track user actions and system changes",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-            
-            // Wi-Fi Analyzer Entry
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showWifiAnalyzer = true },
-                    shape = RoundedCornerShape(18.dp),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 2.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Wifi,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier
-                                        .padding(10.dp)
-                                        .fillMaxSize()
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = "📡 Wi-Fi Analyzer",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Analyze Wi-Fi signal and nearby networks",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            item { Spacer(modifier = Modifier.height(48.dp)) }
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
         }
     }
 }

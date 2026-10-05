@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
 import com.example.ui.components.formatAmount
+import com.example.ui.components.formatAmountPrivacy
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -65,6 +69,8 @@ fun DueManagementScreen(
     val sortName = androidx.compose.ui.res.stringResource(com.example.R.string.sort_name)
     var sortOption by remember { mutableStateOf(sortDueDesc) }
 
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
+
     val unpaidBills = remember(bills) {
         bills.filter { it.dueAmount > 0 }
     }
@@ -112,7 +118,7 @@ fun DueManagementScreen(
             ) {
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.total_outstanding_dues),
-                    value = "$currencySymbol${totalDueAmount.formatAmount()}",
+                    value = totalDueAmount.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.MoneyOff,
                     iconColor = CrimsonDanger,
                     modifier = Modifier.weight(1f)
@@ -205,6 +211,7 @@ fun DueBillCard(
     onRecordPayment: () -> Unit,
     onSendReminder: (phone: String, message: String) -> Unit
 ) {
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -259,11 +266,11 @@ fun DueBillCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Total Bill: $currencySymbol${bill.amount.formatAmount()}",
+                    text = "Total Bill: ${bill.amount.formatAmountPrivacy(currencySymbol, isPrivacyModeActive)}",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = "Due Amount: $currencySymbol${bill.dueAmount.formatAmount()}",
+                    text = "Due Amount: ${bill.dueAmount.formatAmountPrivacy(currencySymbol, isPrivacyModeActive)}",
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = CrimsonDanger

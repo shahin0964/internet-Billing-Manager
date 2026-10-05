@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
 import com.example.ui.components.formatAmount
+import com.example.ui.components.formatAmountPrivacy
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -94,6 +97,7 @@ fun DashboardScreen(
     }
 
     val currency = settings.currencySymbol
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
 
     val totalBillingAmount = bills.sumOf { it.amount }
     val totalCollectedAmount = payments.sumOf { it.amount }
@@ -242,7 +246,7 @@ tonalElevation = 2.dp,
                     )
                     KpiCard(
                         title = androidx.compose.ui.res.stringResource(com.example.R.string.inactive_susp),
-                        value = "$currency${monthlyBillAmount.formatAmount()}",
+                        value = monthlyBillAmount.formatAmountPrivacy(currency, isPrivacyModeActive),
                         icon = Icons.Default.Payments,
                         iconColor = EmeraldSuccess,
                         modifier = Modifier.weight(1f),
@@ -256,7 +260,7 @@ tonalElevation = 2.dp,
                 ) {
                     KpiCard(
                         title = androidx.compose.ui.res.stringResource(com.example.R.string.monthly_collection),
-                        value = "$currency${monthlyCollectedAmount.formatAmount()}",
+                        value = monthlyCollectedAmount.formatAmountPrivacy(currency, isPrivacyModeActive),
                         icon = Icons.Default.CreditCard,
                         iconColor = EmeraldSuccess,
                         modifier = Modifier.weight(1f),
@@ -264,7 +268,7 @@ tonalElevation = 2.dp,
                     )
                     KpiCard(
                         title = androidx.compose.ui.res.stringResource(com.example.R.string.today_collection),
-                        value = "$currency${todayCollectionAmount.formatAmount()}",
+                        value = todayCollectionAmount.formatAmountPrivacy(currency, isPrivacyModeActive),
                         icon = Icons.Default.Payments,
                         iconColor = EmeraldSuccess,
                         modifier = Modifier.weight(1f)
@@ -299,7 +303,7 @@ tonalElevation = 2.dp,
                     val dueRatio = (totalDueAmount / maxVal).coerceIn(0.0, 1.0).toFloat()
 
                     Text(
-                        text = androidx.compose.ui.res.stringResource(com.example.R.string.msg_total_generated, currency, totalBillingAmount.formatAmount()),
+                        text = if (isPrivacyModeActive) "Total: $currency••••••" else androidx.compose.ui.res.stringResource(com.example.R.string.msg_total_generated, currency, totalBillingAmount.formatAmount()),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -354,7 +358,7 @@ tonalElevation = 2.dp,
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = androidx.compose.ui.res.stringResource(com.example.R.string.msg_collected, currency, totalCollectedAmount.formatAmount()),
+                                text = if (isPrivacyModeActive) "Collected: $currency••••••" else androidx.compose.ui.res.stringResource(com.example.R.string.msg_collected, currency, totalCollectedAmount.formatAmount()),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -369,7 +373,7 @@ tonalElevation = 2.dp,
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = androidx.compose.ui.res.stringResource(com.example.R.string.msg_outstanding, currency, totalDueAmount.formatAmount()),
+                                text = if (isPrivacyModeActive) "Outstanding: $currency••••••" else androidx.compose.ui.res.stringResource(com.example.R.string.msg_outstanding, currency, totalDueAmount.formatAmount()),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -427,7 +431,7 @@ tonalElevation = 2.dp,
                                         )
                                     }
                                     Text(
-                                        text = "+$currency${payment.amount.formatAmount()}",
+                                        text = payment.amount.formatAmountPrivacy("+$currency", isPrivacyModeActive),
                                         style = MaterialTheme.typography.titleMedium.copy(
                                             fontWeight = FontWeight.Bold,
                                             color = EmeraldSuccess

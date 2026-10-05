@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import com.example.ui.components.formatAmount
+import com.example.ui.components.formatAmountPrivacy
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -88,6 +90,8 @@ fun CollectionScreen(
     var bandwidthInputText by remember { mutableStateOf("") }
     var bandwidthInputError by remember { mutableStateOf<String?>(null) }
     
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
+
     val selectedMonthString = remember(monthOffset) {
         val calendar = Calendar.getInstance()
         calendar.add(Calendar.MONTH, monthOffset)
@@ -261,14 +265,14 @@ fun CollectionScreen(
             ) {
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.total_bill),
-                    value = "$currencySymbol${totalMonthlyBill.formatAmount()}",
+                    value = totalMonthlyBill.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.Receipt,
                     iconColor = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f)
                 )
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.total_collected),
-                    value = "$currencySymbol${totalMonthlyCollected.formatAmount()}",
+                    value = totalMonthlyCollected.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.Payments,
                     iconColor = EmeraldSuccess,
                     modifier = Modifier.weight(1f)
@@ -283,14 +287,14 @@ fun CollectionScreen(
             ) {
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.previous_due),
-                    value = "$currencySymbol${previousBillsDue.formatAmount()}",
+                    value = previousBillsDue.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.CalendarToday,
                     iconColor = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.weight(1f)
                 )
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.total_due),
-                    value = "$currencySymbol${totalOutstanding.formatAmount()}",
+                    value = totalOutstanding.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.MoneyOff,
                     iconColor = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f)
@@ -305,7 +309,7 @@ fun CollectionScreen(
             ) {
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.bandwidth_bill),
-                    value = "$currencySymbol${currentBandwidthBill.formatAmount()}",
+                    value = currentBandwidthBill.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.CreditCard,
                     iconColor = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.weight(1f).clickable {
@@ -316,7 +320,7 @@ fun CollectionScreen(
                 )
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.monthly_profit),
-                    value = "$currencySymbol${profit.formatAmount()}",
+                    value = profit.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.Payments,
                     iconColor = if (profit >= 0) EmeraldSuccess else MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f)
@@ -331,7 +335,7 @@ fun CollectionScreen(
             ) {
                 KpiCard(
                     title = androidx.compose.ui.res.stringResource(com.example.R.string.discount),
-                    value = "$currencySymbol${totalMonthlyDiscount.formatAmount()}",
+                    value = totalMonthlyDiscount.formatAmountPrivacy(currencySymbol, isPrivacyModeActive),
                     icon = Icons.Default.Payments,
                     iconColor = AmberWarning,
                     modifier = Modifier.fillMaxWidth()
@@ -649,6 +653,7 @@ fun PaymentReceiptCard(
     onDeleteClick: () -> Unit,
     onViewReceiptClick: (() -> Unit)? = null
 ) {
+    val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -695,7 +700,7 @@ fun PaymentReceiptCard(
             ) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "+$currencySymbol${payment.amount.formatAmount()}",
+                        text = payment.amount.formatAmountPrivacy("+$currencySymbol", isPrivacyModeActive),
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = EmeraldSuccess,

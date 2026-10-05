@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
@@ -140,7 +142,8 @@ fun MoreScreen(
         }
     }
     var isFingerprintLockEnabled by remember { mutableStateOf(false) }
-    var isPinLockEnabled by remember { mutableStateOf(com.example.util.PinLockManager.isPinLockEnabled(context)) }
+    val isPinLockEnabled by com.example.util.PinLockManager.pinLockEnabledFlow.collectAsState()
+    val hasPinSet by com.example.util.PinLockManager.hasPinSetFlow.collectAsState()
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showPinChangeDialog by remember { mutableStateOf(false) }
 
@@ -1135,14 +1138,12 @@ tonalElevation = 2.dp,
                                 if (checked) {
                                     if (com.example.util.PinLockManager.hasPinSet(context)) {
                                         com.example.util.PinLockManager.setPinLockEnabled(context, true)
-                                        isPinLockEnabled = true
                                         onShowToast("PIN Lock enabled")
                                     } else {
                                         showPinSetupDialog = true
                                     }
                                 } else {
                                     com.example.util.PinLockManager.setPinLockEnabled(context, false)
-                                    isPinLockEnabled = false
                                     onShowToast("PIN Lock disabled")
                                 }
                             },
@@ -1150,7 +1151,7 @@ tonalElevation = 2.dp,
                         )
                     }
 
-                    if (isPinLockEnabled || com.example.util.PinLockManager.hasPinSet(context)) {
+                    if (isPinLockEnabled || hasPinSet) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End
@@ -1218,7 +1219,6 @@ tonalElevation = 2.dp,
             onDismiss = { showPinSetupDialog = false },
             onSuccess = {
                 showPinSetupDialog = false
-                isPinLockEnabled = true
             },
             onShowToast = onShowToast
         )
