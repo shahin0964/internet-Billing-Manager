@@ -52,17 +52,32 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Box
+import java.net.URLEncoder
+import java.util.Locale
+import com.example.util.AutomaticSmsManager
+import com.example.util.SmsTemplateManager
+
 @Composable
 fun BillingScreen(
     bills: List<BillEntity>,
     customers: List<CustomerEntity> = emptyList(),
     currencySymbol: String,
+    ispName: String = "",
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onGenerateBillsClick: () -> Unit,
     onRecordPaymentForBill: (BillEntity) -> Unit,
     onEditBill: (BillEntity) -> Unit = {}
 ) {
+    val context = LocalContext.current
     var selectedStatusFilter by remember { mutableStateOf("ALL") }
     val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
 
@@ -211,12 +226,23 @@ fun BillingScreen(
                     val cust = customerMap[bill.customerId]
                     BillItemCard(
                         bill = bill,
+                        customer = cust,
                         customerStatus = cust?.status,
                         pppoeUsername = cust?.pppoeUsername,
                         currencySymbol = currencySymbol,
+                        ispName = ispName,
                         isPrivacyModeActive = isPrivacyModeActive,
                         onCollectPayment = { onRecordPaymentForBill(bill) },
-                        onEditBill = { onEditBill(bill) }
+                        onEditBill = { onEditBill(bill) },
+                        onWhatsAppClick = {
+                            launchWhatsAppForBill(
+                                context = context,
+                                bill = bill,
+                                customer = cust,
+                                currencySymbol = currencySymbol,
+                                ispName = ispName
+                            )
+                        }
                     )
                 }
                 item { Spacer(modifier = Modifier.height(88.dp)) }
@@ -228,13 +254,17 @@ fun BillingScreen(
 @Composable
 fun BillItemCard(
     bill: BillEntity,
+    customer: CustomerEntity? = null,
     customerStatus: String? = null,
     pppoeUsername: String? = null,
     currencySymbol: String,
+    ispName: String = "",
     isPrivacyModeActive: Boolean = false,
     onCollectPayment: () -> Unit,
-    onEditBill: () -> Unit = {}
+    onEditBill: () -> Unit = {},
+    onWhatsAppClick: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val isBreakdown = bill.billNumber.startsWith("BREAKDOWN|")
     val parts = if (isBreakdown) bill.billNumber.split("|") else null
     val displayBillNo = parts?.getOrNull(3) ?: bill.billNumber
@@ -292,7 +322,33 @@ fun BillItemCard(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusBadge(status = bill.status)
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        onClick = {
+                            if (onWhatsAppClick != null) {
+                                onWhatsAppClick()
+                            } else {
+                                launchWhatsAppForBill(context, bill, customer, currencySymbol, ispName)
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF25D366).copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            Color(0xFF25D366).copy(alpha = 0.35f)
+                        ),
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(id = com.example.R.drawable.ic_whatsapp),
+                                contentDescription = "Send WhatsApp Reminder",
+                                tint = Color(0xFF25D366),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     androidx.compose.material3.IconButton(
                         onClick = onEditBill,
                         modifier = Modifier.size(24.dp)
@@ -427,23 +483,182 @@ fun BillItemCard(
 
             if (bill.dueAmount > 0) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = onCollectPayment,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = EmeraldSuccess
-                    )
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CreditCard,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Collect Payment ($currencySymbol${bill.dueAmount.formatAmount()})", fontSize = 12.sp)
+                    Button(
+                        onClick = onCollectPayment,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EmeraldSuccess
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CreditCard,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Collect Payment ($currencySymbol${bill.dueAmount.formatAmount()})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Surface(
+                        onClick = {
+                            if (onWhatsAppClick != null) {
+                                onWhatsAppClick()
+                            } else {
+                                launchWhatsAppForBill(context, bill, customer, currencySymbol, ispName)
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF25D366).copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            Color(0xFF25D366).copy(alpha = 0.45f)
+                        ),
+                        modifier = Modifier.height(40.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = com.example.R.drawable.ic_whatsapp),
+                                contentDescription = "WhatsApp Bill Reminder",
+                                tint = Color(0xFF25D366),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "WhatsApp",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFF128C7E)
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+/**
+ * Directly formats and opens WhatsApp chat with pre-filled bill details and due reminders.
+ */
+fun launchWhatsAppForBill(
+    context: Context,
+    bill: BillEntity,
+    customer: CustomerEntity?,
+    currencySymbol: String,
+    ispName: String = ""
+) {
+    val rawPhone = customer?.phone?.trim() ?: ""
+    if (rawPhone.isBlank()) {
+        val noPhoneMsg = if (Locale.getDefault().language == "bn") {
+            "গ্রাহকের কোনো ফোন নম্বর পাওয়া যায়নি"
+        } else {
+            "No phone number found for this customer"
+        }
+        Toast.makeText(context, noPhoneMsg, Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val isBreakdown = bill.billNumber.startsWith("BREAKDOWN|")
+    val parts = if (isBreakdown) bill.billNumber.split("|") else null
+    val billingMonthLabel = parts?.getOrNull(2)?.split(":")?.getOrNull(0) ?: bill.billingMonth
+    val customerName = if (!customer?.name.isNullOrBlank()) customer.name else bill.customerName
+    val totalBillFormatted = "$currencySymbol${bill.amount.formatAmount()}"
+    val dueAmountFormatted = "$currencySymbol${bill.dueAmount.formatAmount()}"
+    val cleanTotal = bill.amount.formatAmount()
+    val cleanDue = bill.dueAmount.formatAmount()
+    val dueDate = bill.dueDate
+    val companyName = ispName.ifBlank { "ISP Net" }
+
+    // Retrieve active template from settings
+    val configuredTemplate = if (bill.dueAmount > 0) {
+        val tmpl = AutomaticSmsManager.getTemplateDueReminder(context)
+        if (tmpl.isNotBlank()) tmpl else SmsTemplateManager.getSmsTemplate(context)
+    } else {
+        AutomaticSmsManager.getTemplatePaymentConfirmation(context)
+    }
+
+    var message = AutomaticSmsManager.processTemplate(
+        template = configuredTemplate,
+        customerName = customerName,
+        monthlyFee = cleanTotal,
+        dueAmount = cleanDue,
+        dueDate = dueDate,
+        packageSpeed = customer?.packageName ?: "",
+        ispName = companyName,
+        billMonth = billingMonthLabel,
+        customerId = customer?.customerCode?.ifBlank { bill.customerCode } ?: bill.customerCode,
+        receiptNo = bill.getDisplayBillNumber(),
+        phoneNumber = rawPhone
+    )
+
+    // Also support brackets style template placeholders [Customer Name], [Due Amount], etc.
+    message = SmsTemplateManager.replaceVariables(
+        template = message,
+        customerName = customerName,
+        monthlyFee = totalBillFormatted,
+        dueAmount = dueAmountFormatted,
+        packageName = customer?.packageName ?: "",
+        phone = rawPhone,
+        ispName = companyName,
+        dueDate = dueDate,
+        customerId = customer?.customerCode?.ifBlank { bill.customerCode } ?: bill.customerCode
+    )
+
+    // If template didn't contain due or total bill info or is blank, construct a structured message
+    if (message.isBlank() || (!message.contains(cleanDue) && bill.dueAmount > 0)) {
+        val isBn = Locale.getDefault().language == "bn"
+        message = if (isBn) {
+            "প্রিয় $customerName,\nআপনার $billingMonthLabel মাসের ইন্টারনেট বিল $totalBillFormatted, বর্তমান বকেয়া: $dueAmountFormatted।\nপরিশোধের শেষ সময়: $dueDate।\nসংযোগ সচল রাখতে অনুগ্রহ করে দ্রুত বিল পরিশোধ করুন।\nধন্যবাদ,\n$companyName"
+        } else {
+            "Dear $customerName,\nYour Internet bill for $billingMonthLabel is $totalBillFormatted, Current Due: $dueAmountFormatted.\nDue Date: $dueDate.\nPlease pay your due bill to keep your connection active.\nThank you,\n$companyName"
+        }
+    } else if (!message.contains(cleanTotal) && !message.contains(totalBillFormatted)) {
+        val isBn = Locale.getDefault().language == "bn"
+        val extraInfo = if (isBn) {
+            "\n(মোট বিল: $totalBillFormatted, বকেয়া: $dueAmountFormatted)"
+        } else {
+            "\n(Total Bill: $totalBillFormatted, Due: $dueAmountFormatted)"
+        }
+        message += extraInfo
+    }
+
+    try {
+        val cleanDigits = rawPhone.replace(Regex("[^0-9]"), "")
+        val formattedPhone = if (cleanDigits.startsWith("0")) {
+            "880" + cleanDigits.substring(1)
+        } else if (cleanDigits.length == 10 && !cleanDigits.startsWith("880")) {
+            "880$cleanDigits"
+        } else {
+            cleanDigits
+        }
+
+        val encodedText = URLEncoder.encode(message.trim(), "UTF-8").replace("+", "%20")
+        val uri = Uri.parse("https://api.whatsapp.com/send?phone=$formattedPhone&text=$encodedText")
+
+        val whatsappIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+            setPackage("com.whatsapp")
+        }
+        try {
+            context.startActivity(whatsappIntent)
+        } catch (e: Exception) {
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, uri)
+            context.startActivity(fallbackIntent)
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "Error opening WhatsApp: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+

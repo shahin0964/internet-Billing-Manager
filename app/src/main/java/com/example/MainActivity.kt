@@ -828,6 +828,7 @@ fun MainAppContent(
                         bills = billingScreenBills,
                         customers = customers,
                         currencySymbol = settings.currencySymbol,
+                        ispName = settings.ispName,
                         searchQuery = billQuery,
                         onSearchQueryChange = { viewModel.billSearchQuery.value = it },
                         onGenerateBillsClick = {
