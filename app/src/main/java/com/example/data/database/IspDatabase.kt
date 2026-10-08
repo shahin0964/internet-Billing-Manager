@@ -328,6 +328,37 @@ abstract class IspDatabase : RoomDatabase() {
             }
         }
 
+        private fun attachLiveSyncObserver(context: Context, database: IspDatabase) {
+            try {
+                database.invalidationTracker.addObserver(object : androidx.room.InvalidationTracker.Observer(
+                    arrayOf(
+                        "customers",
+                        "bills",
+                        "payments",
+                        "expenses",
+                        "expense_categories",
+                        "business_settings",
+                        "specific_advances",
+                        "bandwidth_bills"
+                    )
+                ) {
+                    override fun onInvalidated(tables: Set<String>) {
+                        try {
+                            val uid = com.example.IspApplication.getUserId(context)
+                            val isLoggedIn = com.example.IspApplication.isLoggedIn(context)
+                            if (!uid.isNullOrBlank() && isLoggedIn && !com.example.util.HostingSyncManager.isSyncInProgress()) {
+                                com.example.util.HostingSyncManager.triggerInstantLiveSync(context)
+                            }
+                        } catch (e: Throwable) {
+                            android.util.Log.d("IspDatabase", "Live sync invalidation note: ${e.message}")
+                        }
+                    }
+                })
+            } catch (e: Throwable) {
+                android.util.Log.w("IspDatabase", "Failed to attach live sync observer: ${e.message}")
+            }
+        }
+
         fun getDatabase(context: Context, userId: String? = null): IspDatabase {
             val actualUid = if (userId.isNullOrBlank() || userId == "guest" || userId == "authenticated_user") {
                 com.example.IspApplication.getUserId(context)?.takeIf { it.isNotBlank() && it != "guest" && it != "authenticated_user" }
@@ -338,7 +369,7 @@ abstract class IspDatabase : RoomDatabase() {
 
             return instances.computeIfAbsent(dbName) {
                 migrateLegacyDatabaseIfOwned(context.applicationContext, dbName, actualUid)
-                Room.databaseBuilder(
+                val database = Room.databaseBuilder(
                     context.applicationContext,
                     IspDatabase::class.java,
                     dbName
@@ -346,6 +377,8 @@ abstract class IspDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
+                attachLiveSyncObserver(context.applicationContext, database)
+                database
             }
         }
 

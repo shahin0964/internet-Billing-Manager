@@ -289,10 +289,9 @@ class IspRepository(
         context?.let { ctx ->
             val uid = com.example.IspApplication.getUserId(ctx)
             if (uid != null) {
-                // 1. Enqueue reliable WorkManager background task for automatic live sync when online
-                com.example.util.SyncWorker.enqueueSync(ctx, forceExpedited = false)
+                // Instantly trigger live background sync on mutation
+                com.example.util.HostingSyncManager.triggerInstantLiveSync(ctx)
 
-                // 2. Refresh pending count and attempt immediate in-memory sync if online
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
                         val actualCount = com.example.util.HostingSyncManager.getActualPendingDirtyCount(ctx)
@@ -302,14 +301,6 @@ class IspRepository(
                         val prefs = ctx.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
                         val currentCount = prefs.getInt("pending_sync_count_$uid", 0)
                         prefs.edit().putInt("pending_sync_count_$uid", currentCount + 1).apply()
-                    }
-
-                    if (com.example.util.HostingSyncManager.isNetworkAvailable(ctx)) {
-                        try {
-                            com.example.util.HostingSyncManager.syncLocalToHosting(ctx)
-                        } catch (e: Throwable) {
-                            Log.d("IspRepository", "Direct sync attempt noted: ${e.message}")
-                        }
                     }
                 }
             }

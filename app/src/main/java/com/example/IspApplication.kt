@@ -40,11 +40,29 @@ class IspApplication : Application() {
             com.example.util.PinLockManager.init(this)
             com.example.util.PrivacyModeManager.init(this)
             com.example.util.AutomaticSmsManager.schedulePeriodicSmsWorker(this)
-            com.example.util.AutoBackupWorker.schedulePeriodicBackup(this)
+            com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(this)
+            com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(this)
             com.example.util.SyncWorker.schedulePeriodicSync(this)
 
             if (isLoggedIn(this)) {
-                com.example.util.SyncWorker.enqueueSync(this, forceExpedited = false)
+                com.example.util.SyncWorker.enqueueSync(this, forceExpedited = true)
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val uid = getUserId(this@IspApplication)
+                        if (!uid.isNullOrBlank()) {
+                            // 1. Seamlessly restore/sync latest cloud data
+                            com.example.util.HostingSyncManager.restoreOrSyncSession(this@IspApplication, uid)
+
+                            // 2. Ensure monthly billing check
+                            val repo = com.example.data.repository.IspRepository.create(this@IspApplication, uid)
+                            val currentMonth = com.example.util.BillingMonthUtils.formatStandardMonth()
+                            val dueDate = com.example.util.BillingMonthUtils.formatStandardDueDate()
+                            repo.generateMonthlyBills(currentMonth, dueDate, isAutoGeneration = true)
+                        }
+                    } catch (e: Throwable) {
+                        Log.d(TAG, "Startup session restore & auto-billing note: ${e.message}")
+                    }
+                }
             }
         } catch (e: Throwable) {
             Log.w(TAG, "WorkManager initialization/scheduling deferred or unavailable: ${e.message}")

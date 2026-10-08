@@ -420,6 +420,9 @@ fun MainAppContent(
                                     com.example.IspApplication.setUserEmail(context, response.user.email)
                                     com.example.IspApplication.setAuthToken(context, response.user.apiToken)
                                     viewModel.switchUserSession(newUserId)
+                                    com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(context)
+                                    com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(context)
+                                    com.example.util.SyncWorker.schedulePeriodicSync(context)
                                     isGuestMode = false
                                     isAuthChosen = true
                                     viewModel.showToast(response.message ?: "Account created successfully!")
@@ -483,6 +486,9 @@ fun MainAppContent(
                                         com.example.IspApplication.setUserEmail(context, response.user.email)
                                         com.example.IspApplication.setAuthToken(context, response.user.apiToken)
                                         viewModel.switchUserSession(newUserId)
+                                        com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(context)
+                                        com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(context)
+                                        com.example.util.SyncWorker.schedulePeriodicSync(context)
                                         isGuestMode = false
                                         isAuthChosen = true
                                         viewModel.showToast(response.message ?: "Login successful!")

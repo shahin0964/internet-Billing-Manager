@@ -8,7 +8,9 @@ import com.example.IspApplication
 import com.example.data.database.IspDatabase
 import com.example.data.model.*
 import com.example.data.remote.ApiClient
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,42 @@ object HostingSyncManager {
     val isSyncingFlow: StateFlow<Boolean> = _isSyncingFlow.asStateFlow()
 
     private val syncMutex = Mutex()
+
+    fun isSyncInProgress(): Boolean = _isSyncingFlow.value
+
+    private var liveSyncJob: kotlinx.coroutines.Job? = null
+    private val liveSyncScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
+    /**
+     * Instantly triggers live sync on mutation.
+     * Enqueues an expedited WorkManager task to guarantee background execution
+     * and simultaneously triggers an immediate in-process coroutine if network is available.
+     */
+    fun triggerInstantLiveSync(context: Context) {
+        val uid = getCurrentUid(context)
+        if (uid.isNullOrBlank() || !IspApplication.isLoggedIn(context) || isSyncInProgress()) {
+            return
+        }
+
+        // 1. Immediately enqueue guaranteed expedited WorkManager sync task
+        SyncWorker.enqueueSync(context, forceExpedited = true)
+
+        // 2. Also trigger immediate in-process coroutine worker if network is active
+        if (isNetworkAvailable(context)) {
+            liveSyncJob?.cancel()
+            liveSyncJob = liveSyncScope.launch {
+                try {
+                    // Short debounce (200ms) to coalesce rapid in-batch record updates
+                    kotlinx.coroutines.delay(200L)
+                    if (!isSyncInProgress()) {
+                        syncLocalToHosting(context)
+                    }
+                } catch (e: Throwable) {
+                    Log.d(TAG, "Instant live sync coroutine note: ${e.message}")
+                }
+            }
+        }
+    }
 
     fun isNetworkAvailable(context: Context): Boolean {
         return try {
@@ -105,6 +143,12 @@ object HostingSyncManager {
                     address = c.address,
                     ipAddress = c.ipAddress,
                     packageId = c.packageId.toString(),
+                    packageName = c.packageName,
+                    monthlyFee = c.monthlyFee,
+                    advanceBalance = c.advanceBalance,
+                    notes = c.notes,
+                    area = c.area,
+                    zone = c.zone,
                     billingCycleDate = 1,
                     status = c.status,
                     pppoeUsername = c.pppoeUsername,
@@ -443,43 +487,7 @@ object HostingSyncManager {
         val pendingPaymentDeletions = pendingDeletions.filter { it.collectionName == "payments" }.map { it.documentId }.toSet()
         val pendingExpenseDeletions = pendingDeletions.filter { it.collectionName == "expenses" }.map { it.documentId }.toSet()
 
-        // 1. Customers Reconciliation
-        if (!isSessionValid(context, operationUserId)) return
-        val serverCustomers = fullData.customers.orEmpty()
-        val serverCustomerMap = mutableMapOf<Long, SyncCustomerPayload>()
-        serverCustomers.forEach { c ->
-            val cid = c.id.toLongOrNull() ?: 0L
-            if (cid > 0) {
-                serverCustomerMap[cid] = c
-                if (!dirtyCustomerIds.contains(cid) && !pendingCustomerDeletions.contains(c.id)) {
-                    val entity = CustomerEntity(
-                        id = cid,
-                        customerCode = c.customerCode ?: "CUST-$cid",
-                        name = c.name,
-                        phone = c.phone ?: "",
-                        address = c.address ?: "",
-                        pppoeUsername = c.pppoeUsername ?: "",
-                        ipAddress = c.ipAddress ?: "",
-                        packageId = c.packageId?.toLongOrNull() ?: 0L,
-                        packageName = "",
-                        monthlyFee = 0.0,
-                        status = c.status,
-                        joiningDate = c.joiningDate ?: "",
-                        updatedAt = c.updatedAt,
-                        syncStatus = 0
-                    )
-                    db.customerDao().insertCustomer(entity)
-                }
-            }
-        }
-        val allLocalCustomers = db.customerDao().getAllCustomersList()
-        allLocalCustomers.forEach { localCust ->
-            if (localCust.syncStatus == 0 && !serverCustomerMap.containsKey(localCust.id)) {
-                db.customerDao().deleteCustomer(localCust)
-            }
-        }
-
-        // 2. Packages Reconciliation
+        // 1. Packages Reconciliation (run first so customer package names & fees resolve)
         if (!isSessionValid(context, operationUserId)) return
         val serverPackages = fullData.packages.orEmpty()
         val serverPackageMap = mutableMapOf<Long, SyncPackagePayload>()
@@ -502,9 +510,67 @@ object HostingSyncManager {
             }
         }
         val allLocalPackages = db.packageDao().getAllPackagesList()
+        val localPackageMap = allLocalPackages.associateBy { it.id }
         allLocalPackages.forEach { localPkg ->
             if (localPkg.syncStatus == 0 && !serverPackageMap.containsKey(localPkg.id)) {
                 db.packageDao().deletePackage(localPkg)
+            }
+        }
+
+        // 2. Customers Reconciliation
+        if (!isSessionValid(context, operationUserId)) return
+        val serverCustomers = fullData.customers.orEmpty()
+        val serverCustomerMap = mutableMapOf<Long, SyncCustomerPayload>()
+        val existingCustomerMap = db.customerDao().getAllCustomersList().associateBy { it.id }
+        serverCustomers.forEach { c ->
+            val cid = c.id.toLongOrNull() ?: 0L
+            if (cid > 0) {
+                serverCustomerMap[cid] = c
+                if (!dirtyCustomerIds.contains(cid) && !pendingCustomerDeletions.contains(c.id)) {
+                    val existing = existingCustomerMap[cid]
+                    val pkgId = c.packageId?.toLongOrNull() ?: existing?.packageId ?: 0L
+                    val matchedPkg = localPackageMap[pkgId] ?: serverPackageMap[pkgId]?.let {
+                        val speedInt = it.speed?.replace(Regex("[^0-9]"), "")?.toIntOrNull() ?: 10
+                        IspPackageEntity(id = pkgId, name = it.name, speedMbps = speedInt, monthlyPrice = it.price)
+                    }
+                    val resolvedPkgName = c.packageName?.takeIf { it.isNotBlank() }
+                        ?: matchedPkg?.name
+                        ?: existing?.packageName
+                        ?: ""
+                    val resolvedFee = c.monthlyFee?.takeIf { it > 0.0 }
+                        ?: matchedPkg?.monthlyPrice
+                        ?: existing?.monthlyFee
+                        ?: 0.0
+                    val resolvedAdvance = c.advanceBalance ?: existing?.advanceBalance ?: 0.0
+
+                    val entity = CustomerEntity(
+                        id = cid,
+                        customerCode = c.customerCode?.takeIf { it.isNotBlank() } ?: existing?.customerCode ?: "CUST-$cid",
+                        name = c.name,
+                        phone = c.phone ?: existing?.phone ?: "",
+                        address = c.address ?: existing?.address ?: "",
+                        pppoeUsername = c.pppoeUsername ?: existing?.pppoeUsername ?: "",
+                        ipAddress = c.ipAddress ?: existing?.ipAddress ?: "",
+                        packageId = pkgId,
+                        packageName = resolvedPkgName,
+                        monthlyFee = resolvedFee,
+                        status = c.status,
+                        joiningDate = c.joiningDate ?: existing?.joiningDate ?: "",
+                        notes = c.notes ?: existing?.notes ?: "",
+                        area = c.area ?: existing?.area ?: "",
+                        zone = c.zone ?: existing?.zone ?: "",
+                        advanceBalance = resolvedAdvance,
+                        updatedAt = c.updatedAt,
+                        syncStatus = 0
+                    )
+                    db.customerDao().insertCustomer(entity)
+                }
+            }
+        }
+        val allLocalCustomers = db.customerDao().getAllCustomersList()
+        allLocalCustomers.forEach { localCust ->
+            if (localCust.syncStatus == 0 && !serverCustomerMap.containsKey(localCust.id)) {
+                db.customerDao().deleteCustomer(localCust)
             }
         }
 
@@ -755,5 +821,86 @@ object HostingSyncManager {
         } catch (e: Exception) {
             0
         }
+    }
+
+    /**
+     * Robust Session & Cloud Restoration:
+     * Pulls down all user data, bills, payments, expenses, settings, and history
+     * from the server database based on the authenticated user's account ID.
+     * Prevents data loss and stale states on re-login and fresh app installs.
+     */
+    suspend fun restoreOrSyncSession(context: Context, operationUserId: String): Boolean = withContext(Dispatchers.IO) {
+        if (operationUserId.isBlank()) return@withContext false
+        if (!isSessionValid(context, operationUserId)) {
+            Log.w(TAG, "restoreOrSyncSession skipped: session not valid for $operationUserId")
+            return@withContext false
+        }
+
+        Log.i(TAG, "Starting robust session & cloud restoration for user $operationUserId...")
+
+        val token = IspApplication.getAuthToken(context)
+        if (!token.isNullOrBlank()) {
+            ApiClient.authToken = token
+        }
+
+        if (!isNetworkAvailable(context)) {
+            Log.w(TAG, "restoreOrSyncSession: No network available right now. Scheduling expedited sync worker.")
+            SyncWorker.enqueueSync(context, forceExpedited = true)
+            return@withContext false
+        }
+
+        // Step 1: Perform full bidirectional sync to pull down complete dataset and push any local records
+        val syncResult = syncLocalToHosting(context)
+
+        // Step 2: Check whether local database has data. If still empty, pull via individual endpoints or latest cloud backup
+        val db = IspDatabase.getDatabase(context, operationUserId)
+        val custCount = db.customerDao().getAllCustomersList().size
+        val billCount = db.billDao().getAllBillsList().size
+
+        if (custCount == 0 && billCount == 0) {
+            Log.i(TAG, "Local database empty after sync endpoint. Performing deep restoration from individual endpoints...")
+            val repo = com.example.data.repository.IspRepository.create(context, operationUserId)
+            try {
+                repo.syncPackagesFromHosting(operationUserId)
+                repo.syncCustomersFromHosting(operationUserId)
+                repo.syncBillsFromHosting(operationUserId)
+                repo.syncPaymentsFromHosting(operationUserId)
+                repo.syncExpensesFromHosting(operationUserId)
+                repo.syncExpenseCategoriesFromHosting(operationUserId)
+                repo.syncSettingsFromHosting(operationUserId)
+                repo.syncAuditLogsFromHosting(operationUserId)
+                repo.syncBandwidthBillsFromHosting(operationUserId)
+                repo.syncSpecificAdvancesFromHosting(operationUserId)
+            } catch (e: Throwable) {
+                Log.w(TAG, "Deep restoration individual endpoint note: ${e.message}")
+            }
+
+            val custCountAfterEndpoints = db.customerDao().getAllCustomersList().size
+            if (custCountAfterEndpoints == 0) {
+                Log.i(TAG, "Attempting restoration from latest cloud backup snapshot...")
+                try {
+                    repo.restoreFromHosting(context, operationUserId)
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Latest cloud backup restore note: ${e.message}")
+                }
+            }
+        }
+
+        // Step 3: Enqueue expedited sync worker to keep background sync healthy
+        SyncWorker.enqueueSync(context, forceExpedited = true)
+
+        // Step 4: Update sync preferences
+        val now = System.currentTimeMillis()
+        val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
+        val remainingDirty = getActualPendingDirtyCount(context)
+        prefs.edit()
+            .putLong("last_cloud_sync_time_$operationUserId", now)
+            .putLong("last_cloud_sync_time", now)
+            .putInt("pending_sync_count_$operationUserId", remainingDirty)
+            .putInt("pending_sync_count", remainingDirty)
+            .apply()
+
+        Log.i(TAG, "Session restoration completed for user $operationUserId (syncResult=$syncResult)")
+        true
     }
 }

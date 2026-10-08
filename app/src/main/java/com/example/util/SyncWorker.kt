@@ -47,6 +47,14 @@ class SyncWorker(
                     .setConstraints(constraints)
                     .addTag("isp_sync")
 
+                if (forceExpedited) {
+                    try {
+                        workRequestBuilder.setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    } catch (e: Throwable) {
+                        Log.d(TAG, "Expedited quota policy fallback: ${e.message}")
+                    }
+                }
+
                 val workRequest = workRequestBuilder.build()
 
                 WorkManager.getInstance(context).enqueueUniqueWork(
@@ -54,7 +62,7 @@ class SyncWorker(
                     if (forceExpedited) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
                     workRequest
                 )
-                Log.d(TAG, "Live sync work enqueued successfully.")
+                Log.d(TAG, "Live sync work enqueued successfully (forceExpedited=$forceExpedited).")
             } catch (e: Throwable) {
                 Log.w(TAG, "Failed to enqueue sync work: ${e.message}")
             }

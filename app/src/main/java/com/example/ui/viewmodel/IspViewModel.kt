@@ -16,6 +16,7 @@ import com.example.data.model.PaymentEntity
 import com.example.data.model.PreviousDueItem
 import com.example.data.model.BandwidthBillEntity
 import com.example.data.repository.IspRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -168,6 +169,13 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         autoGenerateCurrentMonthBills()
         if (!newUserId.isNullOrBlank() && newUserId != "guest" && newUserId != "authenticated_user") {
             triggerCloudSyncOnLogin()
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    com.example.util.HostingSyncManager.restoreOrSyncSession(getApplication(), newUserId)
+                } catch (e: Throwable) {
+                    android.util.Log.w("IspViewModel", "Session restore on switchUserSession note: ${e.message}")
+                }
+            }
         }
     }
 
@@ -176,6 +184,17 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         autoGenerateCurrentMonthBills()
 
         if (com.example.IspApplication.isLoggedIn(application)) {
+            val uid = com.example.IspApplication.getUserId(application)
+            if (!uid.isNullOrBlank() && uid != "guest" && uid != "authenticated_user") {
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        com.example.util.HostingSyncManager.restoreOrSyncSession(application, uid)
+                    } catch (e: Throwable) {
+                        android.util.Log.w("IspViewModel", "Hosting restoreOrSyncSession on init note: ${e.message}")
+                    }
+                }
+            }
+
             trackSyncJob {
                 try {
                     repository.syncCustomersFromHosting()
@@ -188,7 +207,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                     repository.syncBandwidthBillsFromHosting()
                     repository.syncSpecificAdvancesFromHosting()
                 } catch (e: Throwable) {
-                    android.util.Log.w("IspViewModel", "Hosting customer/bill/payment/expense/settings/audit_logs/bandwidth_bills/specific_advances sync on init note: ${e.message}")
+                    android.util.Log.w("IspViewModel", "Hosting sync on init note: ${e.message}")
                 }
             }
         }
@@ -341,6 +360,17 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun triggerCloudSyncOnLogin() {
+        val app = getApplication<Application>()
+        val uid = com.example.IspApplication.getUserId(app)
+        if (!uid.isNullOrBlank() && uid != "guest" && uid != "authenticated_user") {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    com.example.util.HostingSyncManager.restoreOrSyncSession(app, uid)
+                } catch (e: Throwable) {
+                    android.util.Log.w("IspViewModel", "Hosting restoreOrSyncSession on login note: ${e.message}")
+                }
+            }
+        }
         trackSyncJob {
             try {
                 repository.syncCustomersFromHosting()
