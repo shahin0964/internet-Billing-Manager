@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 
@@ -33,6 +34,76 @@ object HostingSyncManager {
 
     private var liveSyncJob: kotlinx.coroutines.Job? = null
     private val liveSyncScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
+    private var foregroundPollingJob: kotlinx.coroutines.Job? = null
+    private val foregroundPollingScope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
+    /**
+     * Short periodic polling mechanism:
+     * When the user keeps the app open in foreground, periodically checks and pulls remote changes
+     * from the server every 30 to 60 seconds (default 35 seconds) without requiring logout/login.
+     */
+    fun startPeriodicForegroundPolling(context: Context, intervalMillis: Long = 35_000L) {
+        if (foregroundPollingJob?.isActive == true) {
+            return
+        }
+        val appCtx = context.applicationContext
+        foregroundPollingJob = foregroundPollingScope.launch {
+            Log.i(TAG, "Foreground periodic polling started (interval = ${intervalMillis / 1000}s)")
+            while (isActive) {
+                kotlinx.coroutines.delay(intervalMillis)
+                try {
+                    val uid = getCurrentUid(appCtx)
+                    val isLoggedIn = IspApplication.isLoggedIn(appCtx)
+                    if (!uid.isNullOrBlank() && isLoggedIn && isSessionValid(appCtx, uid) && isNetworkAvailable(appCtx)) {
+                        Log.d(TAG, "Periodic poll tick: Auto-fetching latest server changes...")
+                        syncLocalToHosting(appCtx)
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Foreground periodic polling tick note: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Pauses/stops foreground periodic polling when app is backgrounded to conserve battery/resources.
+     */
+    fun stopPeriodicForegroundPolling() {
+        foregroundPollingJob?.cancel()
+        foregroundPollingJob = null
+        Log.d(TAG, "Foreground periodic polling stopped")
+    }
+
+    /**
+     * Triggers a full remote data pull from the hosting server (refreshing customers, packages,
+     * bills, payments, and expenses) and merging cleanly into local Room database.
+     * Can be invoked on app resume, network available, or periodic poll.
+     */
+    suspend fun performFullRemoteDataPull(context: Context, forceDeepFallback: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+        val appCtx = context.applicationContext
+        val uid = getCurrentUid(appCtx)
+        if (uid.isNullOrBlank() || !IspApplication.isLoggedIn(appCtx) || !isSessionValid(appCtx, uid)) {
+            return@withContext false
+        }
+        if (!isNetworkAvailable(appCtx)) {
+            Log.d(TAG, "performFullRemoteDataPull deferred: No network available right now.")
+            return@withContext false
+        }
+
+        Log.i(TAG, "Starting full remote data pull for user $uid...")
+        // 1. Run bidirectional sync (pushes local dirty rows first, pulls remote full dataset)
+        val syncResult = syncLocalToHosting(appCtx)
+
+        // 2. If sync failed, or deep fallback requested, or database empty, pull via individual endpoints
+        val db = IspDatabase.getDatabase(appCtx, uid)
+        val custCount = db.customerDao().getAllCustomersList().size
+        val billCount = db.billDao().getAllBillsList().size
+        if (!syncResult || forceDeepFallback || (custCount == 0 && billCount == 0)) {
+            pullFromIndividualEndpoints(appCtx, uid)
+        }
+        true
+    }
 
     /**
      * Instantly triggers live sync on mutation.
@@ -410,8 +481,11 @@ object HostingSyncManager {
                 }
 
                 // Step 4: Reconcile complete remote dataset with Room safely
-                if (response.data != null) {
+                if (response.data != null && (response.data.customers != null || response.data.bills != null || response.data.payments != null)) {
                     reconcileFullDataWithRoom(context, db, response.data, uid)
+                } else {
+                    // Fallback to individual endpoints if api/sync.php did not return data
+                    pullFromIndividualEndpoints(context, uid)
                 }
 
                 // Immediately before preference writes: verify session
@@ -455,6 +529,25 @@ object HostingSyncManager {
             _isSyncingFlow.value = false
             appPrefs.edit().putBoolean("is_syncing", false).apply()
             syncMutex.unlock()
+        }
+    }
+
+    suspend fun pullFromIndividualEndpoints(context: Context, operationUserId: String) {
+        if (!isSessionValid(context, operationUserId)) return
+        val repo = com.example.data.repository.IspRepository.create(context, operationUserId)
+        try {
+            repo.syncPackagesFromHosting(operationUserId)
+            repo.syncCustomersFromHosting(operationUserId)
+            repo.syncBillsFromHosting(operationUserId)
+            repo.syncPaymentsFromHosting(operationUserId)
+            repo.syncExpensesFromHosting(operationUserId)
+            repo.syncExpenseCategoriesFromHosting(operationUserId)
+            repo.syncSettingsFromHosting(operationUserId)
+            repo.syncAuditLogsFromHosting(operationUserId)
+            repo.syncBandwidthBillsFromHosting(operationUserId)
+            repo.syncSpecificAdvancesFromHosting(operationUserId)
+        } catch (e: Throwable) {
+            Log.w(TAG, "pullFromIndividualEndpoints note: ${e.message}")
         }
     }
 
@@ -511,9 +604,11 @@ object HostingSyncManager {
         }
         val allLocalPackages = db.packageDao().getAllPackagesList()
         val localPackageMap = allLocalPackages.associateBy { it.id }
-        allLocalPackages.forEach { localPkg ->
-            if (localPkg.syncStatus == 0 && !serverPackageMap.containsKey(localPkg.id)) {
-                db.packageDao().deletePackage(localPkg)
+        if (serverPackages.isNotEmpty()) {
+            allLocalPackages.forEach { localPkg ->
+                if (localPkg.syncStatus == 0 && !serverPackageMap.containsKey(localPkg.id)) {
+                    db.packageDao().deletePackage(localPkg)
+                }
             }
         }
 
@@ -567,73 +662,109 @@ object HostingSyncManager {
                 }
             }
         }
-        val allLocalCustomers = db.customerDao().getAllCustomersList()
-        allLocalCustomers.forEach { localCust ->
-            if (localCust.syncStatus == 0 && !serverCustomerMap.containsKey(localCust.id)) {
-                db.customerDao().deleteCustomer(localCust)
+        if (serverCustomers.isNotEmpty()) {
+            val allLocalCustomers = db.customerDao().getAllCustomersList()
+            allLocalCustomers.forEach { localCust ->
+                if (localCust.syncStatus == 0 && !serverCustomerMap.containsKey(localCust.id)) {
+                    db.customerDao().deleteCustomer(localCust)
+                }
             }
         }
 
-        // 3. Bills Reconciliation
+        // 3. Bills Reconciliation (Device B sees payments, edits, and status changes made by Device A)
         if (!isSessionValid(context, operationUserId)) return
         val serverBills = fullData.bills.orEmpty()
         val serverBillMap = mutableMapOf<Long, SyncBillPayload>()
+        val existingBillMap = db.billDao().getAllBillsList().associateBy { it.id }
         serverBills.forEach { b ->
             serverBillMap[b.id] = b
             if (!dirtyBillIds.contains(b.id) && !pendingBillDeletions.contains(b.id.toString())) {
+                val existing = existingBillMap[b.id]
+                val resolvedName = b.customerName?.takeIf { it.isNotBlank() }
+                    ?: existing?.customerName
+                    ?: serverCustomerMap[b.customerId]?.name
+                    ?: existingCustomerMap[b.customerId]?.name
+                    ?: ""
+                val resolvedCode = b.customerCode?.takeIf { it.isNotBlank() }
+                    ?: existing?.customerCode
+                    ?: serverCustomerMap[b.customerId]?.customerCode
+                    ?: existingCustomerMap[b.customerId]?.customerCode
+                    ?: ""
+                val resolvedMonth = b.month.takeIf { it.isNotBlank() }
+                    ?: b.billMonth?.takeIf { it.isNotBlank() }
+                    ?: existing?.billingMonth
+                    ?: ""
+                val resolvedGenDate = b.generatedDate?.takeIf { it.isNotBlank() }
+                    ?: existing?.generatedDate
+                    ?: ""
+                val resolvedDueDate = b.dueDate.takeIf { it.isNotBlank() }
+                    ?: existing?.dueDate
+                    ?: ""
+
                 val entity = BillEntity(
                     id = b.id,
-                    billNumber = b.billNumber ?: "BILL-${b.id}",
+                    billNumber = b.billNumber?.takeIf { it.isNotBlank() } ?: existing?.billNumber ?: "BILL-${b.id}",
                     customerId = b.customerId,
-                    customerName = b.customerName ?: "",
-                    customerCode = b.customerCode ?: "",
-                    billingMonth = b.month,
+                    customerName = resolvedName,
+                    customerCode = resolvedCode,
+                    billingMonth = resolvedMonth,
                     amount = b.amount,
                     paidAmount = b.paidAmount,
                     dueAmount = b.dueAmount,
-                    status = b.status,
-                    generatedDate = b.generatedDate ?: "",
-                    dueDate = b.dueDate,
-                    updatedAt = b.updatedAt,
+                    status = b.status.uppercase(java.util.Locale.ROOT),
+                    generatedDate = resolvedGenDate,
+                    dueDate = resolvedDueDate,
+                    updatedAt = if (b.updatedAt > 0) b.updatedAt else (existing?.updatedAt ?: System.currentTimeMillis()),
                     syncStatus = 0
                 )
                 db.billDao().insertBill(entity)
             }
         }
-        val allLocalBills = db.billDao().getAllBillsList()
-        allLocalBills.forEach { localBill ->
-            if (localBill.syncStatus == 0 && !serverBillMap.containsKey(localBill.id)) {
-                db.billDao().deleteBill(localBill)
+        if (serverBills.isNotEmpty()) {
+            val allLocalBills = db.billDao().getAllBillsList()
+            allLocalBills.forEach { localBill ->
+                if (localBill.syncStatus == 0 && !serverBillMap.containsKey(localBill.id)) {
+                    db.billDao().deleteBill(localBill)
+                }
             }
         }
 
-        // 4. Payments Reconciliation
+        // 4. Payments Reconciliation (Device B sees all payments recorded by Device A)
         if (!isSessionValid(context, operationUserId)) return
         val serverPayments = fullData.payments.orEmpty()
         val serverPaymentMap = mutableMapOf<Long, SyncPaymentPayload>()
+        val existingPaymentMap = db.paymentDao().getAllPaymentsList().associateBy { it.id }
         serverPayments.forEach { pm ->
             serverPaymentMap[pm.id] = pm
             if (!dirtyPaymentIds.contains(pm.id) && !pendingPaymentDeletions.contains(pm.id.toString())) {
+                val existing = existingPaymentMap[pm.id]
+                val resolvedName = pm.customerName?.takeIf { it.isNotBlank() }
+                    ?: existing?.customerName
+                    ?: serverCustomerMap[pm.customerId]?.name
+                    ?: existingCustomerMap[pm.customerId]?.name
+                    ?: ""
                 val entity = PaymentEntity(
                     id = pm.id,
-                    paymentReceiptNo = pm.paymentReceiptNo,
+                    paymentReceiptNo = pm.paymentReceiptNo.takeIf { it.isNotBlank() } ?: existing?.paymentReceiptNo ?: "REC-${pm.id}",
                     billId = pm.billId,
                     customerId = pm.customerId,
-                    customerName = pm.customerName ?: "",
+                    customerName = resolvedName,
                     amount = pm.amount,
-                    paymentDate = pm.paymentDate,
-                    paymentMethod = pm.paymentMethod,
-                    notes = pm.notes ?: "",
-                    updatedAt = pm.updatedAt,
+                    paymentDate = pm.paymentDate.takeIf { it.isNotBlank() } ?: existing?.paymentDate ?: "",
+                    paymentMethod = pm.paymentMethod.takeIf { it.isNotBlank() } ?: existing?.paymentMethod ?: "Cash",
+                    notes = pm.notes ?: existing?.notes ?: "",
+                    updatedAt = if (pm.updatedAt > 0) pm.updatedAt else (existing?.updatedAt ?: System.currentTimeMillis()),
                     syncStatus = 0
                 )
                 db.paymentDao().insertPayment(entity)
             }
         }
-        val allLocalPayments = db.paymentDao().getAllPaymentsList()
-        allLocalPayments.forEach { localPayment ->
-            if (localPayment.syncStatus == 0 && !serverPaymentMap.containsKey(localPayment.id)) {
-                db.paymentDao().deletePayment(localPayment)
+        if (serverPayments.isNotEmpty()) {
+            val allLocalPayments = db.paymentDao().getAllPaymentsList()
+            allLocalPayments.forEach { localPayment ->
+                if (localPayment.syncStatus == 0 && !serverPaymentMap.containsKey(localPayment.id)) {
+                    db.paymentDao().deletePayment(localPayment)
+                }
             }
         }
 
@@ -641,9 +772,11 @@ object HostingSyncManager {
         if (!isSessionValid(context, operationUserId)) return
         val serverExpenses = fullData.expenses.orEmpty()
         val serverExpenseMap = mutableMapOf<Long, SyncExpensePayload>()
+        val existingExpenseMap = db.expenseDao().getAllExpensesList().associateBy { it.id }
         serverExpenses.forEach { e ->
             serverExpenseMap[e.id] = e
             if (!dirtyExpenseIds.contains(e.id) && !pendingExpenseDeletions.contains(e.id.toString())) {
+                val existing = existingExpenseMap[e.id]
                 val entity = ExpenseEntity(
                     id = e.id,
                     title = e.title,
@@ -651,8 +784,8 @@ object HostingSyncManager {
                     category = e.category,
                     date = e.date,
                     paymentMethod = e.paymentMethod,
-                    note = e.note ?: "",
-                    receiptPath = e.receiptPath,
+                    note = e.note ?: existing?.note ?: "",
+                    receiptPath = e.receiptPath ?: existing?.receiptPath,
                     createdAt = e.createdAt,
                     updatedAt = e.updatedAt,
                     syncStatus = 0
@@ -660,10 +793,12 @@ object HostingSyncManager {
                 db.expenseDao().insertExpense(entity)
             }
         }
-        val allLocalExpenses = db.expenseDao().getAllExpensesList()
-        allLocalExpenses.forEach { localExpense ->
-            if (localExpense.syncStatus == 0 && !serverExpenseMap.containsKey(localExpense.id)) {
-                db.expenseDao().deleteExpense(localExpense)
+        if (serverExpenses.isNotEmpty()) {
+            val allLocalExpenses = db.expenseDao().getAllExpensesList()
+            allLocalExpenses.forEach { localExpense ->
+                if (localExpense.syncStatus == 0 && !serverExpenseMap.containsKey(localExpense.id)) {
+                    db.expenseDao().deleteExpense(localExpense)
+                }
             }
         }
 
@@ -859,26 +994,13 @@ object HostingSyncManager {
 
         if (custCount == 0 && billCount == 0) {
             Log.i(TAG, "Local database empty after sync endpoint. Performing deep restoration from individual endpoints...")
-            val repo = com.example.data.repository.IspRepository.create(context, operationUserId)
-            try {
-                repo.syncPackagesFromHosting(operationUserId)
-                repo.syncCustomersFromHosting(operationUserId)
-                repo.syncBillsFromHosting(operationUserId)
-                repo.syncPaymentsFromHosting(operationUserId)
-                repo.syncExpensesFromHosting(operationUserId)
-                repo.syncExpenseCategoriesFromHosting(operationUserId)
-                repo.syncSettingsFromHosting(operationUserId)
-                repo.syncAuditLogsFromHosting(operationUserId)
-                repo.syncBandwidthBillsFromHosting(operationUserId)
-                repo.syncSpecificAdvancesFromHosting(operationUserId)
-            } catch (e: Throwable) {
-                Log.w(TAG, "Deep restoration individual endpoint note: ${e.message}")
-            }
+            pullFromIndividualEndpoints(context, operationUserId)
 
             val custCountAfterEndpoints = db.customerDao().getAllCustomersList().size
             if (custCountAfterEndpoints == 0) {
                 Log.i(TAG, "Attempting restoration from latest cloud backup snapshot...")
                 try {
+                    val repo = com.example.data.repository.IspRepository.create(context, operationUserId)
                     repo.restoreFromHosting(context, operationUserId)
                 } catch (e: Throwable) {
                     Log.w(TAG, "Latest cloud backup restore note: ${e.message}")

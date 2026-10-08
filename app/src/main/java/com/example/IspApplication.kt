@@ -1,11 +1,13 @@
 package com.example
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Bundle
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +15,9 @@ import kotlinx.coroutines.launch
 
 class IspApplication : Application() {
     private var networkCallbackRegistered = false
+    private var activeActivityCount = 0
+    private var isAppInForeground = false
+    private var lastForegroundSyncTimestamp = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -68,7 +73,51 @@ class IspApplication : Application() {
             Log.w(TAG, "WorkManager initialization/scheduling deferred or unavailable: ${e.message}")
         }
 
+        registerAppLifecycleCallbacks()
         registerNetworkSyncCallback()
+
+        if (isLoggedIn(this)) {
+            com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this, 35_000L)
+        }
+    }
+
+    private fun registerAppLifecycleCallbacks() {
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) {
+                activeActivityCount++
+                if (activeActivityCount == 1) {
+                    isAppInForeground = true
+                    Log.i(TAG, "App entered foreground: Triggering automatic full remote data pull and starting 30-60s polling")
+                    triggerAutoSyncIfLoggedIn(forceImmediate = true)
+                    com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this@IspApplication, 35_000L)
+                }
+            }
+
+            override fun onActivityResumed(activity: Activity) {
+                val now = System.currentTimeMillis()
+                if (now - lastForegroundSyncTimestamp > 5000L) { // 5s throttle on rapid tab/activity switching
+                    lastForegroundSyncTimestamp = now
+                    Log.d(TAG, "Activity resumed: Refreshing server updates...")
+                    triggerAutoSyncIfLoggedIn(forceImmediate = false)
+                }
+                com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this@IspApplication, 35_000L)
+            }
+
+            override fun onActivityPaused(activity: Activity) {}
+
+            override fun onActivityStopped(activity: Activity) {
+                activeActivityCount = (activeActivityCount - 1).coerceAtLeast(0)
+                if (activeActivityCount == 0) {
+                    isAppInForeground = false
+                    Log.i(TAG, "App entered background: Pausing foreground periodic polling to save resources")
+                    com.example.util.HostingSyncManager.stopPeriodicForegroundPolling()
+                }
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
     }
 
     private fun registerNetworkSyncCallback() {
@@ -81,12 +130,20 @@ class IspApplication : Application() {
 
             cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    triggerAutoSyncIfLoggedIn()
+                    Log.i(TAG, "Network became available: Triggering immediate full remote data pull")
+                    triggerAutoSyncIfLoggedIn(forceImmediate = true)
+                    if (isAppInForeground) {
+                        com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this@IspApplication, 35_000L)
+                    }
                 }
 
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                     if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                        triggerAutoSyncIfLoggedIn()
+                        Log.i(TAG, "Network validated: Triggering auto sync")
+                        triggerAutoSyncIfLoggedIn(forceImmediate = true)
+                        if (isAppInForeground) {
+                            com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this@IspApplication, 35_000L)
+                        }
                     }
                 }
             })
@@ -96,17 +153,17 @@ class IspApplication : Application() {
         }
     }
 
-    private fun triggerAutoSyncIfLoggedIn() {
+    fun triggerAutoSyncIfLoggedIn(forceImmediate: Boolean = false) {
         val uid = getUserId(this)
         if (!uid.isNullOrBlank() && isLoggedIn(this) && com.example.util.HostingSyncManager.isSessionValid(this, uid)) {
             // 1. Enqueue guaranteed background sync worker
             com.example.util.SyncWorker.enqueueSync(this@IspApplication, forceExpedited = true)
-            // 2. Also trigger immediate in-process coroutine sync if app is in foreground
+            // 2. Also trigger immediate full remote data pull in coroutine scope
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    com.example.util.HostingSyncManager.syncLocalToHosting(this@IspApplication)
+                    com.example.util.HostingSyncManager.performFullRemoteDataPull(this@IspApplication, forceDeepFallback = forceImmediate)
                 } catch (e: Throwable) {
-                    Log.w(TAG, "Auto sync on network available note: ${e.message}")
+                    Log.w(TAG, "Auto sync remote pull note: ${e.message}")
                 }
             }
         }
@@ -114,6 +171,22 @@ class IspApplication : Application() {
 
     companion object {
         private const val TAG = "IspApplication"
+
+        @JvmStatic
+        fun triggerAutoSync(context: Context, forceImmediate: Boolean = false) {
+            val app = context.applicationContext as? IspApplication
+            if (app != null) {
+                app.triggerAutoSyncIfLoggedIn(forceImmediate)
+            } else {
+                val uid = getUserId(context)
+                if (!uid.isNullOrBlank() && isLoggedIn(context)) {
+                    com.example.util.SyncWorker.enqueueSync(context, forceExpedited = true)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        com.example.util.HostingSyncManager.performFullRemoteDataPull(context, forceDeepFallback = forceImmediate)
+                    }
+                }
+            }
+        }
 
         @JvmStatic
         fun getAuthToken(context: Context): String? {

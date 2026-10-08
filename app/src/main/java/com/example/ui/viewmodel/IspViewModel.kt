@@ -359,10 +359,22 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         return repository.createAutomaticPreUpdateBackup(context)
     }
 
+    fun triggerFullRemoteDataPull(forceDeepFallback: Boolean = false) {
+        val app = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                com.example.util.HostingSyncManager.performFullRemoteDataPull(app, forceDeepFallback = forceDeepFallback)
+            } catch (e: Throwable) {
+                android.util.Log.w("IspViewModel", "triggerFullRemoteDataPull note: ${e.message}")
+            }
+        }
+    }
+
     fun triggerCloudSyncOnLogin() {
         val app = getApplication<Application>()
         val uid = com.example.IspApplication.getUserId(app)
         if (!uid.isNullOrBlank() && uid != "guest" && uid != "authenticated_user") {
+            com.example.util.HostingSyncManager.startPeriodicForegroundPolling(app, 35_000L)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     com.example.util.HostingSyncManager.restoreOrSyncSession(app, uid)

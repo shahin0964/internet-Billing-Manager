@@ -163,6 +163,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        if (IspApplication.isLoggedIn(this)) {
+            IspApplication.triggerAutoSync(this, forceImmediate = false)
+            com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this, 35_000L)
+        }
+    }
 }
 
 @Composable
