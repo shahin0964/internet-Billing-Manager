@@ -144,6 +144,18 @@ class MainActivity : ComponentActivity() {
             openUpdateDialogFlow.tryEmit(true)
         }
 
+        lifecycle.addObserver(androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (IspApplication.isLoggedIn(this)) {
+                    android.util.Log.i("MainActivity", "ON_RESUME lifecycle event: triggering silent background fetch from hosting server")
+                    IspApplication.triggerAutoSync(this, forceImmediate = true)
+                    com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this, 35_000L)
+                }
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                com.example.util.HostingSyncManager.stopPeriodicForegroundPolling()
+            }
+        })
+
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
             val isAppInitializing by viewModel.isAppInitializing.collectAsStateWithLifecycle()
@@ -167,7 +179,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (IspApplication.isLoggedIn(this)) {
-            IspApplication.triggerAutoSync(this, forceImmediate = false)
+            android.util.Log.d("MainActivity", "onResume: triggering silent background fetch")
+            IspApplication.triggerAutoSync(this, forceImmediate = true)
             com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this, 35_000L)
         }
     }
@@ -179,6 +192,7 @@ fun MainAppContent(
     openUpdateDialogFlow: kotlinx.coroutines.flow.SharedFlow<Boolean> = remember { kotlinx.coroutines.flow.MutableSharedFlow() }
 ) {
     val context = LocalContext.current
+
     var currentTab by remember { mutableStateOf(NavTab.DASHBOARD) }
     val tabHistory = remember { mutableStateListOf<NavTab>() }
     var previousTab by remember { mutableStateOf<NavTab?>(null) }
@@ -297,10 +311,17 @@ fun MainAppContent(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                if (IspApplication.isLoggedIn(context)) {
+                    android.util.Log.d("MainAppContent", "LocalLifecycleOwner ON_RESUME: triggering silent background fetch")
+                    IspApplication.triggerAutoSync(context, forceImmediate = true)
+                    com.example.util.HostingSyncManager.startPeriodicForegroundPolling(context, 35_000L)
+                }
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
                 if (com.example.util.PinLockManager.isPinLockEnabled(context)) {
                     isAppLocked = true
                 }
+                com.example.util.HostingSyncManager.stopPeriodicForegroundPolling()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

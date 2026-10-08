@@ -57,7 +57,7 @@ object HostingSyncManager {
                     val isLoggedIn = IspApplication.isLoggedIn(appCtx)
                     if (!uid.isNullOrBlank() && isLoggedIn && isSessionValid(appCtx, uid) && isNetworkAvailable(appCtx)) {
                         Log.d(TAG, "Periodic poll tick: Auto-fetching latest server changes...")
-                        syncLocalToHosting(appCtx)
+                        performFullRemoteDataPull(appCtx)
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "Foreground periodic polling tick note: ${e.message}")
