@@ -62,6 +62,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import java.net.URLEncoder
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.example.data.database.IspDatabase
 import com.example.util.AutomaticSmsManager
 import com.example.util.SmsTemplateManager
 
@@ -551,7 +556,65 @@ fun BillItemCard(
 }
 
 /**
- * Directly formats and opens WhatsApp chat with pre-filled bill details and due reminders.
+ * Converts stored billing month strings (e.g. "2026-09", "September 2026", "সেপ্টেম্বর ২০২৬")
+ * into clear readable Month Year display format (e.g. "September 2026").
+ */
+fun formatDisplayMonthYear(rawMonth: String): String {
+    val trimmed = rawMonth.trim()
+    if (trimmed.isEmpty()) return ""
+
+    val englishMonths = arrayOf(
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    )
+
+    // Check YYYY-MM or YYYY/MM pattern (e.g. 2026-09 or 2026-9)
+    val yyyyMmRegex = """^(\d{4})[-/](\d{1,2})$""".toRegex()
+    val match = yyyyMmRegex.find(trimmed)
+    if (match != null) {
+        val year = match.groupValues[1]
+        val mIdx = (match.groupValues[2].toIntOrNull() ?: 1) - 1
+        val mName = englishMonths.getOrElse(mIdx) { "Month ${mIdx + 1}" }
+        return "$mName $year"
+    }
+
+    // Check if it already contains an English month name and 4 digit year
+    for (m in englishMonths) {
+        if (trimmed.contains(m, ignoreCase = true)) {
+            val yearMatch = """\b(20\d{2}|19\d{2})\b""".toRegex().find(trimmed)
+            return if (yearMatch != null) "$m ${yearMatch.value}" else trimmed
+        }
+    }
+
+    // Check Bengali month names
+    val bnToEnMonth = mapOf(
+        "জানুয়ারি" to "January", "জানুয়ারী" to "January",
+        "ফেব্রুয়ারি" to "February", "ফেব্রুয়ারী" to "February",
+        "মার্চ" to "March", "এপ্রিল" to "April", "মে" to "May",
+        "জুন" to "June", "জুলাই" to "July", "আগস্ট" to "August", "আগষ্ট" to "August",
+        "সেপ্টেম্বর" to "September", "অক্টোবর" to "October",
+        "নভেম্বর" to "November", "ডিসেম্বর" to "December"
+    )
+    for ((bn, en) in bnToEnMonth) {
+        if (trimmed.contains(bn)) {
+            val converted = trimmed.map { ch ->
+                when (ch) {
+                    '০' -> '0'; '১' -> '1'; '২' -> '2'; '৩' -> '3'; '৪' -> '4'
+                    '৫' -> '5'; '৬' -> '6'; '৭' -> '7'; '৮' -> '8'; '৯' -> '9'
+                    else -> ch
+                }
+            }.joinToString("")
+            val yearMatch = """\b(20\d{2}|19\d{2})\b""".toRegex().find(converted)
+            val year = yearMatch?.value ?: ""
+            return if (year.isNotEmpty()) "$en $year" else en
+        }
+    }
+
+    return trimmed
+}
+
+/**
+ * Directly formats and opens WhatsApp chat with pre-filled month-by-month bill breakdown and due reminders.
  */
 fun launchWhatsAppForBill(
     context: Context,
@@ -571,94 +634,143 @@ fun launchWhatsAppForBill(
         return
     }
 
-    val isBreakdown = bill.billNumber.startsWith("BREAKDOWN|")
-    val parts = if (isBreakdown) bill.billNumber.split("|") else null
-    val billingMonthLabel = parts?.getOrNull(2)?.split(":")?.getOrNull(0) ?: bill.billingMonth
-    val customerName = if (!customer?.name.isNullOrBlank()) customer.name else bill.customerName
-    val totalBillFormatted = "$currencySymbol${bill.amount.formatAmount()}"
-    val dueAmountFormatted = "$currencySymbol${bill.dueAmount.formatAmount()}"
-    val cleanTotal = bill.amount.formatAmount()
-    val cleanDue = bill.dueAmount.formatAmount()
-    val dueDate = bill.dueDate
-    val companyName = ispName.ifBlank { "ISP Net" }
-
-    // Retrieve active template from settings
-    val configuredTemplate = if (bill.dueAmount > 0) {
-        val tmpl = AutomaticSmsManager.getTemplateDueReminder(context)
-        if (tmpl.isNotBlank()) tmpl else SmsTemplateManager.getSmsTemplate(context)
-    } else {
-        AutomaticSmsManager.getTemplatePaymentConfirmation(context)
-    }
-
-    var message = AutomaticSmsManager.processTemplate(
-        template = configuredTemplate,
-        customerName = customerName,
-        monthlyFee = cleanTotal,
-        dueAmount = cleanDue,
-        dueDate = dueDate,
-        packageSpeed = customer?.packageName ?: "",
-        ispName = companyName,
-        billMonth = billingMonthLabel,
-        customerId = customer?.customerCode?.ifBlank { bill.customerCode } ?: bill.customerCode,
-        receiptNo = bill.getDisplayBillNumber(),
-        phoneNumber = rawPhone
-    )
-
-    // Also support brackets style template placeholders [Customer Name], [Due Amount], etc.
-    message = SmsTemplateManager.replaceVariables(
-        template = message,
-        customerName = customerName,
-        monthlyFee = totalBillFormatted,
-        dueAmount = dueAmountFormatted,
-        packageName = customer?.packageName ?: "",
-        phone = rawPhone,
-        ispName = companyName,
-        dueDate = dueDate,
-        customerId = customer?.customerCode?.ifBlank { bill.customerCode } ?: bill.customerCode
-    )
-
-    // If template didn't contain due or total bill info or is blank, construct a structured message
-    if (message.isBlank() || (!message.contains(cleanDue) && bill.dueAmount > 0)) {
-        val isBn = Locale.getDefault().language == "bn"
-        message = if (isBn) {
-            "প্রিয় $customerName,\nআপনার $billingMonthLabel মাসের ইন্টারনেট বিল $totalBillFormatted, বর্তমান বকেয়া: $dueAmountFormatted।\nপরিশোধের শেষ সময়: $dueDate।\nসংযোগ সচল রাখতে অনুগ্রহ করে দ্রুত বিল পরিশোধ করুন।\nধন্যবাদ,\n$companyName"
-        } else {
-            "Dear $customerName,\nYour Internet bill for $billingMonthLabel is $totalBillFormatted, Current Due: $dueAmountFormatted.\nDue Date: $dueDate.\nPlease pay your due bill to keep your connection active.\nThank you,\n$companyName"
-        }
-    } else if (!message.contains(cleanTotal) && !message.contains(totalBillFormatted)) {
-        val isBn = Locale.getDefault().language == "bn"
-        val extraInfo = if (isBn) {
-            "\n(মোট বিল: $totalBillFormatted, বকেয়া: $dueAmountFormatted)"
-        } else {
-            "\n(Total Bill: $totalBillFormatted, Due: $dueAmountFormatted)"
-        }
-        message += extraInfo
-    }
-
-    try {
-        val cleanDigits = rawPhone.replace(Regex("[^0-9]"), "")
-        val formattedPhone = if (cleanDigits.startsWith("0")) {
-            "880" + cleanDigits.substring(1)
-        } else if (cleanDigits.length == 10 && !cleanDigits.startsWith("880")) {
-            "880$cleanDigits"
-        } else {
-            cleanDigits
-        }
-
-        val encodedText = URLEncoder.encode(message.trim(), "UTF-8").replace("+", "%20")
-        val uri = Uri.parse("https://api.whatsapp.com/send?phone=$formattedPhone&text=$encodedText")
-
-        val whatsappIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-            setPackage("com.whatsapp")
-        }
+    CoroutineScope(Dispatchers.IO).launch {
         try {
-            context.startActivity(whatsappIntent)
+            // 1. Retrieve all unpaid or partially paid bills for the specific customer from the database
+            val db = IspDatabase.getDatabase(context)
+            val customerDbBills = try {
+                db.billDao().getBillsListForCustomer(bill.customerId)
+            } catch (e: Exception) {
+                emptyList<BillEntity>()
+            }
+
+            // Filter for actual unpaid or partially paid bills (ignoring synthetic BREAKDOWN bills in DB if any)
+            val unpaidDbBills = customerDbBills
+                .filter { !it.billNumber.startsWith("BREAKDOWN|") }
+                .filter { (it.status == "UNPAID" || it.status == "PARTIAL") && it.dueAmount > 0.0 }
+                .sortedBy { it.id }
+
+            data class MonthDueItem(val monthLabel: String, val dueAmount: Double)
+            val monthDueItems = mutableListOf<MonthDueItem>()
+
+            if (unpaidDbBills.isNotEmpty()) {
+                for (b in unpaidDbBills) {
+                    val formattedMonth = formatDisplayMonthYear(b.billingMonth)
+                    monthDueItems.add(MonthDueItem(formattedMonth, b.dueAmount))
+                }
+            } else {
+                // If database query had no separate records, check if bill itself is a BREAKDOWN bill
+                val isBreakdown = bill.billNumber.startsWith("BREAKDOWN|")
+                if (isBreakdown) {
+                    val parts = bill.billNumber.split("|")
+                    if (parts.size >= 3) {
+                        val prevListRaw = parts[1]
+                        val prevItems = prevListRaw.split(",").mapNotNull {
+                            val pair = it.split(":")
+                            if (pair.size == 2) {
+                                val m = formatDisplayMonthYear(pair[0])
+                                val d = pair[1].toDoubleOrNull() ?: 0.0
+                                if (d > 0.0) MonthDueItem(m, d) else null
+                            } else null
+                        }
+                        monthDueItems.addAll(prevItems)
+
+                        val currentPart = parts[2].split(":")
+                        val curMonth = formatDisplayMonthYear(currentPart.getOrNull(0) ?: bill.billingMonth)
+                        val curDue = currentPart.getOrNull(1)?.toDoubleOrNull() ?: bill.dueAmount
+                        if (curDue > 0.0) {
+                            monthDueItems.add(MonthDueItem(curMonth, curDue))
+                        }
+                    }
+                }
+                // Fallback to the current bill if list is still empty
+                if (monthDueItems.isEmpty() && bill.dueAmount > 0.0) {
+                    monthDueItems.add(MonthDueItem(formatDisplayMonthYear(bill.billingMonth), bill.dueAmount))
+                }
+            }
+
+            // 2. Format each bill entry clearly by month and year along with its specific due amount
+            // e.g., "- September 2026: 500 Taka", "- October 2026: 500 Taka"
+            val breakdownLines = monthDueItems.joinToString("\n") { item ->
+                "- ${item.monthLabel}: ${item.dueAmount.formatAmount()} Taka"
+            }
+
+            // 3. Calculate the total cumulative due amount
+            val totalCumulativeDue = monthDueItems.sumOf { it.dueAmount }.takeIf { it > 0.0 } ?: bill.dueAmount
+            val totalDueFormatted = "${totalCumulativeDue.formatAmount()} Taka"
+
+            val customerName = if (!customer?.name.isNullOrBlank()) customer.name else bill.customerName
+            val dueDate = bill.dueDate.ifBlank { "" }
+            val companyName = ispName.ifBlank { "ISP Net" }
+            val isBn = Locale.getDefault().language == "bn"
+
+            // 4. Pass this detailed, multi-month breakdown message into the WhatsApp intent text parameter
+            val message = if (monthDueItems.isEmpty()) {
+                if (isBn) {
+                    "প্রিয় $customerName,\nআপনার ${formatDisplayMonthYear(bill.billingMonth)} মাসের বিল পরিশোধ সম্পন্ন হয়েছে। মোট বিল: $currencySymbol${bill.amount.formatAmount()}।\nধন্যবাদ,\n$companyName"
+                } else {
+                    "Dear $customerName,\nYour Internet bill for ${formatDisplayMonthYear(bill.billingMonth)} is fully paid. Total: $currencySymbol${bill.amount.formatAmount()}.\nThank you,\n$companyName"
+                }
+            } else {
+                if (isBn) {
+                    buildString {
+                        append("প্রিয় $customerName,\n")
+                        append("আপনার ইন্টারনেট বিলের মাসভিত্তিক বকেয়ার বিবরণ:\n\n")
+                        append(breakdownLines)
+                        append("\n\n")
+                        append("মোট বকেয়া: $totalDueFormatted")
+                        if (dueDate.isNotBlank()) {
+                            append("\nপরিশোধের শেষ সময়: $dueDate")
+                        }
+                        append("\n\nসংযোগ সচল রাখতে অনুগ্রহ করে দ্রুত বিল পরিশোধ করুন।\nধন্যবাদ,\n$companyName")
+                    }
+                } else {
+                    buildString {
+                        append("Dear $customerName,\n")
+                        append("Your pending Internet bill breakdown by month:\n\n")
+                        append(breakdownLines)
+                        append("\n\n")
+                        append("Total Due: $totalDueFormatted")
+                        if (dueDate.isNotBlank()) {
+                            append("\nDue Date: $dueDate")
+                        }
+                        append("\n\nPlease pay your due bill to keep your internet connection active.\nThank you,\n$companyName")
+                    }
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                try {
+                    val cleanDigits = rawPhone.replace(Regex("[^0-9]"), "")
+                    val formattedPhone = if (cleanDigits.startsWith("0")) {
+                        "880" + cleanDigits.substring(1)
+                    } else if (cleanDigits.length == 10 && !cleanDigits.startsWith("880")) {
+                        "880$cleanDigits"
+                    } else {
+                        cleanDigits
+                    }
+
+                    val encodedText = URLEncoder.encode(message.trim(), "UTF-8").replace("+", "%20")
+                    val uri = Uri.parse("https://api.whatsapp.com/send?phone=$formattedPhone&text=$encodedText")
+
+                    val whatsappIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                        setPackage("com.whatsapp")
+                    }
+                    try {
+                        context.startActivity(whatsappIntent)
+                    } catch (e: Exception) {
+                        val fallbackIntent = Intent(Intent.ACTION_VIEW, uri)
+                        context.startActivity(fallbackIntent)
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Error opening WhatsApp: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
         } catch (e: Exception) {
-            val fallbackIntent = Intent(Intent.ACTION_VIEW, uri)
-            context.startActivity(fallbackIntent)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Error generating WhatsApp reminder: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
-    } catch (e: Exception) {
-        Toast.makeText(context, "Error opening WhatsApp: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
 
