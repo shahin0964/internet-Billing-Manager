@@ -86,7 +86,7 @@ fun DashboardScreen(
     val currentMonthStr = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())
     
     val currentMonthBills = androidx.compose.runtime.remember(bills, currentMonthStr) {
-        bills.filter { it.billingMonth.equals(currentMonthStr, ignoreCase = true) }
+        bills.filter { com.example.util.BillingMonthUtils.isSameMonth(it.billingMonth, currentMonthStr) }
     }
     val currentMonthBillIds = androidx.compose.runtime.remember(currentMonthBills) {
         currentMonthBills.map { it.id }.toSet()
@@ -99,9 +99,13 @@ fun DashboardScreen(
     val currency = settings.currencySymbol
     val isPrivacyModeActive by com.example.util.PrivacyModeManager.privacyModeFlow.collectAsState()
 
-    val totalBillingAmount = bills.sumOf { it.amount }
-    val totalCollectedAmount = payments.sumOf { it.amount }
+    val previousDueAmount = androidx.compose.runtime.remember(bills, currentMonthStr) {
+        bills.filter { !com.example.util.BillingMonthUtils.isSameMonth(it.billingMonth, currentMonthStr) && it.dueAmount > 0 }
+            .sumOf { it.dueAmount }
+    }
+    val totalBillingAmount = monthlyBillAmount + previousDueAmount
     val totalDueAmount = bills.sumOf { it.dueAmount }
+    val totalCollectedAmount = (totalBillingAmount - totalDueAmount).coerceAtLeast(0.0)
     
     val todayDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
     val todayCollectionAmount = payments.filter { it.paymentDate == todayDateStr }.sumOf { it.amount }

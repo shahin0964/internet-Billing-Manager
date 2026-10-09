@@ -612,9 +612,12 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateCustomer(customer: CustomerEntity) {
+    fun updateCustomer(customer: CustomerEntity, previousDues: List<PreviousDueItem> = emptyList()) {
         viewModelScope.launch {
             repository.updateCustomer(customer)
+            if (previousDues.isNotEmpty()) {
+                repository.createPreviousDues(customer.id, customer, previousDues)
+            }
             _toastMessage.value = getApplication<Application>().getString(com.example.R.string.msg_customer_updated)
             if (selectedCustomerForDetail.value?.id == customer.id) {
                 selectedCustomerForDetail.value = customer

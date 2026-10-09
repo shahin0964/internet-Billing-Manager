@@ -540,7 +540,10 @@ tonalElevation = 3.dp,
                             Text(
                                 text = customer.name,
                                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f, fill = false),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
@@ -555,7 +558,9 @@ tonalElevation = 3.dp,
                         Text(
                             text = "PPPoE: ${customer.pppoeUsername} • ${customer.packageName}",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
 
                         Spacer(modifier = Modifier.height(2.dp))
@@ -563,7 +568,9 @@ tonalElevation = 3.dp,
                         Text(
                             text = "Fee: ${customer.monthlyFee.formatAmountPrivacy(currencySymbol, isPrivacyModeActive)}/mo" + (if (totalDue > 0) " (Due: ${totalDue.formatAmountPrivacy(currencySymbol, isPrivacyModeActive)})" else ""),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                            color = if (totalDue > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (totalDue > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
                 }

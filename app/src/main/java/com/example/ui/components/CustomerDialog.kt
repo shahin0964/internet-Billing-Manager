@@ -30,8 +30,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.model.CustomerEntity
 import com.example.data.model.IspPackageEntity
 import com.example.data.model.PreviousDueItem
@@ -239,207 +242,219 @@ fun CustomerDialog(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(
-                        
-                    modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         listOf("ACTIVE", "SUSPENDED", "INACTIVE").forEach { st ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.clickable { status = st }
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { status = st }
                             ) {
                                 RadioButton(
                                     selected = (status == st),
-                                    onClick = { status = st }
+                                    onClick = { status = st },
+                                    modifier = Modifier.size(20.dp)
                                 )
+                                Spacer(modifier = Modifier.width(2.dp))
                                 Text(
-                                    text = st.lowercase().capitalize(Locale.getDefault()),
-                                    style = MaterialTheme.typography.bodySmall
+                                    text = when(st) {
+                                        "ACTIVE" -> "Active"
+                                        "SUSPENDED" -> "Suspended"
+                                        "INACTIVE" -> "Inactive"
+                                        else -> st
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
                     }
                 }
 
-                if (initialCustomer == null) {
-                    androidx.compose.material3.HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                    )
+                androidx.compose.material3.HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                )
 
+                Text(
+                    text = "Previous Due / Opening Due",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { hasPreviousDue = !hasPreviousDue }
+                ) {
+                    Checkbox(
+                        checked = hasPreviousDue,
+                        onCheckedChange = { hasPreviousDue = it }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Previous Due / Opening Due",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
+                        text = "Has Previous Due",
+                        style = MaterialTheme.typography.bodyMedium
                     )
+                }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                if (hasPreviousDue) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { hasPreviousDue = !hasPreviousDue }
+                            .padding(start = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Checkbox(
-                            checked = hasPreviousDue,
-                            onCheckedChange = { hasPreviousDue = it }
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Has Previous Due",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-
-                    if (hasPreviousDue) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                // Month Selector
-                                Box(modifier = Modifier.weight(1f)) {
-                                    OutlinedTextField(
-                                        value = selectedDueMonth,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Month") },
-                                        trailingIcon = { Text("▼") },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .matchParentSize()
-                                            .clickable { monthDropdownExpanded = true }
-                                    )
-                                    DropdownMenu(
-                                        expanded = monthDropdownExpanded,
-                                        onDismissRequest = { monthDropdownExpanded = false }
-                                    ) {
-                                        monthsList.forEach { m ->
-                                            DropdownMenuItem(
-                                                text = { Text(m) },
-                                                onClick = {
-                                                    selectedDueMonth = m
-                                                    monthDropdownExpanded = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Year Selector
-                                Box(modifier = Modifier.weight(1f)) {
-                                    OutlinedTextField(
-                                        value = selectedDueYear,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Year") },
-                                        trailingIcon = { Text("▼") },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .matchParentSize()
-                                            .clickable { yearDropdownExpanded = true }
-                                    )
-                                    DropdownMenu(
-                                        expanded = yearDropdownExpanded,
-                                        onDismissRequest = { yearDropdownExpanded = false }
-                                    ) {
-                                        yearsList.forEach { y ->
-                                            DropdownMenuItem(
-                                                text = { Text(y) },
-                                                onClick = {
-                                                    selectedDueYear = y
-                                                    yearDropdownExpanded = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                            // Month Selector
+                            Box(modifier = Modifier.weight(1f)) {
                                 OutlinedTextField(
-                                    value = dueAmountInput,
-                                    onValueChange = { dueAmountInput = it },
-                                    label = { Text("Due Amount ($currencySymbol)") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1.5f)
+                                    value = selectedDueMonth,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Month") },
+                                    trailingIcon = { Text("▼") },
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-
-                                Button(
-                                    onClick = {
-                                        val amt = dueAmountInput.replace(",", "").trim().toDoubleOrNull()
-                                        if (amt != null && amt > 0) {
-                                            val alreadyExists = previousDuesList.any { it.month == selectedDueMonth && it.year == selectedDueYear }
-                                            if (!alreadyExists) {
-                                                previousDuesList = previousDuesList + PreviousDueItem(
-                                                    month = selectedDueMonth,
-                                                    year = selectedDueYear,
-                                                    amount = amt
-                                                )
-                                                dueAmountInput = ""
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f)
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { monthDropdownExpanded = true }
+                                )
+                                DropdownMenu(
+                                    expanded = monthDropdownExpanded,
+                                    onDismissRequest = { monthDropdownExpanded = false }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = "Add"
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Add")
+                                    monthsList.forEach { m ->
+                                        DropdownMenuItem(
+                                            text = { Text(m) },
+                                            onClick = {
+                                                selectedDueMonth = m
+                                                monthDropdownExpanded = false
+                                            }
+                                        )
+                                    }
                                 }
                             }
 
-                            if (previousDuesList.isNotEmpty()) {
-                                Text(
-                                    text = "Added Outstanding Months:",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                    modifier = Modifier.padding(top = 4.dp)
+                            // Year Selector
+                            Box(modifier = Modifier.weight(1f)) {
+                                OutlinedTextField(
+                                    value = selectedDueYear,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Year") },
+                                    trailingIcon = { Text("▼") },
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                previousDuesList.forEach { item ->
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                        )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "${item.month} ${item.year} — $currencySymbol${item.amount.formatAmount()}",
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            IconButton(
-                                                onClick = {
-                                                    previousDuesList = previousDuesList.filter { it != item }
-                                                }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Delete,
-                                                    contentDescription = "Delete",
-                                                    tint = MaterialTheme.colorScheme.error
-                                                )
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable { yearDropdownExpanded = true }
+                                )
+                                DropdownMenu(
+                                    expanded = yearDropdownExpanded,
+                                    onDismissRequest = { yearDropdownExpanded = false }
+                                ) {
+                                    yearsList.forEach { y ->
+                                        DropdownMenuItem(
+                                            text = { Text(y) },
+                                            onClick = {
+                                                selectedDueYear = y
+                                                yearDropdownExpanded = false
                                             }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = dueAmountInput,
+                                onValueChange = { dueAmountInput = it },
+                                label = { Text("Due Amount ($currencySymbol)") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1.5f)
+                            )
+
+                            Button(
+                                onClick = {
+                                    val amt = dueAmountInput.replace(",", "").trim().toDoubleOrNull()
+                                    if (amt != null && amt > 0) {
+                                        val alreadyExists = previousDuesList.any { it.month == selectedDueMonth && it.year == selectedDueYear }
+                                        if (!alreadyExists) {
+                                            previousDuesList = previousDuesList + PreviousDueItem(
+                                                month = selectedDueMonth,
+                                                year = selectedDueYear,
+                                                amount = amt
+                                            )
+                                            dueAmountInput = ""
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Add"
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add")
+                            }
+                        }
+
+                        if (previousDuesList.isNotEmpty()) {
+                            Text(
+                                text = "Added Outstanding Months:",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                            previousDuesList.forEach { item ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${item.month} ${item.year} — $currencySymbol${item.amount.formatAmount()}",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                previousDuesList = previousDuesList.filter { it != item }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
                                         }
                                     }
                                 }

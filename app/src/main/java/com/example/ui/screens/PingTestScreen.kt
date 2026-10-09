@@ -1186,14 +1186,16 @@ fun PingSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text("IP Version", style = MaterialTheme.typography.labelMedium)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                     listOf("Auto", "IPv4", "IPv6").forEach { option ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { ipVersion = option }) {
                             RadioButton(
                                 selected = ipVersion == option,
-                                onClick = { ipVersion = option }
+                                onClick = { ipVersion = option },
+                                modifier = Modifier.size(20.dp)
                             )
-                            Text(option, style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(option, style = MaterialTheme.typography.bodyMedium, maxLines = 1, softWrap = false)
                         }
                     }
                 }

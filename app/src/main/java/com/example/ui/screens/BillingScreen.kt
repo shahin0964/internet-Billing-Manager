@@ -297,7 +297,10 @@ fun BillItemCard(
                         Text(
                             text = bill.customerName,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                         if (customerStatus != null && customerStatus.trim().uppercase(java.util.Locale.ROOT) != "ACTIVE") {
                             Spacer(modifier = Modifier.width(6.dp))
@@ -315,44 +318,22 @@ fun BillItemCard(
                             Text(
                                 text = pppoeUsername,
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                     }
                     Text(
                         text = "$displayBillNo • $billingMonthLabel",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     StatusBadge(status = bill.status)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Surface(
-                        onClick = {
-                            if (onWhatsAppClick != null) {
-                                onWhatsAppClick()
-                            } else {
-                                launchWhatsAppForBill(context, bill, customer, currencySymbol, ispName)
-                            }
-                        },
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF25D366).copy(alpha = 0.15f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            Color(0xFF25D366).copy(alpha = 0.35f)
-                        ),
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painter = painterResource(id = com.example.R.drawable.ic_whatsapp),
-                                contentDescription = "Send WhatsApp Reminder",
-                                tint = Color(0xFF25D366),
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
-                    }
                     Spacer(modifier = Modifier.width(6.dp))
                     androidx.compose.material3.IconButton(
                         onClick = onEditBill,

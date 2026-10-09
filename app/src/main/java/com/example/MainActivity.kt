@@ -1175,8 +1175,8 @@ fun MainAppContent(
             availablePackages = packages,
             currencySymbol = settings.currencySymbol,
             onDismiss = { showEditBillDialog = false; billToEdit = null },
-            onSave = { updatedCustomer, updatedBill ->
-                viewModel.updateCustomer(updatedCustomer)
+            onSave = { updatedCustomer, updatedBill, previousDues ->
+                viewModel.updateCustomer(updatedCustomer, previousDues)
                 viewModel.updateBill(updatedBill)
                 showEditBillDialog = false
                 billToEdit = null
