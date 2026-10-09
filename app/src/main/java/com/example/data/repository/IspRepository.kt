@@ -3162,6 +3162,11 @@ class IspRepository(
     }
 
     suspend fun clearAllLocalData() {
+        try {
+            db.clearAllTables()
+        } catch (e: Throwable) {
+            Log.w("IspRepository", "db.clearAllTables note: ${e.message}")
+        }
         db.withTransaction {
             customerDao.deleteAllCustomers()
             packageDao.deleteAllPackages()

@@ -937,45 +937,79 @@ fun MainAppContent(
                         onSignOut = {
                             coroutineScope.launch {
                                 try {
-                                    // Cancel all in-flight ViewModel and background sync operations immediately
+                                    // 1. Cancel all in-flight ViewModel and background sync operations
                                     viewModel.cancelAllSyncOperations()
+                                    com.example.util.HostingSyncManager.stopPeriodicForegroundPolling()
                                     try {
-                                        androidx.work.WorkManager.getInstance(context).cancelUniqueWork("auto_hosting_backup")
-                                        androidx.work.WorkManager.getInstance(context).cancelUniqueWork("sms_queue_periodic")
+                                        androidx.work.WorkManager.getInstance(context).cancelAllWork()
                                     } catch (we: Exception) {
                                         android.util.Log.w("MainActivity", "Cancelling background work on sign out failed: ${we.message}")
                                     }
 
                                     val uid = com.example.IspApplication.getUserId(context)
-                                    val cleared = viewModel.clearAllLocalData()
-                                    if (!cleared) {
-                                        android.util.Log.w("MainActivity", "Warning: Local database cleanup encountered an issue during logout.")
-                                        viewModel.showToast("Note: Local database cleanup encountered an issue during logout.")
+
+                                    // 2. Clear Room tables and local SQLite data (Server database remains 100% untouched)
+                                    try {
+                                        if (uid != null) {
+                                            com.example.data.database.IspDatabase.getDatabase(context, uid).clearAllTables()
+                                        }
+                                        com.example.data.database.SmsDatabase.getDatabase(context).smsQueueDao().clearAll()
+                                    } catch (de: Exception) {
+                                        android.util.Log.w("MainActivity", "Room clearAllTables note: ${de.message}")
                                     }
+
+                                    viewModel.clearAllLocalData()
+
+                                    // 3. Close database instances
                                     if (uid != null) {
                                         com.example.data.database.IspDatabase.closeDatabase(uid)
                                         com.example.data.database.SmsDatabase.closeDatabase(uid)
                                     }
+                                    com.example.data.database.IspDatabase.closeAllDatabases()
+
+                                    // Delete physical db files to ensure complete local wipe
+                                    try {
+                                        if (uid != null) {
+                                            val dbName = com.example.data.database.IspDatabase.getDatabaseNameForUser(uid)
+                                            context.deleteDatabase(dbName)
+                                        }
+                                        context.deleteDatabase("isp_control_center_guest.db")
+                                        context.deleteDatabase("sms_queue.db")
+                                    } catch (fe: Exception) {
+                                        android.util.Log.w("MainActivity", "Local DB file deletion note: ${fe.message}")
+                                    }
+
+                                    // 4. Clear all SharedPreferences caches
                                     com.example.IspApplication.setLastAuthenticatedUserId(context, null)
                                     com.example.IspApplication.setLoggedIn(context, false)
                                     com.example.IspApplication.setUserId(context, null)
                                     com.example.IspApplication.setUserName(context, null)
                                     com.example.IspApplication.setUserEmail(context, null)
                                     com.example.IspApplication.setAuthToken(context, null)
+
                                     val prefs = context.getSharedPreferences("isp_prefs", android.content.Context.MODE_PRIVATE)
-                                    val editor = prefs.edit()
-                                    if (uid != null) {
-                                        editor.remove("cloud_initial_restore_done_$uid")
-                                    }
-                                    editor.remove("pending_sync_count").remove("last_cloud_sync_time")
-                                    editor.apply()
+                                    prefs.edit().clear().commit()
+
                                     context.getSharedPreferences("isp_deleted_monthly_bills", android.content.Context.MODE_PRIVATE)
                                         .edit()
                                         .clear()
-                                        .apply()
+                                        .commit()
+
+                                    com.example.data.remote.ApiClient.authToken = null
+
+                                    // 5. Reset ViewModel user session and auth flags
                                     viewModel.switchUserSession(null)
                                     isGuestMode = false
                                     isAuthChosen = false
+                                    authModeSignUp = false
+                                    authModeForgotPassword = false
+
+                                    // 6. Direct Intent redirect to MainActivity/LoginActivity with backstack cleared
+                                    val intent = android.content.Intent(context, MainActivity::class.java).apply {
+                                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                    }
+                                    context.startActivity(intent)
+
                                 } catch (e: Exception) {
                                     android.util.Log.e("MainActivity", "Logout cleanup error", e)
                                     viewModel.showToast("Error during logout: ${e.message}")
