@@ -74,7 +74,7 @@ fun BillModel.toEntity(
         userId = userId,
         customerId = customerId,
         amount = amount,
-        billMonth = billMonth,
+        billMonth = billMonth ?: month ?: "",
         dueDate = dueDate,
         status = status,
         isSynced = synced,

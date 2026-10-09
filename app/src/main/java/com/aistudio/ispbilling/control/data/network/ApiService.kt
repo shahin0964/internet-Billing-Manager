@@ -54,7 +54,9 @@ interface ApiService {
     ): Response<ApiResponse<Unit>>
 
     @GET("api/bills.php")
-    suspend fun getBills(): Response<ApiResponse<List<BillModel>>>
+    suspend fun getBills(
+        @retrofit2.http.Query("user_id") userId: String? = null
+    ): Response<ApiResponse<List<BillModel>>>
 
     @POST("api/bills.php")
     suspend fun addBill(

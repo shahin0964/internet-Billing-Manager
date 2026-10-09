@@ -27,6 +27,9 @@ interface BillDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(bills: List<BillEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBills(bills: List<BillEntity>)
+
     @Update
     suspend fun update(bill: BillEntity)
 

@@ -17,7 +17,8 @@ class OfflineFirstRepository(
     private val apiService: ApiService,
     private val customerDao: CustomerDao,
     private val packageDao: PackageDao,
-    private val billDao: BillDao
+    private val billDao: BillDao,
+    var currentUserId: String? = null
 ) {
 
     fun observeCustomers(): Flow<List<CustomerEntity>> =
@@ -187,7 +188,7 @@ class OfflineFirstRepository(
     }
 
     suspend fun refreshBills() {
-        val response = apiService.getBills()
+        val response = apiService.getBills(userId = currentUserId)
 
         if (!response.isSuccessful) return
 
@@ -195,29 +196,32 @@ class OfflineFirstRepository(
 
         if (!body.status || body.data == null) return
 
-        val pendingIds =
-            billDao.getUnsyncedBills()
-                .map { it.id }
-                .toSet()
+        val pendingIds = billDao.getUnsyncedBills().map { it.id }.toSet()
 
         val serverEntities = body.data
             .filterNot { it.id in pendingIds }
             .map { bill ->
                 BillEntity(
                     id = bill.id,
-                    userId = bill.userId,
+                    billNumber = bill.billNumber ?: ("BILL-" + bill.id),
                     customerId = bill.customerId,
+                    customerName = bill.customerName ?: "",
+                    customerCode = bill.customerCode ?: "",
+                    billMonth = bill.billMonth ?: bill.month ?: "",
                     amount = bill.amount,
-                    billMonth = bill.billMonth,
-                    dueDate = bill.dueDate,
-                    status = bill.status,
-                    isSynced = true,
-                    syncAction = SyncAction.INSERT
+                    paidAmount = bill.paidAmount ?: 0.0,
+                    dueAmount = bill.dueAmount ?: bill.amount,
+                    status = bill.status ?: "UNPAID",
+                    generatedDate = bill.generatedDate ?: "",
+                    dueDate = bill.dueDate ?: "",
+                    updatedAt = bill.updatedAt ?: System.currentTimeMillis(),
+                    syncStatus = 0,
+                    isSynced = true
                 )
             }
 
         if (serverEntities.isNotEmpty()) {
-            billDao.insertAll(serverEntities)
+            billDao.insertBills(serverEntities)
         }
     }
 }
