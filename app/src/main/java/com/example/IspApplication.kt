@@ -78,6 +78,7 @@ class IspApplication : Application() {
 
         if (isLoggedIn(this)) {
             com.example.util.HostingSyncManager.startPeriodicForegroundPolling(this, 35_000L)
+            com.example.service.SyncForegroundService.startService(this)
         }
     }
 
@@ -211,6 +212,11 @@ class IspApplication : Application() {
         fun setLoggedIn(context: Context, value: Boolean) {
             val prefs = context.getSharedPreferences("isp_prefs", Context.MODE_PRIVATE)
             prefs.edit().putBoolean("is_logged_in", value).apply()
+            if (value) {
+                com.example.service.SyncForegroundService.startService(context)
+            } else {
+                com.example.service.SyncForegroundService.stopService(context)
+            }
         }
 
         @JvmStatic

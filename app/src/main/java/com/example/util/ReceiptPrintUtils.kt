@@ -1258,6 +1258,7 @@ object ReceiptPrintUtils {
 
                 if (formattedPhone.length >= 10) {
                     putExtra("jid", "$formattedPhone@s.whatsapp.net")
+                    putExtra("phone", formattedPhone)
                 }
             }
 
@@ -1265,8 +1266,16 @@ object ReceiptPrintUtils {
             val isW4bInstalled = isAppInstalled(context, "com.whatsapp.w4b")
 
             if (isWaInstalled && isW4bInstalled) {
-                val waIntent = Intent(shareIntent).setPackage("com.whatsapp")
-                val w4bIntent = Intent(shareIntent).setPackage("com.whatsapp.w4b")
+                val waIntent = Intent(shareIntent).apply {
+                    setPackage("com.whatsapp")
+                    clipData = shareIntent.clipData
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val w4bIntent = Intent(shareIntent).apply {
+                    setPackage("com.whatsapp.w4b")
+                    clipData = shareIntent.clipData
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
 
                 val chooser = Intent.createChooser(waIntent, if (isBn) "WhatsApp অ্যাপ নির্বাচন করুন" else "Select WhatsApp App").apply {
                     putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(w4bIntent))

@@ -23,9 +23,10 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 SyncWorker.schedulePeriodicSync(context)
                 AutomaticSmsManager.schedulePeriodicSmsWorker(context)
 
-                // 4. If logged in, trigger live sync check
+                // 4. If logged in, trigger live sync check and start Foreground Service
                 if (com.example.IspApplication.isLoggedIn(context)) {
                     SyncWorker.enqueueSync(context, forceExpedited = false)
+                    com.example.service.SyncForegroundService.startService(context)
                 }
             } catch (e: Throwable) {
                 Log.w("BootCompletedReceiver", "Failed to re-schedule workers on boot: ${e.message}")
