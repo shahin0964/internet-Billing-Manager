@@ -240,7 +240,10 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
         val displayBills = mutableListOf<BillEntity>()
 
         for ((custId, cBills) in billsByCustomer) {
-            val sorted = cBills.sortedByDescending { it.id }
+            val sorted = cBills.sortedWith(
+                compareByDescending<BillEntity> { com.example.util.BillingMonthUtils.normalizeMonthKey(it.billingMonth) }
+                    .thenByDescending { it.id }
+            )
             val currentBill = sorted.first()
             val previousBills = sorted.drop(1)
             val previousDue = previousBills.sumOf { it.dueAmount }
@@ -249,7 +252,11 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 val totalDue = currentBill.dueAmount + previousDue
                 
                 // Formulate BREAKDOWN structure: BREAKDOWN|previous_dues|current_bill|original_bill_number
-                val prevList = previousBills.sortedBy { it.id }.map { "${it.billingMonth}:${it.dueAmount}" }.joinToString(",")
+                val sortedPrevBills = previousBills.sortedWith(
+                    compareBy<BillEntity> { com.example.util.BillingMonthUtils.normalizeMonthKey(it.billingMonth) }
+                        .thenBy { it.id }
+                )
+                val prevList = sortedPrevBills.map { "${it.billingMonth}:${it.dueAmount}" }.joinToString(",")
                 val breakdownString = "BREAKDOWN|$prevList|${currentBill.billingMonth}:${currentBill.dueAmount}|${currentBill.billNumber}"
 
                 val virtualBill = currentBill.copy(

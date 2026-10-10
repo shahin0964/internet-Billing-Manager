@@ -1225,6 +1225,100 @@ object ReceiptPrintUtils {
     }
 
     /**
+     * Directly sends the generated JPG receipt file to a customer via WhatsApp.
+     */
+    fun sendJpgToWhatsApp(context: Context, jpgFile: File, phone: String?, isBn: Boolean = true) {
+        try {
+            val authority = "${context.packageName}.provider"
+            val imageUri: Uri = FileProvider.getUriForFile(
+                context,
+                authority,
+                jpgFile
+            )
+
+            val rawPhone = phone ?: ""
+            val cleanDigits = rawPhone.replace(Regex("[^0-9]"), "")
+            val formattedPhone = if (cleanDigits.startsWith("880") && cleanDigits.length == 13) {
+                cleanDigits
+            } else if (cleanDigits.startsWith("0") && cleanDigits.length == 11) {
+                "880" + cleanDigits.substring(1)
+            } else if (cleanDigits.length == 10 && !cleanDigits.startsWith("880")) {
+                "880$cleanDigits"
+            } else {
+                cleanDigits
+            }
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/jpeg"
+                putExtra(Intent.EXTRA_STREAM, imageUri)
+                putExtra(Intent.EXTRA_TEXT, if (isBn) "🧾 পেমেন্ট রশিদ" else "🧾 Payment Receipt")
+                clipData = ClipData.newUri(context.contentResolver, "Receipt Image", imageUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+                if (formattedPhone.length >= 10) {
+                    putExtra("jid", "$formattedPhone@s.whatsapp.net")
+                }
+            }
+
+            val isWaInstalled = isAppInstalled(context, "com.whatsapp")
+            val isW4bInstalled = isAppInstalled(context, "com.whatsapp.w4b")
+
+            if (isWaInstalled && isW4bInstalled) {
+                val waIntent = Intent(shareIntent).setPackage("com.whatsapp")
+                val w4bIntent = Intent(shareIntent).setPackage("com.whatsapp.w4b")
+
+                val chooser = Intent.createChooser(waIntent, if (isBn) "WhatsApp অ্যাপ নির্বাচন করুন" else "Select WhatsApp App").apply {
+                    putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(w4bIntent))
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            } else if (isWaInstalled) {
+                shareIntent.setPackage("com.whatsapp")
+                try {
+                    context.startActivity(shareIntent)
+                } catch (e: Exception) {
+                    shareIntent.setPackage(null)
+                    val chooser = Intent.createChooser(shareIntent, if (isBn) "WhatsApp এ রশিদ পাঠান" else "Send via WhatsApp").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(chooser)
+                }
+            } else if (isW4bInstalled) {
+                shareIntent.setPackage("com.whatsapp.w4b")
+                try {
+                    context.startActivity(shareIntent)
+                } catch (e: Exception) {
+                    shareIntent.setPackage(null)
+                    val chooser = Intent.createChooser(shareIntent, if (isBn) "WhatsApp এ রশিদ পাঠান" else "Send via WhatsApp").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(chooser)
+                }
+            } else {
+                shareIntent.setPackage(null)
+                val chooser = Intent.createChooser(shareIntent, if (isBn) "WhatsApp এ রশিদ পাঠান" else "Send via WhatsApp").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "WhatsApp share JPG failed: ${e.message}", e)
+            Toast.makeText(context, if (isBn) "WhatsApp এ পাঠাতে ব্যর্থ: ${e.localizedMessage}" else "Failed to send via WhatsApp: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun isAppInstalled(context: Context, packageName: String): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+
+    /**
      * Opens the generated PDF file using system PDF viewer.
      */
     fun openPdfFile(context: Context, pdfFile: File, isBn: Boolean = true) {

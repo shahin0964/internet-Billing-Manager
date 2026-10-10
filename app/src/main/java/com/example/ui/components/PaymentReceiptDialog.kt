@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -214,6 +215,29 @@ fun PostPaymentReceiptPromptDialog(
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(text = if (isBn) "শেয়ার" else "Share", fontSize = 11.sp)
                     }
+                }
+
+                Button(
+                    onClick = {
+                        val jpg = ReceiptPrintUtils.generateReceiptJpgFile(context, payment, bill, customer, settings, isBn)
+                        ReceiptPrintUtils.sendJpgToWhatsApp(context, jpg, customer?.phone, isBn)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366), contentColor = Color.White),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_whatsapp),
+                        contentDescription = "WhatsApp",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isBn) "WhatsApp এ রশিদ পাঠান" else "Send Receipt via WhatsApp",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         },
@@ -681,6 +705,29 @@ fun PaymentReceiptModal(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(text = if (isBn) "শেয়ার" else "Share", fontSize = 12.sp)
                     }
+                }
+
+                Button(
+                    onClick = {
+                        val jpg = ReceiptPrintUtils.generateReceiptJpgFile(context, payment, bill, customer, settings, isBn)
+                        ReceiptPrintUtils.sendJpgToWhatsApp(context, jpg, customer?.phone, isBn)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366), contentColor = Color.White),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_whatsapp),
+                        contentDescription = "WhatsApp",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isBn) "WhatsApp এ রশিদ পাঠান" else "Send Receipt via WhatsApp",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

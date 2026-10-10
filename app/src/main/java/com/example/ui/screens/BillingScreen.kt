@@ -629,7 +629,10 @@ fun launchWhatsAppForBill(
             val unpaidDbBills = customerDbBills
                 .filter { !it.billNumber.startsWith("BREAKDOWN|") }
                 .filter { (it.status == "UNPAID" || it.status == "PARTIAL") && it.dueAmount > 0.0 }
-                .sortedBy { it.id }
+                .sortedWith(
+                    compareBy<BillEntity> { com.example.util.BillingMonthUtils.normalizeMonthKey(it.billingMonth) }
+                        .thenBy { it.id }
+                )
 
             data class MonthDueItem(val monthLabel: String, val dueAmount: Double)
             val monthDueItems = mutableListOf<MonthDueItem>()
@@ -734,13 +737,48 @@ fun launchWhatsAppForBill(
                     val encodedText = URLEncoder.encode(message.trim(), "UTF-8").replace("+", "%20")
                     val uri = Uri.parse("https://api.whatsapp.com/send?phone=$formattedPhone&text=$encodedText")
 
-                    val whatsappIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-                        setPackage("com.whatsapp")
-                    }
-                    try {
-                        context.startActivity(whatsappIntent)
-                    } catch (e: Exception) {
-                        val fallbackIntent = Intent(Intent.ACTION_VIEW, uri)
+                    val isWaInstalled = isAppInstalled(context, "com.whatsapp")
+                    val isW4bInstalled = isAppInstalled(context, "com.whatsapp.w4b")
+
+                    if (isWaInstalled && isW4bInstalled) {
+                        val waIntent = Intent(Intent.ACTION_VIEW, uri).setPackage("com.whatsapp")
+                        val w4bIntent = Intent(Intent.ACTION_VIEW, uri).setPackage("com.whatsapp.w4b")
+
+                        val chooser = Intent.createChooser(waIntent, "WhatsApp অ্যাপ নির্বাচন করুন").apply {
+                            putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(w4bIntent))
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(chooser)
+                    } else if (isWaInstalled) {
+                        val whatsappIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                            setPackage("com.whatsapp")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        try {
+                            context.startActivity(whatsappIntent)
+                        } catch (e: Exception) {
+                            val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(fallbackIntent)
+                        }
+                    } else if (isW4bInstalled) {
+                        val w4bIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                            setPackage("com.whatsapp.w4b")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        try {
+                            context.startActivity(w4bIntent)
+                        } catch (e: Exception) {
+                            val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(fallbackIntent)
+                        }
+                    } else {
+                        val fallbackIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
                         context.startActivity(fallbackIntent)
                     }
                 } catch (e: Exception) {
@@ -752,6 +790,15 @@ fun launchWhatsAppForBill(
                 Toast.makeText(context, "Error generating WhatsApp reminder: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+}
+
+private fun isAppInstalled(context: android.content.Context, packageName: String): Boolean {
+    return try {
+        context.packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (e: Exception) {
+        false
     }
 }
 

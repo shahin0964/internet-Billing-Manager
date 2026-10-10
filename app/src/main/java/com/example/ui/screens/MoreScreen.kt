@@ -107,14 +107,6 @@ fun MoreScreen(
 ) {
     val context = LocalContext.current
 
-    var ispName by remember(settings) { mutableStateOf(settings.ispName) }
-    var hotline by remember(settings) { mutableStateOf(settings.hotline) }
-    var email by remember(settings) { mutableStateOf(settings.email) }
-    var address by remember(settings) { mutableStateOf(settings.address) }
-    var currencySymbol by remember(settings) { mutableStateOf(settings.currencySymbol) }
-    var networkStatus by remember(settings) { mutableStateOf(settings.networkStatus) }
-    var themeMode by remember(settings) { mutableStateOf(settings.themeMode) }
-    var logoUri by remember(settings) { mutableStateOf(settings.logoUri) }
     var showUpdateDialog by remember { mutableStateOf(false) }
     var showSecurityDialog by remember { mutableStateOf(false) }
     var showAccountScreen by remember { mutableStateOf(false) }
@@ -146,23 +138,6 @@ fun MoreScreen(
     val hasPinSet by com.example.util.PinLockManager.hasPinSetFlow.collectAsState()
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showPinChangeDialog by remember { mutableStateOf(false) }
-
-    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-                logoUri = uri.toString()
-            } catch (e: Exception) {
-                // Ignore
-                logoUri = uri.toString()
-            }
-        }
-    }
 
     LazyColumn(
         modifier = Modifier
@@ -231,14 +206,6 @@ fun MoreScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        ispName = settings.ispName
-                        hotline = settings.hotline
-                        email = settings.email ?: ""
-                        address = settings.address
-                        currencySymbol = settings.currencySymbol
-                        networkStatus = settings.networkStatus
-                        themeMode = settings.themeMode
-                        logoUri = settings.logoUri
                         showBusinessInfoDialog = true
                     },
                 shape = RoundedCornerShape(18.dp),
@@ -283,157 +250,12 @@ tonalElevation = 3.dp,
             }
 
             if (showBusinessInfoDialog) {
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { showBusinessInfoDialog = false },
-                    title = {
-                        Text(
-                            text = androidx.compose.ui.res.stringResource(com.example.R.string.isp_business_info),
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                    },
-                    text = {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Logo Management
-                            Text(
-                                text = androidx.compose.ui.res.stringResource(com.example.R.string.company_logo),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                if (logoUri != null) {
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        coil.compose.AsyncImage(
-                                            model = logoUri,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(64.dp).clip(androidx.compose.foundation.shape.CircleShape),
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                        )
-                                    }
-                                } else {
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(imageVector = Icons.Default.Business, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                                Column {
-                                    Button(
-                                        onClick = { imagePickerLauncher.launch(arrayOf("image/*")) },
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text(if (logoUri == null) androidx.compose.ui.res.stringResource(com.example.R.string.select_logo) else androidx.compose.ui.res.stringResource(com.example.R.string.change_logo))
-                                    }
-                                    if (logoUri != null) {
-                                        androidx.compose.material3.TextButton(
-                                            onClick = { logoUri = null }
-                                        ) {
-                                            Text(androidx.compose.ui.res.stringResource(com.example.R.string.remove_logo), color = MaterialTheme.colorScheme.error)
-                                        }
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            OutlinedTextField(
-                                value = ispName,
-                                onValueChange = { ispName = it },
-                                label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.isp_name_brand)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = hotline,
-                                    onValueChange = { hotline = it },
-                                    label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.support_hotline)) },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-
-                                OutlinedTextField(
-                                    value = currencySymbol,
-                                    onValueChange = { currencySymbol = it },
-                                    label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.currency_symbol)) },
-                                    singleLine = true,
-                                    modifier = Modifier.width(90.dp)
-                                )
-                            }
-
-                            OutlinedTextField(
-                                value = email,
-                                onValueChange = { email = it },
-                                label = { Text("Company Email / ইমেইল") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            OutlinedTextField(
-                                value = address,
-                                onValueChange = { address = it },
-                                label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.office_address)) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Text(
-                                text = androidx.compose.ui.res.stringResource(com.example.R.string.network_status),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                listOf(androidx.compose.ui.res.stringResource(com.example.R.string.operational), androidx.compose.ui.res.stringResource(com.example.R.string.maintenance), androidx.compose.ui.res.stringResource(com.example.R.string.degraded)).forEach { status ->
-                                    FilterChip(
-                                        selected = (networkStatus == status),
-                                        onClick = { networkStatus = status },
-                                        label = { Text(status) }
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                val updated = settings.copy(
-                                    ispName = ispName.trim(),
-                                    hotline = hotline.trim(),
-                                    email = email.trim(),
-                                    address = address.trim(),
-                                    currencySymbol = currencySymbol.trim(),
-                                    networkStatus = networkStatus,
-                                    themeMode = themeMode,
-                                    logoUri = logoUri
-                                )
-                                onUpdateSettings(updated)
-                                showBusinessInfoDialog = false
-                            }
-                        ) {
-                            Text(androidx.compose.ui.res.stringResource(com.example.R.string.save_business_info))
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showBusinessInfoDialog = false }) {
-                            Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
-                        }
+                BusinessInfoDialog(
+                    settings = settings,
+                    onDismiss = { showBusinessInfoDialog = false },
+                    onSave = { updatedSettings ->
+                        onUpdateSettings(updatedSettings)
+                        showBusinessInfoDialog = false
                     }
                 )
             }
@@ -828,7 +650,7 @@ tonalElevation = 2.dp,
         // Collapsible Theme Preference Card
         item {
             var showThemeBottomSheet by remember { mutableStateOf(false) }
-            val currentThemeItem = com.example.ui.theme.getThemeItem(themeMode)
+            val currentThemeItem = com.example.ui.theme.getThemeItem(settings.themeMode)
 
             Surface(
                 modifier = Modifier
@@ -895,9 +717,8 @@ tonalElevation = 2.dp,
 
             if (showThemeBottomSheet) {
                 ThemeSelectionBottomSheet(
-                    currentThemeKey = themeMode,
+                    currentThemeKey = settings.themeMode,
                     onThemeSelected = { newThemeKey ->
-                        themeMode = newThemeKey
                         onUpdateSettings(settings.copy(themeMode = newThemeKey))
                         showThemeBottomSheet = false
                     },
@@ -1800,4 +1621,190 @@ fun BulkSmsTemplateDialog(
             }
         )
     }
+}
+
+@Composable
+private fun BusinessInfoDialog(
+    settings: BusinessSettingsEntity,
+    onDismiss: () -> Unit,
+    onSave: (BusinessSettingsEntity) -> Unit
+) {
+    val context = LocalContext.current
+    var ispName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.ispName) }
+    var hotline by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.hotline) }
+    var email by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.email ?: "") }
+    var address by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.address) }
+    var currencySymbol by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.currencySymbol) }
+    var networkStatus by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.networkStatus) }
+    var themeMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.themeMode) }
+    var logoUri by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(settings.logoUri) }
+
+    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                logoUri = uri.toString()
+            } catch (e: Exception) {
+                logoUri = uri.toString()
+            }
+        }
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = androidx.compose.ui.res.stringResource(com.example.R.string.isp_business_info),
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Logo Management
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.company_logo),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    if (logoUri != null) {
+                        Box(
+                            modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            coil.compose.AsyncImage(
+                                model = logoUri,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp).clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(imageVector = Icons.Default.Business, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Column {
+                        Button(
+                            onClick = { imagePickerLauncher.launch(arrayOf("image/*")) },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(if (logoUri == null) androidx.compose.ui.res.stringResource(com.example.R.string.select_logo) else androidx.compose.ui.res.stringResource(com.example.R.string.change_logo))
+                        }
+                        if (logoUri != null) {
+                            TextButton(
+                                onClick = { logoUri = null }
+                            ) {
+                                Text(androidx.compose.ui.res.stringResource(com.example.R.string.remove_logo), color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                OutlinedTextField(
+                    value = ispName,
+                    onValueChange = { ispName = it },
+                    label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.isp_name_brand)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = hotline,
+                        onValueChange = { hotline = it },
+                        label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.support_hotline)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    OutlinedTextField(
+                        value = currencySymbol,
+                        onValueChange = { currencySymbol = it },
+                        label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.currency_symbol)) },
+                        singleLine = true,
+                        modifier = Modifier.width(90.dp)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Company Email / ইমেইল") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text(androidx.compose.ui.res.stringResource(com.example.R.string.office_address)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.example.R.string.network_status),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(androidx.compose.ui.res.stringResource(com.example.R.string.operational), androidx.compose.ui.res.stringResource(com.example.R.string.maintenance), androidx.compose.ui.res.stringResource(com.example.R.string.degraded)).forEach { status ->
+                        FilterChip(
+                            selected = (networkStatus == status),
+                            onClick = { networkStatus = status },
+                            label = { Text(status) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val updated = settings.copy(
+                        ispName = ispName.trim(),
+                        hotline = hotline.trim(),
+                        email = email.trim(),
+                        address = address.trim(),
+                        currencySymbol = currencySymbol.trim(),
+                        networkStatus = networkStatus,
+                        themeMode = themeMode,
+                        logoUri = logoUri
+                    )
+                    onSave(updated)
+                }
+            ) {
+                Text(androidx.compose.ui.res.stringResource(com.example.R.string.save_business_info))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(androidx.compose.ui.res.stringResource(com.example.R.string.cancel))
+            }
+        }
+    )
 }
