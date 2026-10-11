@@ -69,6 +69,16 @@ class SyncForegroundService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+
+            // Immediately remove notification from notification bar while keeping background service/sync active
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.cancel(NOTIFICATION_ID)
         } catch (e: Throwable) {
             Log.e(TAG, "Error starting foreground service: ${e.message}", e)
         }
@@ -119,10 +129,13 @@ class SyncForegroundService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "লাইভ কানেক্টিভিটি ও সিঙ্ক",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_MIN
             ).apply {
                 description = "অ্যাপের ব্যাকগ্রাউন্ড সিঙ্ক ও লাইভ কানেক্টিভিটি সর্বদা সচল রাখে"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             manager?.createNotificationChannel(channel)
@@ -145,9 +158,11 @@ class SyncForegroundService : Service() {
             .setContentTitle("লাইভ সিঙ্ক চালু রয়েছে")
             .setContentText("ব্যাকগ্রাউন্ড ডেটা সিঙ্ক ও অটোমেটিক ব্যাকআপ সচল রয়েছে")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setSilent(true)
             .setContentIntent(pendingIntent)
             .build()
     }
