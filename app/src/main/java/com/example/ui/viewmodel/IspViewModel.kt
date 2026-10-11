@@ -558,7 +558,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                         val finalPkgName = if (rawPkgName.isNotBlank()) rawPkgName else if (candidate.monthlyFee > 0.0) "${candidate.monthlyFee.toInt()} Tk Package" else "Standard Package"
                         val speedRegex = Regex("(\\d+)\\s*(mbps|mb|m)?", RegexOption.IGNORE_CASE)
                         val extractedSpeed = speedRegex.find(finalPkgName)?.groupValues?.get(1)?.toIntOrNull() ?: 10
-                        val finalFee = if (candidate.monthlyFee > 0.0) candidate.monthlyFee else 500.0
+                        val finalFee = candidate.monthlyFee
 
                         val newPkgEntity = com.example.data.model.IspPackageEntity(
                             name = finalPkgName,

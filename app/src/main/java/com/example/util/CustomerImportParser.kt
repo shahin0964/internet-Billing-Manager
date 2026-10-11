@@ -433,12 +433,11 @@ object CustomerImportParser {
                 }
             }
             CustomerField.MONTHLY_FEE -> {
-                if (norm.contains("due") || norm.contains("বকেয়া") || norm.contains("বকেয়া") || norm.contains("month") || norm.contains("মাস")) return 0
+                if (norm.contains("due") || norm.contains("বকেয়া") || norm.contains("বকেয়া") || norm == "billing month" || norm == "billing_month" || norm == "বিলিং মাস" || (norm.contains("billing") && norm.contains("month") && !norm.contains("bill"))) return 0
                 when {
-                    norm == "monthly fee" || norm == "monthly_fee" || norm == "monthly bill" || norm == "monthly_bill" || norm == "bill amount" || norm == "fee" || norm == "monthly price" -> 100
-                    norm == "bill" || norm == "price" || norm == "amount" || norm == "rate" || norm == "charge" || norm == "ফি" || norm == "মাসিক বিল" -> 90
-                    norm.contains("fee") || norm.contains("price") || norm.contains("rate") || norm.contains("bill") || norm.contains("ফি") || norm.contains("বিল") -> 80
-                    norm.contains("amount") || norm.contains("টাকা") -> 70
+                    norm == "monthly fee" || norm == "monthly_fee" || norm == "monthly bill" || norm == "monthly_bill" || norm == "monthly price" || norm == "package price" || norm == "package_price" || norm == "fee" || norm == "price" || norm == "মাসিক বিল" || norm == "মাসিক ফি" || norm == "বিল" || norm == "ফি" || norm == "মাসিক ফি / বিল" -> 100
+                    norm.contains("monthly") || norm.contains("bill") || norm.contains("fee") || norm.contains("price") || norm.contains("rate") || norm.contains("charge") || norm.contains("মাসিক") || norm.contains("বিল") || norm.contains("ফি") -> 90
+                    norm.contains("amount") || norm.contains("টাকা") || norm.contains("taka") || norm.contains("tk") -> 70
                     else -> 0
                 }
             }
@@ -532,6 +531,14 @@ object CustomerImportParser {
         }
     }
 
+    private fun parseAmount(raw: String): Double {
+        if (raw.isBlank()) return 0.0
+        val cleaned = raw.replace(",", "").replace("৳", "").replace("$", "").replace("Tk", "", ignoreCase = true).replace("Taka", "", ignoreCase = true).replace("/=", "").trim()
+        cleaned.toDoubleOrNull()?.let { return it }
+        val match = Regex("(\\d+(?:\\.\\d+)?)").find(raw)
+        return match?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
+    }
+
     private fun extractSpeedFromName(name: String): Int? {
         val regex = Regex("(\\d+)\\s*(mbps|mb|m)?", RegexOption.IGNORE_CASE)
         val match = regex.find(name)
@@ -549,7 +556,7 @@ object CustomerImportParser {
             id = 1,
             name = "Standard Package",
             speedMbps = 10,
-            monthlyPrice = 500.0,
+            monthlyPrice = 0.0,
             description = "Default standard package"
         )
 
@@ -627,8 +634,8 @@ object CustomerImportParser {
                 autoCodeIndex++
             }
 
-            var monthlyFee = monthlyFeeRaw.replace(",", ".").replace("৳", "").replace("$", "").trim().toDoubleOrNull() ?: 0.0
-            val parsedDue = dueAmountRaw.replace(",", ".").replace("৳", "").replace("$", "").trim().toDoubleOrNull() ?: 0.0
+            var monthlyFee = parseAmount(monthlyFeeRaw)
+            val parsedDue = parseAmount(dueAmountRaw)
             val parsedMonth = billingMonthRaw.trim()
 
             // Package matching / auto-detection
