@@ -232,8 +232,14 @@ object CustomerExportHelper {
                         when (field) {
                             ExportCustomerField.SERIAL -> row.serialNo.toString()
                             ExportCustomerField.NAME -> row.name
-                            ExportCustomerField.CUSTOMER_CODE -> row.customerCode
-                            ExportCustomerField.PHONE -> row.phone
+                            ExportCustomerField.CUSTOMER_CODE -> {
+                                val code = row.customerCode.trim()
+                                if (code.startsWith("0") && code.all { it.isDigit() }) "\t$code" else code
+                            }
+                            ExportCustomerField.PHONE -> {
+                                val p = row.phone.trim()
+                                if (p.isNotBlank()) "\t$p" else ""
+                            }
                             ExportCustomerField.PACKAGE -> row.packageName
                             ExportCustomerField.MONTHLY_BILL -> String.format(Locale.US, "%.2f", row.monthlyBill)
                             ExportCustomerField.DUE_AMOUNT -> String.format(Locale.US, "%.2f", row.dueAmount)
@@ -893,6 +899,9 @@ object CustomerExportHelper {
 
         val stylesXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="1">
+    <numFmt numFmtId="49" formatCode="@"/>
+  </numFmts>
   <fonts count="2">
     <font>
       <sz val="11"/>
@@ -918,19 +927,29 @@ object CustomerExportHelper {
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="2">
+  <cellXfs count="3">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
+    <xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
   </cellXfs>
 </styleSheet>""".trimIndent()
 
+        val sampleRow1 = listOf(
+            "Karim Uddin", "CUST-1001", "01712345678", "Dhaka", "10 Mbps Standard", "800", "0", "2026-10", "karim1001", "192.168.1.10", "2026-01-01", "Active", "Sample Customer"
+        )
+        val sampleRow2 = listOf(
+            "Rahim Hossain", "CUST-1002", "01898765432", "Chittagong", "20 Mbps Premium", "1200", "500", "2026-10", "rahim1002", "192.168.1.11", "2026-02-15", "Active", "Sample Customer"
+        )
+
+        val allStrings = headers + sampleRow1 + sampleRow2
+
         val sharedStringsSb = StringBuilder()
         sharedStringsSb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
-        sharedStringsSb.append("""<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${headers.size}" uniqueCount="${headers.size}">""")
-        headers.forEach { h ->
-            sharedStringsSb.append("<si><t>").append(escapeXml(h)).append("</t></si>")
+        sharedStringsSb.append("""<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${allStrings.size}" uniqueCount="${allStrings.size}">""")
+        allStrings.forEach { str ->
+            sharedStringsSb.append("<si><t>").append(escapeXml(str)).append("</t></si>")
         }
         sharedStringsSb.append("</sst>")
         val sharedStringsXml = sharedStringsSb.toString()
@@ -941,16 +960,40 @@ object CustomerExportHelper {
         sheetSb.append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">""")
         sheetSb.append("<cols>")
         colWidths.forEachIndexed { i, w ->
-            sheetSb.append("""<col min="${i + 1}" max="${i + 1}" width="$w" customWidth="1"/>""")
+            val styleAttr = if (i == 2) """ style="2" customFormat="1"""" else ""
+            sheetSb.append("""<col min="${i + 1}" max="${i + 1}" width="$w" customWidth="1"$styleAttr/>""")
         }
         sheetSb.append("</cols>")
         sheetSb.append("<sheetData>")
+
+        // Row 1: Header
         sheetSb.append("""<row r="1" ht="28" customHeight="1">""")
         headers.forEachIndexed { i, _ ->
             val colLetter = ('A' + i).toString()
             sheetSb.append("""<c r="${colLetter}1" t="s" s="1"><v>$i</v></c>""")
         }
         sheetSb.append("</row>")
+
+        // Row 2: Sample Row 1
+        var stringIndexOffset = headers.size
+        sheetSb.append("""<row r="2" ht="22" customHeight="1">""")
+        sampleRow1.forEachIndexed { i, _ ->
+            val colLetter = ('A' + i).toString()
+            val styleIdx = if (i == 2 || i == 1 || i == 7 || i == 8 || i == 9) "2" else "0"
+            sheetSb.append("""<c r="${colLetter}2" t="s" s="$styleIdx"><v>${stringIndexOffset + i}</v></c>""")
+        }
+        sheetSb.append("</row>")
+
+        // Row 3: Sample Row 2
+        stringIndexOffset += sampleRow1.size
+        sheetSb.append("""<row r="3" ht="22" customHeight="1">""")
+        sampleRow2.forEachIndexed { i, _ ->
+            val colLetter = ('A' + i).toString()
+            val styleIdx = if (i == 2 || i == 1 || i == 7 || i == 8 || i == 9) "2" else "0"
+            sheetSb.append("""<c r="${colLetter}3" t="s" s="$styleIdx"><v>${stringIndexOffset + i}</v></c>""")
+        }
+        sheetSb.append("</row>")
+
         sheetSb.append("</sheetData>")
         sheetSb.append("</worksheet>")
         val sheetXml = sheetSb.toString()

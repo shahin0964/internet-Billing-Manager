@@ -532,31 +532,78 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                 var skippedCount = 0
 
                 val existingList = repository.customers.first()
-                val existingByCode = existingList.associateBy { it.customerCode.trim().lowercase(java.util.Locale.ROOT) }
+                val existingByCode = existingList.associateBy { it.customerCode.trim().lowercase(java.util.Locale.ROOT) }.toMutableMap()
                 val existingByPppoe = existingList.filter { it.pppoeUsername.isNotBlank() }
-                    .associateBy { it.pppoeUsername.trim().lowercase(java.util.Locale.ROOT) }
+                    .associateBy { it.pppoeUsername.trim().lowercase(java.util.Locale.ROOT) }.toMutableMap()
+
+                val existingPackagesList = repository.packages.first().toMutableList()
+                val packageMapByName = existingPackagesList.associateBy { it.name.trim().lowercase(java.util.Locale.ROOT) }.toMutableMap()
 
                 for (candidateItem in candidates) {
-                    val candidate = candidateItem.customer
+                    var candidate = candidateItem.customer
                     val initialDue = candidateItem.initialDueAmount
                     val rawMonth = candidateItem.billingMonth
 
+                    // 1. Auto-Create / Map Package
+                    val rawPkgName = candidate.packageName.trim()
+                    val pkgKey = rawPkgName.lowercase(java.util.Locale.ROOT)
+
+                    var matchedPkg = if (pkgKey.isNotBlank()) packageMapByName[pkgKey] else null
+
+                    if (matchedPkg == null && rawPkgName.isBlank() && candidate.monthlyFee > 0.0) {
+                        matchedPkg = packageMapByName.values.find { it.monthlyPrice == candidate.monthlyFee }
+                    }
+
+                    if (matchedPkg == null) {
+                        val finalPkgName = if (rawPkgName.isNotBlank()) rawPkgName else if (candidate.monthlyFee > 0.0) "${candidate.monthlyFee.toInt()} Tk Package" else "Standard Package"
+                        val speedRegex = Regex("(\\d+)\\s*(mbps|mb|m)?", RegexOption.IGNORE_CASE)
+                        val extractedSpeed = speedRegex.find(finalPkgName)?.groupValues?.get(1)?.toIntOrNull() ?: 10
+                        val finalFee = if (candidate.monthlyFee > 0.0) candidate.monthlyFee else 500.0
+
+                        val newPkgEntity = com.example.data.model.IspPackageEntity(
+                            name = finalPkgName,
+                            speedMbps = extractedSpeed,
+                            monthlyPrice = finalFee,
+                            description = "Auto-created on Customer Import",
+                            updatedAt = System.currentTimeMillis(),
+                            syncStatus = 1
+                        )
+                        val createdPkgId = repository.savePackage(newPkgEntity)
+                        val savedPkg = newPkgEntity.copy(id = createdPkgId)
+                        packageMapByName[finalPkgName.lowercase(java.util.Locale.ROOT)] = savedPkg
+                        matchedPkg = savedPkg
+                    }
+
+                    candidate = candidate.copy(
+                        packageId = matchedPkg.id,
+                        packageName = matchedPkg.name,
+                        monthlyFee = if (candidate.monthlyFee > 0.0) candidate.monthlyFee else matchedPkg.monthlyPrice
+                    )
+
+                    // 2. Duplicate check & save/update customer
                     val codeKey = candidate.customerCode.trim().lowercase(java.util.Locale.ROOT)
                     val pppoeKey = candidate.pppoeUsername.trim().lowercase(java.util.Locale.ROOT)
 
-                    val matchedExisting = existingByCode[codeKey]
-                        ?: (if (pppoeKey.isNotEmpty()) existingByPppoe[pppoeKey] else null)
+                    val matchedExisting = (if (codeKey.isNotBlank()) existingByCode[codeKey] else null)
+                        ?: (if (pppoeKey.isNotBlank()) existingByPppoe[pppoeKey] else null)
 
                     if (matchedExisting != null) {
                         if (overwriteDuplicates) {
-                            // If candidate status is default ACTIVE and existing is SUSPENDED or INACTIVE, preserve existing
                             val finalStatus = if (candidate.status == "SUSPENDED" || candidate.status == "INACTIVE") {
                                 candidate.status
                             } else {
                                 matchedExisting.status
                             }
-                            val updatedEntity = candidate.copy(id = matchedExisting.id, status = finalStatus)
+                            val updatedEntity = candidate.copy(
+                                id = matchedExisting.id,
+                                status = finalStatus,
+                                updatedAt = System.currentTimeMillis(),
+                                syncStatus = 1
+                            )
                             repository.updateCustomer(updatedEntity)
+
+                            if (codeKey.isNotBlank()) existingByCode[codeKey] = updatedEntity
+                            if (pppoeKey.isNotBlank()) existingByPppoe[pppoeKey] = updatedEntity
 
                             if (initialDue > 0.0) {
                                 val resolvedMonth = if (rawMonth.isNotBlank()) rawMonth else com.example.util.BillingMonthUtils.formatStandardMonth()
@@ -568,14 +615,18 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
                             skippedCount++
                         }
                     } else {
-                        // New customer: save customer with any initial previous dues and auto-generate current running month bill
                         val prevItems = if (initialDue > 0.0) {
                             val resolvedMonth = if (rawMonth.isNotBlank()) rawMonth else com.example.util.BillingMonthUtils.formatStandardMonth()
                             listOf(parseToPreviousDueItem(resolvedMonth, initialDue))
                         } else {
                             emptyList()
                         }
-                        repository.saveCustomer(candidate, prevItems)
+                        val savedId = repository.saveCustomer(candidate, prevItems)
+                        val savedEntity = candidate.copy(id = savedId)
+
+                        if (codeKey.isNotBlank()) existingByCode[codeKey] = savedEntity
+                        if (pppoeKey.isNotBlank()) existingByPppoe[pppoeKey] = savedEntity
+
                         importedCount++
                     }
                 }

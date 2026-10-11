@@ -272,6 +272,7 @@ object CustomerImportParser {
             var inT = false
             val cellValue = StringBuilder()
             var currentRowCells = mutableMapOf<Int, String>()
+            var autoColIndex = 0
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 val tagName = parser.name
@@ -279,6 +280,7 @@ object CustomerImportParser {
                     XmlPullParser.START_TAG -> {
                         if (tagName.equals("row", ignoreCase = true)) {
                             currentRowCells = mutableMapOf()
+                            autoColIndex = 0
                         } else if (tagName.equals("c", ignoreCase = true)) {
                             currentCellRef = parser.getAttributeValue(null, "r") ?: ""
                             currentCellType = parser.getAttributeValue(null, "t") ?: ""
@@ -300,7 +302,10 @@ object CustomerImportParser {
                         } else if (tagName.equals("t", ignoreCase = true)) {
                             inT = false
                         } else if (tagName.equals("c", ignoreCase = true)) {
-                            val colIndex = getColumnIndexFromRef(currentCellRef)
+                            val parsedColIndex = getColumnIndexFromRef(currentCellRef)
+                            val colIndex = if (parsedColIndex >= 0) parsedColIndex else autoColIndex
+                            autoColIndex = colIndex + 1
+
                             var rawVal = cellValue.toString().trim()
                             if (currentCellType == "s") {
                                 val idx = rawVal.toIntOrNull()
@@ -342,34 +347,195 @@ object CustomerImportParser {
         return num - 1
     }
 
+    private data class MappingCandidate(val score: Int, val field: CustomerField, val colIndex: Int)
+
     fun autoDetectMapping(headers: List<String>): Map<CustomerField, Int> {
         val mapping = mutableMapOf<CustomerField, Int>()
+        val candidates = mutableListOf<MappingCandidate>()
 
-        for ((fieldIndex, field) in CustomerField.values().withIndex()) {
-            val matchedIndex = headers.indexOfFirst { header ->
-                val normalized = header.trim().lowercase(Locale.ROOT)
-                when (field) {
-                    CustomerField.NAME -> normalized.contains("name") || normalized.contains("নাম") || normalized.contains("subscriber") || normalized.contains("client")
-                    CustomerField.CODE -> normalized.contains("code") || normalized.contains("id") || normalized.contains("কোড") || normalized.contains("আইডি")
-                    CustomerField.PHONE -> normalized.contains("phone") || normalized.contains("mobile") || normalized.contains("contact") || normalized.contains("number") || normalized.contains("ফোন") || normalized.contains("মোবাইল") || normalized.contains("নম্বর")
-                    CustomerField.ADDRESS -> normalized.contains("address") || normalized.contains("location") || normalized.contains("ঠিকানা")
-                    CustomerField.PPPOE -> normalized.contains("pppoe") || normalized.contains("username") || normalized.contains("ইউজারনেম")
-                    CustomerField.IP_ADDRESS -> normalized.contains("ip") || normalized.contains("আইপি")
-                    CustomerField.PACKAGE_NAME -> normalized.contains("package") || normalized.contains("plan") || normalized.contains("প্যাকেজ")
-                    CustomerField.MONTHLY_FEE -> (normalized.contains("bill") || normalized.contains("fee") || normalized.contains("price") || normalized.contains("amount") || normalized.contains("ফি") || normalized.contains("বিল") || normalized.contains("টাকা")) && !normalized.contains("due") && !normalized.contains("বকেয়া") && !normalized.contains("month") && !normalized.contains("মাস")
-                    CustomerField.DUE_AMOUNT -> normalized.contains("due") || normalized.contains("বকেয়া") || normalized.contains("বকেয়া") || normalized.contains("arrear") || normalized.contains("outstanding")
-                    CustomerField.BILLING_MONTH -> normalized.contains("month") || normalized.contains("billing month") || normalized.contains("বিলিং মাস") || (normalized.contains("মাস") && !normalized.contains("মাসিক"))
-                    CustomerField.JOINING_DATE -> normalized.contains("joining") || normalized.contains("date") || normalized.contains("তারিখ")
-                    CustomerField.STATUS -> normalized.contains("status") || normalized.contains("স্ট্যাটাস") || normalized.contains("অবস্থা") || normalized.contains("state") || normalized.contains("condition")
-                    CustomerField.NOTES -> normalized.contains("note") || normalized.contains("remark") || normalized.contains("নোট") || normalized.contains("comment")
+        for ((colIndex, header) in headers.withIndex()) {
+            val raw = header.trim().lowercase(Locale.ROOT)
+            val norm = raw.replace("_", " ").replace("-", " ").replace(".", " ").replace(Regex("\\s+"), " ")
+
+            for (field in CustomerField.values()) {
+                val score = scoreHeaderForField(norm, raw, field)
+                if (score > 0) {
+                    candidates.add(MappingCandidate(score, field, colIndex))
                 }
             }
-            if (matchedIndex != -1) {
-                mapping[field] = matchedIndex
+        }
+
+        // Sort by score descending to pick best matches first
+        candidates.sortByDescending { it.score }
+
+        val assignedFields = mutableSetOf<CustomerField>()
+        val assignedCols = mutableSetOf<Int>()
+
+        for (cand in candidates) {
+            if (!assignedFields.contains(cand.field) && !assignedCols.contains(cand.colIndex)) {
+                mapping[cand.field] = cand.colIndex
+                assignedFields.add(cand.field)
+                assignedCols.add(cand.colIndex)
             }
         }
 
         return mapping
+    }
+
+    private fun scoreHeaderForField(norm: String, raw: String, field: CustomerField): Int {
+        if (norm.isBlank()) return 0
+
+        return when (field) {
+            CustomerField.PPPOE -> {
+                when {
+                    norm == "pppoe username" || norm == "pppoe_username" || norm == "pppoe user" || norm == "pppoe name" -> 100
+                    norm == "pppoe" || norm == "username" || norm == "user name" || norm == "pppoeid" -> 90
+                    norm.contains("pppoe") || norm.contains("পিপিপিওই") -> 85
+                    norm.contains("username") || norm.contains("ইউজারনেম") || norm.contains("ইউজার নেম") -> 80
+                    norm.contains("user id") || norm.contains("user_id") -> 75
+                    else -> 0
+                }
+            }
+            CustomerField.PHONE -> {
+                when {
+                    norm == "phone number" || norm == "phone_number" || norm == "phone no" || norm == "mobile number" || norm == "mobile_number" || norm == "contact no" || norm == "contact_number" -> 100
+                    norm == "phone" || norm == "mobile" || norm == "contact" || norm == "cell" -> 90
+                    norm.contains("phone") || norm.contains("mobile") || norm.contains("contact") || norm.contains("cell") || norm.contains("ফোন") || norm.contains("মোবাইল") -> 80
+                    norm.contains("নম্বর") || norm.contains("নাম্বার") -> if (!norm.contains("রসিদ") && !norm.contains("কোড") && !norm.contains("বিল")) 70 else 0
+                    else -> 0
+                }
+            }
+            CustomerField.NAME -> {
+                // Strictly exclude PPPoE, package names, files, etc.
+                if (norm.contains("pppoe") || norm.contains("username") || norm.contains("package") || norm.contains("plan") || norm.contains("phone") || norm.contains("file")) return 0
+                when {
+                    norm == "customer name" || norm == "customer_name" || norm == "client name" || norm == "subscriber name" || norm == "full name" || norm == "গ্রাহকের নাম" || norm == "গ্রাহক নাম" -> 100
+                    norm == "name" || norm == "customer" || norm == "subscriber" || norm == "client" || norm == "নাম" -> 90
+                    norm.contains("customer") || norm.contains("subscriber") || norm.contains("client") || norm.contains("গ্রাহক") -> 80
+                    norm.contains("name") || norm.contains("নাম") -> 70
+                    else -> 0
+                }
+            }
+            CustomerField.CODE -> {
+                when {
+                    norm == "customer code" || norm == "customer_code" || norm == "client code" || norm == "cust code" || norm == "customer id" || norm == "customer_id" || norm == "client id" || norm == "subscriber id" -> 100
+                    norm == "code" || norm == "id" || norm == "cust_id" || norm == "কোড" || norm == "আইডি" -> 90
+                    norm.contains("code") || norm.contains("কোড") -> 80
+                    (norm.contains("id") || norm.contains("আইডি")) && !norm.contains("pppoe") && !norm.contains("paid") && !norm.contains("valid") -> 70
+                    else -> 0
+                }
+            }
+            CustomerField.PACKAGE_NAME -> {
+                when {
+                    norm == "package name" || norm == "package_name" || norm == "plan name" || norm == "package" || norm == "plan" || norm == "প্যাকেজের নাম" || norm == "প্যাকেজ" -> 100
+                    norm.contains("package") || norm.contains("plan") || norm.contains("profile") || norm.contains("speed") || norm.contains("প্যাকেজ") || norm.contains("প্ল্যান") -> 85
+                    else -> 0
+                }
+            }
+            CustomerField.MONTHLY_FEE -> {
+                if (norm.contains("due") || norm.contains("বকেয়া") || norm.contains("বকেয়া") || norm.contains("month") || norm.contains("মাস")) return 0
+                when {
+                    norm == "monthly fee" || norm == "monthly_fee" || norm == "monthly bill" || norm == "monthly_bill" || norm == "bill amount" || norm == "fee" || norm == "monthly price" -> 100
+                    norm == "bill" || norm == "price" || norm == "amount" || norm == "rate" || norm == "charge" || norm == "ফি" || norm == "মাসিক বিল" -> 90
+                    norm.contains("fee") || norm.contains("price") || norm.contains("rate") || norm.contains("bill") || norm.contains("ফি") || norm.contains("বিল") -> 80
+                    norm.contains("amount") || norm.contains("টাকা") -> 70
+                    else -> 0
+                }
+            }
+            CustomerField.DUE_AMOUNT -> {
+                when {
+                    norm == "due amount" || norm == "due_amount" || norm == "existing due" || norm == "previous due" || norm == "due" || norm == "arrears" || norm == "outstanding" || norm == "বকেয়া" || norm == "বকেয়া" -> 100
+                    norm.contains("due") || norm.contains("arrear") || norm.contains("outstanding") || norm.contains("বকেয়া") || norm.contains("বকেয়া") -> 85
+                    else -> 0
+                }
+            }
+            CustomerField.ADDRESS -> {
+                when {
+                    norm == "address" || norm == "location" || norm == "area" || norm == "ঠিকানা" -> 100
+                    norm.contains("address") || norm.contains("location") || norm.contains("area") || norm.contains("ঠিকানা") || norm.contains("বাসা") -> 85
+                    else -> 0
+                }
+            }
+            CustomerField.IP_ADDRESS -> {
+                when {
+                    norm == "ip address" || norm == "ip_address" || norm == "ip" || norm == "static ip" || norm == "আইপি" -> 100
+                    norm.contains("ip address") || norm.contains("ip_address") || norm.contains("ip-address") || norm.contains("আইপি") -> 85
+                    else -> 0
+                }
+            }
+            CustomerField.STATUS -> {
+                when {
+                    norm == "status" || norm == "state" || norm == "condition" || norm == "স্ট্যাটাস" -> 100
+                    norm.contains("status") || norm.contains("state") || norm.contains("condition") || norm.contains("স্ট্যাটাস") || norm.contains("অবস্থা") -> 85
+                    else -> 0
+                }
+            }
+            CustomerField.JOINING_DATE -> {
+                when {
+                    norm == "joining date" || norm == "joining_date" || norm == "join date" || norm == "date" || norm == "তারিখ" -> 100
+                    norm.contains("joining") || norm.contains("join") || norm.contains("date") || norm.contains("তারিখ") -> 80
+                    else -> 0
+                }
+            }
+            CustomerField.BILLING_MONTH -> {
+                when {
+                    norm == "billing month" || norm == "billing_month" || norm == "month" || norm == "বিলিং মাস" -> 100
+                    norm.contains("billing month") || (norm.contains("মাস") && !norm.contains("মাসিক") && !norm.contains("প্যাকেজ")) -> 85
+                    else -> 0
+                }
+            }
+            CustomerField.NOTES -> {
+                when {
+                    norm == "notes" || norm == "note" || norm == "remarks" || norm == "remark" || norm == "comments" || norm == "নোট" || norm == "মন্তব্য" -> 100
+                    norm.contains("note") || norm.contains("remark") || norm.contains("comment") || norm.contains("নোট") || norm.contains("মন্তব্য") -> 85
+                    else -> 0
+                }
+            }
+        }
+    }
+
+    private fun cleanFieldVal(field: CustomerField, raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return ""
+
+        var cleaned = trimmed
+        // Remove trailing .0 from string if Excel formatted text/numbers as float (e.g. 1001.0 -> 1001)
+        if (cleaned.endsWith(".0") && cleaned.length > 2) {
+            cleaned = cleaned.substring(0, cleaned.length - 2)
+        }
+
+        return when (field) {
+            CustomerField.PHONE -> {
+                // Strip non-digits except +
+                var digits = cleaned.replace(Regex("[^0-9+]"), "")
+                if (digits.startsWith("+88")) {
+                    digits = digits.substring(3)
+                } else if (digits.startsWith("880")) {
+                    digits = "0" + digits.substring(3)
+                }
+                // Prepend leading zero if 10-digit Bangladeshi mobile number
+                if (digits.length == 10 && digits.matches(Regex("^1[3-9]\\d{8}$"))) {
+                    digits = "0$digits"
+                }
+                digits
+            }
+            CustomerField.PPPOE -> {
+                cleaned.trim()
+            }
+            CustomerField.NAME -> {
+                cleaned.trim()
+            }
+            CustomerField.CODE -> {
+                cleaned.trim()
+            }
+            else -> cleaned.trim()
+        }
+    }
+
+    private fun extractSpeedFromName(name: String): Int? {
+        val regex = Regex("(\\d+)\\s*(mbps|mb|m)?", RegexOption.IGNORE_CASE)
+        val match = regex.find(name)
+        return match?.groupValues?.get(1)?.toIntOrNull()
     }
 
     fun validateRows(
@@ -387,9 +553,15 @@ object CustomerImportParser {
             description = "Default standard package"
         )
 
-        val existingByCode = existingCustomers.associateBy { it.customerCode.trim().lowercase(Locale.ROOT) }
+        val knownPackages = existingPackages.toMutableList()
+        val packageMapByName = knownPackages.associateBy { it.name.trim().lowercase(Locale.ROOT) }.toMutableMap()
+
+        val existingByCode = existingCustomers.associateBy { it.customerCode.trim().lowercase(Locale.ROOT) }.toMutableMap()
         val existingByPppoe = existingCustomers.filter { it.pppoeUsername.isNotBlank() }
-            .associateBy { it.pppoeUsername.trim().lowercase(Locale.ROOT) }
+            .associateBy { it.pppoeUsername.trim().lowercase(Locale.ROOT) }.toMutableMap()
+
+        val seenCodesInFile = mutableSetOf<String>()
+        val seenPppoesInFile = mutableSetOf<String>()
 
         val details = mutableListOf<RowValidationDetail>()
         var validCount = 0
@@ -403,22 +575,22 @@ object CustomerImportParser {
 
             fun getVal(field: CustomerField): String {
                 val colIdx = fieldMapping[field] ?: return ""
-                return if (colIdx in row.indices) row[colIdx].trim() else ""
+                return if (colIdx in row.indices) row[colIdx] else ""
             }
 
-            val name = getVal(CustomerField.NAME)
-            var code = getVal(CustomerField.CODE)
-            val phone = getVal(CustomerField.PHONE)
-            val address = getVal(CustomerField.ADDRESS)
-            val pppoe = getVal(CustomerField.PPPOE)
-            val ip = getVal(CustomerField.IP_ADDRESS)
-            val packageNameRaw = getVal(CustomerField.PACKAGE_NAME)
+            val name = cleanFieldVal(CustomerField.NAME, getVal(CustomerField.NAME))
+            var code = cleanFieldVal(CustomerField.CODE, getVal(CustomerField.CODE))
+            val phone = cleanFieldVal(CustomerField.PHONE, getVal(CustomerField.PHONE))
+            val address = cleanFieldVal(CustomerField.ADDRESS, getVal(CustomerField.ADDRESS))
+            val pppoe = cleanFieldVal(CustomerField.PPPOE, getVal(CustomerField.PPPOE))
+            val ip = cleanFieldVal(CustomerField.IP_ADDRESS, getVal(CustomerField.IP_ADDRESS))
+            val packageNameRaw = cleanFieldVal(CustomerField.PACKAGE_NAME, getVal(CustomerField.PACKAGE_NAME))
             val monthlyFeeRaw = getVal(CustomerField.MONTHLY_FEE)
             val dueAmountRaw = getVal(CustomerField.DUE_AMOUNT)
             val billingMonthRaw = getVal(CustomerField.BILLING_MONTH)
             val joiningDateRaw = getVal(CustomerField.JOINING_DATE)
             val statusRaw = getVal(CustomerField.STATUS)
-            val notes = getVal(CustomerField.NOTES)
+            val notes = cleanFieldVal(CustomerField.NOTES, getVal(CustomerField.NOTES))
 
             val parsedStatus = when {
                 statusRaw.contains("suspend", ignoreCase = true) || statusRaw.contains("সাসপেন্ড", ignoreCase = true) -> "SUSPENDED"
@@ -448,7 +620,7 @@ object CustomerImportParser {
 
             if (code.isBlank()) {
                 // Auto-generate candidate code if not provided
-                while (existingByCode.containsKey("cust-$autoCodeIndex")) {
+                while (existingByCode.containsKey("cust-$autoCodeIndex") || seenCodesInFile.contains("cust-$autoCodeIndex")) {
                     autoCodeIndex++
                 }
                 code = "CUST-$autoCodeIndex"
@@ -459,24 +631,31 @@ object CustomerImportParser {
             val parsedDue = dueAmountRaw.replace(",", ".").replace("৳", "").replace("$", "").trim().toDoubleOrNull() ?: 0.0
             val parsedMonth = billingMonthRaw.trim()
 
-            // Match package by name first
-            var matchedPackage = existingPackages.find {
-                it.name.trim().equals(packageNameRaw.trim(), ignoreCase = true)
-            }
+            // Package matching / auto-detection
+            val rawPkgKey = packageNameRaw.lowercase(Locale.ROOT)
+            var matchedPackage = if (rawPkgKey.isNotBlank()) packageMapByName[rawPkgKey] else null
 
-            // If not matched by name, check if monthly fee matches a package price and package name was blank
             if (matchedPackage == null && packageNameRaw.isBlank() && monthlyFee > 0.0) {
-                matchedPackage = existingPackages.find { it.monthlyPrice == monthlyFee }
+                matchedPackage = packageMapByName.values.find { it.monthlyPrice == monthlyFee }
             }
 
-            if (matchedPackage != null) {
-                if (monthlyFee <= 0) monthlyFee = matchedPackage.monthlyPrice
-            } else {
-                matchedPackage = defaultPackage
-                if (monthlyFee <= 0) monthlyFee = defaultPackage.monthlyPrice
+            if (matchedPackage == null) {
+                val finalPkgName = if (packageNameRaw.isNotBlank()) packageNameRaw else if (monthlyFee > 0.0) "${monthlyFee.toInt()} Tk Package" else defaultPackage.name
+                val extractedSpeed = extractSpeedFromName(finalPkgName) ?: 10
+                val finalFee = if (monthlyFee > 0.0) monthlyFee else defaultPackage.monthlyPrice
+
+                matchedPackage = IspPackageEntity(
+                    id = 0L,
+                    name = finalPkgName,
+                    speedMbps = extractedSpeed,
+                    monthlyPrice = finalFee,
+                    description = "Imported package"
+                )
+                packageMapByName[finalPkgName.lowercase(Locale.ROOT)] = matchedPackage
             }
 
-            val finalPackageName = if (packageNameRaw.isNotBlank()) packageNameRaw.trim() else matchedPackage.name
+            if (monthlyFee <= 0.0) monthlyFee = matchedPackage.monthlyPrice
+            val finalPackageName = matchedPackage.name
             val finalPackageId = matchedPackage.id
 
             val joiningDate = if (joiningDateRaw.isNotBlank()) joiningDateRaw else todayStr
@@ -504,15 +683,19 @@ object CustomerImportParser {
                 if (parsedDue > 0) "Due: ৳${String.format(Locale.US, "%.0f", parsedDue)}" else null
             ).joinToString(" • ")
 
-            // Check duplicates
+            // Check duplicates against existing DB or previous rows in file
             val codeKey = code.trim().lowercase(Locale.ROOT)
             val pppoeKey = pppoe.trim().lowercase(Locale.ROOT)
 
-            val matchedExisting = existingByCode[codeKey]
+            val matchedExisting = (if (codeKey.isNotEmpty()) existingByCode[codeKey] else null)
                 ?: (if (pppoeKey.isNotEmpty()) existingByPppoe[pppoeKey] else null)
 
-            if (matchedExisting != null) {
+            val isDuplicateInFile = (codeKey.isNotEmpty() && seenCodesInFile.contains(codeKey)) ||
+                    (pppoeKey.isNotEmpty() && seenPppoesInFile.contains(pppoeKey))
+
+            if (matchedExisting != null || isDuplicateInFile) {
                 duplicateCount++
+                val duplicateName = matchedExisting?.name ?: "Duplicate in file"
                 details.add(
                     RowValidationDetail(
                         rowIndex = rowIndex,
@@ -521,12 +704,15 @@ object CustomerImportParser {
                         billingMonth = parsedMonth,
                         isValid = true,
                         isDuplicate = true,
-                        duplicateCustomerName = matchedExisting.name,
+                        duplicateCustomerName = duplicateName,
                         rawSummary = rawSummary
                     )
                 )
             } else {
                 validCount++
+                if (codeKey.isNotEmpty()) seenCodesInFile.add(codeKey)
+                if (pppoeKey.isNotEmpty()) seenPppoesInFile.add(pppoeKey)
+
                 details.add(
                     RowValidationDetail(
                         rowIndex = rowIndex,

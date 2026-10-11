@@ -730,8 +730,9 @@ class IspRepository(
     }
 
     suspend fun updateCustomer(customer: CustomerEntity) {
-        val updated = customer.copy(updatedAt = System.currentTimeMillis(), syncStatus = 1)
-        customerDao.updateCustomer(updated)
+        val now = System.currentTimeMillis()
+        val updated = customer.copy(updatedAt = now, syncStatus = 1)
+        customerDao.insertCustomer(updated)
         billDao.updateCustomerNameInBills(customer.id, customer.name)
         paymentDao.updateCustomerNameInPayments(customer.id, customer.name)
         logActivity(

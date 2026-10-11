@@ -1138,7 +1138,7 @@ fun MainAppContent(
                 if (customer.id == 0L) {
                     viewModel.saveCustomer(customer, previousDues)
                 } else {
-                    viewModel.updateCustomer(customer)
+                    viewModel.updateCustomer(customer, previousDues)
                 }
                 showCustomerDialog = false
             }

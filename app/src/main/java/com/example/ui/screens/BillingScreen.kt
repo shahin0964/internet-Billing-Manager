@@ -90,7 +90,10 @@ fun BillingScreen(
         customers.associateBy { it.id }
     }
 
-    val filteredBills = remember(bills, searchQuery, selectedStatusFilter, customerMap) {
+    val currentMonthStr = remember { com.example.util.BillingMonthUtils.formatStandardMonth() }
+    val currentMonthKey = remember(currentMonthStr) { com.example.util.BillingMonthUtils.normalizeMonthKey(currentMonthStr) }
+
+    val filteredBills = remember(bills, searchQuery, selectedStatusFilter, customerMap, currentMonthKey) {
         bills.filter { bill ->
             // Only active, unpaid, or partial bills with outstanding dueAmount > 0 are displayed as running cards
             val isDueOrUnpaid = bill.dueAmount > 0.0 && bill.status != "PAID"
@@ -107,6 +110,15 @@ fun BillingScreen(
             val matchesStatus = when (selectedStatusFilter) {
                 "ACTIVE" -> custStatus == "ACTIVE"
                 "SUSPENDED" -> custStatus == "SUSPENDED" || custStatus == "INACTIVE"
+                "PREVIOUS_DUE" -> {
+                    val isBreakdown = bill.billNumber.startsWith("BREAKDOWN|")
+                    if (isBreakdown) {
+                        true
+                    } else {
+                        val billMonthKey = com.example.util.BillingMonthUtils.normalizeMonthKey(bill.billingMonth)
+                        billMonthKey.isNotEmpty() && billMonthKey < currentMonthKey
+                    }
+                }
                 else -> true
             }
 
@@ -194,6 +206,7 @@ fun BillingScreen(
         ) {
             listOf(
                 "ALL" to "All Due Bills",
+                "PREVIOUS_DUE" to "Previous Due",
                 "ACTIVE" to "Active Lines",
                 "SUSPENDED" to "Suspended"
             ).forEach { (key, label) ->
