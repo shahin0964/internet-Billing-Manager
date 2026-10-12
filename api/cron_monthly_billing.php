@@ -111,8 +111,6 @@ try {
                 $custStatus = strtoupper(trim($customer['status'] ?? ''));
 
                 // Strict Customer Eligibility Rules:
-                // ACTIVE -> eligible
-                // SUSPENDED, INACTIVE, EXPIRED -> skipped
                 $isInactiveOrSuspended = ($custStatus === 'INACTIVE' ||
                     $custStatus === 'SUSPENDED' ||
                     $custStatus === 'EXPIRED' ||
@@ -279,6 +277,48 @@ try {
                     ]);
                 } catch (Throwable $ae) {
                     // Non-blocking audit log record
+                }
+
+                // Autonomous Cloud Backup creation / update for current billing month
+                try {
+                    $bkpName = "ISP-Cron-Backup-" . $canonicalMonth;
+                    $customersData = $accountPdo->query("SELECT * FROM customers")->fetchAll(PDO::FETCH_ASSOC);
+                    $billsData = $accountPdo->query("SELECT * FROM bills")->fetchAll(PDO::FETCH_ASSOC);
+                    $packagesData = $accountPdo->query("SELECT * FROM packages")->fetchAll(PDO::FETCH_ASSOC);
+                    $paymentsData = $accountPdo->query("SELECT * FROM payments")->fetchAll(PDO::FETCH_ASSOC);
+                    $settingsData = $accountPdo->query("SELECT * FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+
+                    $snapshotObj = [
+                        "schemaVersion" => 2,
+                        "version" => 2,
+                        "exportedAt" => (int)(microtime(true) * 1000),
+                        "export_timestamp" => (int)(microtime(true) * 1000),
+                        "userId" => $userId,
+                        "tenant_id" => $userId,
+                        "billing_month" => $canonicalMonth,
+                        "customers" => $customersData ?: [],
+                        "bills" => $billsData ?: [],
+                        "packages" => $packagesData ?: [],
+                        "payments" => $paymentsData ?: [],
+                        "settings" => $settingsData ?: (object)[]
+                    ];
+                    $bkpDataJson = json_encode($snapshotObj);
+                    $bkpSize = strlen($bkpDataJson);
+                    $curMs = (int)(microtime(true) * 1000);
+
+                    $checkBkp = $accountPdo->prepare("SELECT id FROM cloud_backups WHERE (tenant_id = ? OR user_id = ?) AND billing_month = ? LIMIT 1");
+                    $checkBkp->execute([$userId, $userId, $canonicalMonth]);
+                    $existingBkp = $checkBkp->fetch(PDO::FETCH_ASSOC);
+
+                    if ($existingBkp) {
+                        $updBkp = $accountPdo->prepare("UPDATE cloud_backups SET tenant_id = ?, user_id = ?, backup_name = ?, backup_data = ?, backup_size = ?, updated_at = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?");
+                        $updBkp->execute([$userId, $userId, $bkpName, $bkpDataJson, $bkpSize, $curMs, $existingBkp['id']]);
+                    } else {
+                        $insBkp = $accountPdo->prepare("INSERT INTO cloud_backups (tenant_id, user_id, billing_month, backup_name, backup_data, backup_size, version, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE backup_name = VALUES(backup_name), backup_data = VALUES(backup_data), backup_size = VALUES(backup_size), updated_at = VALUES(updated_at)");
+                        $insBkp->execute([$userId, $userId, $canonicalMonth, $bkpName, $bkpDataJson, $bkpSize, $curMs]);
+                    }
+                } catch (Throwable $bkpErr) {
+                    // Non-blocking backup snapshot error
                 }
             }
 

@@ -312,15 +312,33 @@ function ensureAccountDatabaseTables($pdo) {
     // 5. Cloud Backups
     $pdo->exec("CREATE TABLE IF NOT EXISTS cloud_backups (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id VARCHAR(100) NOT NULL DEFAULT '',
         user_id VARCHAR(100) NOT NULL DEFAULT '',
+        billing_month VARCHAR(20) NOT NULL DEFAULT '',
         backup_name VARCHAR(255) NOT NULL DEFAULT '',
         backup_data LONGTEXT NOT NULL,
         backup_size INT NOT NULL DEFAULT 0,
         version INT NOT NULL DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at BIGINT NULL DEFAULT NULL,
+        UNIQUE KEY uq_tenant_billing_month (tenant_id, billing_month),
         INDEX idx_created_at (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    try {
+        $cols = $pdo->query("SHOW COLUMNS FROM cloud_backups")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('tenant_id', $cols)) {
+            $pdo->exec("ALTER TABLE cloud_backups ADD COLUMN tenant_id VARCHAR(100) NOT NULL DEFAULT '' AFTER id");
+        }
+        if (!in_array('billing_month', $cols)) {
+            $pdo->exec("ALTER TABLE cloud_backups ADD COLUMN billing_month VARCHAR(20) NOT NULL DEFAULT '' AFTER user_id");
+        }
+        $idxStmt = $pdo->query("SHOW INDEX FROM cloud_backups WHERE Key_name = 'uq_tenant_billing_month'");
+        if (!$idxStmt->fetch()) {
+            $pdo->exec("DELETE c1 FROM cloud_backups c1 INNER JOIN cloud_backups c2 ON c1.tenant_id = c2.tenant_id AND c1.billing_month = c2.billing_month AND c1.id < c2.id");
+            $pdo->exec("ALTER TABLE cloud_backups ADD UNIQUE KEY uq_tenant_billing_month (tenant_id, billing_month)");
+        }
+    } catch (Exception $e) {}
 
     // 6. Customers
     $pdo->exec("CREATE TABLE IF NOT EXISTS customers (

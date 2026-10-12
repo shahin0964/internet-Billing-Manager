@@ -2749,9 +2749,12 @@ class IspRepository(
                 return@withContext Pair(false, "No local data to back up")
             }
             val timeStamp = java.text.SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", java.util.Locale.US).format(java.util.Date())
+            val currentBillingMonth = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US).format(java.util.Date())
             val backupName = "ISP-Cloud-Backup-$timeStamp"
             val request = com.example.data.model.CloudBackupRequest(
+                tenantId = activeUid,
                 userId = activeUid,
+                billingMonth = currentBillingMonth,
                 backupName = backupName,
                 backupData = rawJsonPayload,
                 version = 1

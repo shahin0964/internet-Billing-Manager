@@ -28,7 +28,7 @@ try {
         $action = $_GET['action'] ?? 'latest';
 
         if ($action === 'latest') {
-            $stmt = $accountPdo->query("SELECT id, backup_name, backup_data, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at FROM cloud_backups ORDER BY created_at DESC LIMIT 1");
+            $stmt = $accountPdo->query("SELECT id, tenant_id, user_id, billing_month, backup_name, backup_data, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at, updated_at FROM cloud_backups ORDER BY created_at DESC LIMIT 1");
             $backup = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (ob_get_length()) ob_clean();
@@ -47,27 +47,33 @@ try {
                 "message" => "Backup retrieved successfully",
                 "data" => [
                     "id" => (string)$backup['id'],
+                    "tenant_id" => (string)($backup['tenant_id'] ?: $userId),
                     "user_id" => $userId,
+                    "billing_month" => (string)($backup['billing_month'] ?: date('Y-m')),
                     "backup_name" => (string)$backup['backup_name'],
                     "backup_data" => (string)$backup['backup_data'],
                     "backup_size" => (int)$backup['backup_size'],
                     "version" => (int)$backup['version'],
-                    "created_at" => (int)$backup['created_at']
+                    "created_at" => (int)$backup['created_at'],
+                    "updated_at" => (int)($backup['updated_at'] ?? $backup['created_at'])
                 ]
             ]);
             exit;
         } elseif ($action === 'list') {
-            $stmt = $accountPdo->query("SELECT id, backup_name, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at FROM cloud_backups ORDER BY created_at DESC LIMIT 10");
+            $stmt = $accountPdo->query("SELECT id, tenant_id, user_id, billing_month, backup_name, backup_size, version, UNIX_TIMESTAMP(created_at) * 1000 AS created_at, updated_at FROM cloud_backups ORDER BY created_at DESC LIMIT 10");
             $backups = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $formatted = array_map(function($b) use ($userId) {
                 return [
                     "id" => (string)$b['id'],
+                    "tenant_id" => (string)($b['tenant_id'] ?: $userId),
                     "user_id" => $userId,
+                    "billing_month" => (string)($b['billing_month'] ?: date('Y-m')),
                     "backup_name" => (string)$b['backup_name'],
                     "backup_size" => (int)$b['backup_size'],
                     "version" => (int)$b['version'],
-                    "created_at" => (int)$b['created_at']
+                    "created_at" => (int)$b['created_at'],
+                    "updated_at" => (int)($b['updated_at'] ?? $b['created_at'])
                 ];
             }, $backups);
 
@@ -106,8 +112,20 @@ try {
             exit;
         }
 
+        $tenantId = $data['tenant_id'] ?? ($data['user_id'] ?? $userId);
+        if (empty($tenantId)) {
+            $tenantId = $userId;
+        }
+
+        $rawMonth = $data['billing_month'] ?? ($data['billingMonth'] ?? null);
+        if (!$rawMonth || strlen(trim($rawMonth)) === 0) {
+            $billingMonth = date('Y-m');
+        } else {
+            $billingMonth = trim($rawMonth);
+        }
+
         $backupData = $data['backup_data'] ?? null;
-        $backupName = $data['backup_name'] ?? ('ISP-Cloud-Backup-' . date('Y-m-d-H-i-s'));
+        $backupName = $data['backup_name'] ?? ('ISP-Cloud-Backup-' . $billingMonth);
         $version = isset($data['version']) ? (int)$data['version'] : 1;
 
         if (!$backupData) {
@@ -129,27 +147,39 @@ try {
         }
 
         $backupSize = strlen($backupData);
+        $currentTimeMs = (int)(microtime(true) * 1000);
 
-        $checkStmt = $accountPdo->query("SELECT id FROM cloud_backups ORDER BY id DESC LIMIT 1");
+        // Check if a backup row for this tenant_id and billing_month already exists
+        $checkStmt = $accountPdo->prepare("SELECT id FROM cloud_backups WHERE (tenant_id = ? OR user_id = ?) AND billing_month = ? LIMIT 1");
+        $checkStmt->execute([$tenantId, $userId, $billingMonth]);
         $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
         if ($existing) {
-            $stmt = $accountPdo->prepare("UPDATE cloud_backups SET backup_name = ?, backup_data = ?, backup_size = ?, version = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?");
-            $stmt->execute([$backupName, $backupData, $backupSize, $version, $existing['id']]);
+            // Daily Override/Update existing month backup row
+            $stmt = $accountPdo->prepare("UPDATE cloud_backups SET tenant_id = ?, user_id = ?, backup_name = ?, backup_data = ?, backup_size = ?, version = ?, updated_at = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?");
+            $stmt->execute([$tenantId, $userId, $backupName, $backupData, $backupSize, $version, $currentTimeMs, $existing['id']]);
             $insertedId = $existing['id'];
-            $msg = "Backup updated successfully on Hosting";
+            $msg = "Backup updated successfully for $billingMonth";
         } else {
-            $stmt = $accountPdo->prepare("INSERT INTO cloud_backups (user_id, backup_name, backup_data, backup_size, version) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$userId, $backupName, $backupData, $backupSize, $version]);
+            // New Month New Backup row
+            $stmt = $accountPdo->prepare("INSERT INTO cloud_backups (tenant_id, user_id, billing_month, backup_name, backup_data, backup_size, version, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE backup_name = VALUES(backup_name), backup_data = VALUES(backup_data), backup_size = VALUES(backup_size), version = VALUES(version), updated_at = VALUES(updated_at)");
+            $stmt->execute([$tenantId, $userId, $billingMonth, $backupName, $backupData, $backupSize, $version, $currentTimeMs]);
             $insertedId = $accountPdo->lastInsertId();
-            $msg = "Backup created successfully on Hosting";
+            if (!$insertedId) {
+                $checkIdStmt = $accountPdo->prepare("SELECT id FROM cloud_backups WHERE (tenant_id = ? OR user_id = ?) AND billing_month = ? LIMIT 1");
+                $checkIdStmt->execute([$tenantId, $userId, $billingMonth]);
+                $insertedId = $checkIdStmt->fetchColumn();
+            }
+            $msg = "New monthly backup created successfully for $billingMonth";
         }
 
         if (ob_get_length()) ob_clean();
         echo json_encode([
             "status" => true,
             "message" => $msg,
-            "backup_id" => (string)$insertedId
+            "backup_id" => (string)$insertedId,
+            "billing_month" => $billingMonth,
+            "tenant_id" => $tenantId
         ]);
         exit;
     }

@@ -96,8 +96,12 @@ data class CloudBackupModel(
     @field:JsonAdapter(FlexibleStringAdapter::class)
     @SerializedName("id")
     val id: String = "",
+    @SerializedName("tenant_id")
+    val tenantId: String = "",
     @SerializedName("user_id")
     val userId: String = "",
+    @SerializedName("billing_month")
+    val billingMonth: String = "",
     @SerializedName("backup_name")
     val backupName: String = "",
     @SerializedName("backup_data")
@@ -108,12 +112,18 @@ data class CloudBackupModel(
     val version: Int = 1,
     @field:JsonAdapter(BackupTimestampAdapter::class)
     @SerializedName("created_at")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    @SerializedName("updated_at")
+    val updatedAt: Long? = null
 )
 
 data class CloudBackupRequest(
+    @SerializedName("tenant_id")
+    val tenantId: String = "",
     @SerializedName("user_id")
     val userId: String,
+    @SerializedName("billing_month")
+    val billingMonth: String = "",
     @SerializedName("backup_name")
     val backupName: String,
     @SerializedName("backup_data")
