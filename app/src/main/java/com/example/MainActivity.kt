@@ -136,9 +136,17 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        try {
+            installSplashScreen()
+        } catch (e: Throwable) {
+            android.util.Log.w("MainActivity", "SplashScreen install note: ${e.message}")
+        }
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        try {
+            enableEdgeToEdge()
+        } catch (e: Throwable) {
+            android.util.Log.w("MainActivity", "EdgeToEdge setup note: ${e.message}")
+        }
 
         if (intent?.getBooleanExtra("open_update_dialog", false) == true) {
             openUpdateDialogFlow.tryEmit(true)

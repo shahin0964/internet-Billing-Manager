@@ -22,7 +22,7 @@ class IspApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         
-        // Handle GMS related background thread crashes gracefully
+        // Handle GMS and background WorkManager/Service exceptions gracefully
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val message = throwable.message ?: ""
@@ -32,9 +32,17 @@ class IspApplication : Application() {
                  message.contains("GoogleApiManager") ||
                  stackTraceStr.contains("com.google.android.gms") ||
                  stackTraceStr.contains("GoogleApiManager"))
+
+            val isBackgroundWorkerOrServiceException = (
+                stackTraceStr.contains("CoroutineWorker.getForegroundInfo") ||
+                stackTraceStr.contains("WorkForegroundRunnable") ||
+                stackTraceStr.contains("RemoteServiceException") ||
+                stackTraceStr.contains("ForegroundServiceStartNotAllowedException") ||
+                stackTraceStr.contains("BadNotificationException")
+            )
                  
-            if (isGmsSecurityException) {
-                Log.e(TAG, "Caught background GMS SecurityException gracefully in thread ${thread.name}: ${throwable.message}")
+            if (isGmsSecurityException || isBackgroundWorkerOrServiceException) {
+                Log.e(TAG, "Caught background exception gracefully in thread ${thread.name}: ${throwable.message}")
             } else {
                 defaultHandler?.uncaughtException(thread, throwable)
             }

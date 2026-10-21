@@ -49,38 +49,12 @@ class SyncForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        val notification = buildNotification()
-
+        // Remove any lingering notification if present, while running silently in background
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    startForeground(
-                        NOTIFICATION_ID,
-                        notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    )
-                } else {
-                    startForeground(
-                        NOTIFICATION_ID,
-                        notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-                    )
-                }
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-
-            // Immediately remove notification from notification bar while keeping background service/sync active
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(true)
-            }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             notificationManager?.cancel(NOTIFICATION_ID)
         } catch (e: Throwable) {
-            Log.e(TAG, "Error starting foreground service: ${e.message}", e)
+            Log.w(TAG, "Notification cleanup note: ${e.message}")
         }
 
         startPeriodicBackgroundSync()
@@ -101,14 +75,14 @@ class SyncForegroundService : Service() {
         if (periodicSyncJob?.isActive == true) return
 
         periodicSyncJob = serviceScope.launch {
-            Log.i(TAG, "Periodic background sync loop started in Foreground Service")
+            Log.i(TAG, "Periodic background sync loop started in Service")
             while (isActive) {
                 try {
                     val appCtx = applicationContext
                     if (IspApplication.isLoggedIn(appCtx)) {
                         val uid = IspApplication.getUserId(appCtx)
                         if (!uid.isNullOrBlank() && HostingSyncManager.isSessionValid(appCtx, uid)) {
-                            Log.d(TAG, "Foreground Service sync tick executing...")
+                            Log.d(TAG, "Background Service sync tick executing...")
                             HostingSyncManager.performFullRemoteDataPull(appCtx)
                         }
                     } else {
@@ -142,31 +116,6 @@ class SyncForegroundService : Service() {
         }
     }
 
-    private fun buildNotification(): Notification {
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
-        )
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("লাইভ সিঙ্ক চালু রয়েছে")
-            .setContentText("ব্যাকগ্রাউন্ড ডেটা সিঙ্ক ও অটোমেটিক ব্যাকআপ সচল রয়েছে")
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setOngoing(false)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
-            .setSilent(true)
-            .setContentIntent(pendingIntent)
-            .build()
-    }
-
     companion object {
         private const val TAG = "SyncForegroundService"
         private const val CHANNEL_ID = "isp_live_sync_channel"
@@ -178,9 +127,9 @@ class SyncForegroundService : Service() {
             if (!IspApplication.isLoggedIn(context)) return
             try {
                 val intent = Intent(context, SyncForegroundService::class.java)
-                ContextCompat.startForegroundService(context, intent)
+                context.startService(intent)
             } catch (e: Throwable) {
-                Log.e(TAG, "Failed to start SyncForegroundService: ${e.message}", e)
+                Log.w(TAG, "Background startService note: ${e.message}")
             }
         }
 

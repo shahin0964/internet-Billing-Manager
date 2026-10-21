@@ -1,11 +1,17 @@
 package com.example.util
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
@@ -25,6 +31,8 @@ class SyncWorker(
         private const val TAG = "SyncWorker"
         private const val UNIQUE_ONE_TIME_SYNC_WORK_NAME = "isp_live_sync_work"
         private const val UNIQUE_PERIODIC_SYNC_WORK_NAME = "isp_periodic_sync_work"
+        private const val SYNC_CHANNEL_ID = "isp_background_sync_worker_channel"
+        private const val SYNC_NOTIFICATION_ID = 9982
 
         /**
          * Enqueues a OneTime sync work request when data changes locally
@@ -47,7 +55,10 @@ class SyncWorker(
                     .setConstraints(constraints)
                     .addTag("isp_sync")
 
-                if (forceExpedited) {
+                // Only use setExpedited on Android 12+ (API 31+) where OS-level expedited jobs exist.
+                // On Android 10 & 11 (API <= 30), setExpedited triggers WorkForegroundRunnable which
+                // requires a foreground notification or crashes if getForegroundInfo is not used.
+                if (forceExpedited && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     try {
                         workRequestBuilder.setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                     } catch (e: Throwable) {
@@ -57,9 +68,17 @@ class SyncWorker(
 
                 val workRequest = workRequestBuilder.build()
 
+                // Always use REPLACE on Android < 12 when forceExpedited is requested so any previously
+                // persisted expedited WorkSpec in workdb on Android 10 is cleanly overwritten.
+                val policy = if (forceExpedited || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    ExistingWorkPolicy.REPLACE
+                } else {
+                    ExistingWorkPolicy.KEEP
+                }
+
                 WorkManager.getInstance(context).enqueueUniqueWork(
                     UNIQUE_ONE_TIME_SYNC_WORK_NAME,
-                    if (forceExpedited) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                    policy,
                     workRequest
                 )
                 Log.d(TAG, "Live sync work enqueued successfully (forceExpedited=$forceExpedited).")
@@ -93,6 +112,40 @@ class SyncWorker(
             } catch (e: Throwable) {
                 Log.w(TAG, "Failed to schedule periodic sync work: ${e.message}")
             }
+        }
+    }
+
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (manager?.getNotificationChannel(SYNC_CHANNEL_ID) == null) {
+                val channel = NotificationChannel(
+                    SYNC_CHANNEL_ID,
+                    "Background Sync",
+                    NotificationManager.IMPORTANCE_MIN
+                ).apply {
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+                manager?.createNotificationChannel(channel)
+            }
+        }
+        val notification = NotificationCompat.Builder(context, SYNC_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle("Syncing")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
+            .build()
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                SYNC_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(SYNC_NOTIFICATION_ID, notification)
         }
     }
 
