@@ -531,10 +531,22 @@ fun MainAppContent(
                                         viewModel.showToast(response.message ?: "Login successful!")
                                         onSuccess()
                                     } else {
-                                        onError(response.message ?: "Incorrect email or password. Please check your credentials.")
+                                        onError(response.message?.takeIf { it.isNotBlank() } ?: "Incorrect email or password. Please check your credentials.")
                                     }
                                 } catch (e: Throwable) {
-                                    onError(e.localizedMessage ?: e.message ?: "Please check your internet connection and try again.")
+                                    val rawMsg = e.localizedMessage ?: e.message ?: ""
+                                    val friendlyMsg = when {
+                                        rawMsg.contains("Expected BEGIN_OBJECT", ignoreCase = true) ||
+                                            rawMsg.contains("JsonSyntaxException", ignoreCase = true) ||
+                                            rawMsg.contains("malformed JSON", ignoreCase = true) ->
+                                            "Server returned an invalid response. Please try again in a moment."
+                                        rawMsg.contains("Unable to resolve host", ignoreCase = true) ||
+                                            rawMsg.contains("Failed to connect", ignoreCase = true) ||
+                                            rawMsg.contains("timeout", ignoreCase = true) ->
+                                            "Please check your internet connection and try again."
+                                        else -> rawMsg.ifBlank { "Please check your internet connection and try again." }
+                                    }
+                                    onError(friendlyMsg)
                                 }
                             }
                         } else {

@@ -264,43 +264,61 @@ data class AuthActionResult(
 )
 
 data class LoginRequest(
+    @SerializedName("email")
     val email: String,
+    @SerializedName("password")
     val password: String
 )
 
 data class LoginUser(
-    val id: String,
-    val name: String,
-    val email: String,
+    @SerializedName("id")
+    val id: String = "",
+    @SerializedName("name")
+    val name: String = "",
+    @SerializedName("email")
+    val email: String = "",
     @SerializedName("api_token")
     val apiToken: String? = null
 )
 
 data class LoginResponse(
-    val status: Boolean,
-    val message: String,
-    val user: LoginUser?
+    @SerializedName("status")
+    val status: Boolean = false,
+    @SerializedName("message")
+    val message: String? = null,
+    @SerializedName("user")
+    val user: LoginUser? = null
 )
 
 data class SignupRequest(
+    @SerializedName("name")
     val name: String,
+    @SerializedName("email")
     val email: String,
+    @SerializedName("password")
     val password: String,
+    @SerializedName("phone")
     val phone: String
 )
 
 data class SignupUser(
-    val id: String,
-    val name: String,
-    val email: String,
+    @SerializedName("id")
+    val id: String = "",
+    @SerializedName("name")
+    val name: String = "",
+    @SerializedName("email")
+    val email: String = "",
     @SerializedName("api_token")
     val apiToken: String? = null
 )
 
 data class SignupResponse(
-    val status: Boolean,
-    val message: String,
-    val user: SignupUser?
+    @SerializedName("status")
+    val status: Boolean = false,
+    @SerializedName("message")
+    val message: String? = null,
+    @SerializedName("user")
+    val user: SignupUser? = null
 )
 
 data class PackageRequest(

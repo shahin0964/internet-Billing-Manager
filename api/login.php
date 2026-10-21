@@ -1,10 +1,15 @@
 <?php
+ob_start();
+error_reporting(0);
+ini_set('display_errors', '0');
+
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    if (ob_get_length()) ob_clean();
     http_response_code(200);
     exit;
 }
@@ -49,12 +54,13 @@ function ensureUsersSchema($pdo) {
                 $pdo->exec("ALTER TABLE users ADD COLUMN $col $definition");
             }
         }
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         // Continue safely
     }
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    if (ob_get_length()) ob_clean();
     http_response_code(405);
     echo json_encode(["status" => false, "message" => "Method not allowed", "user" => null]);
     exit;
@@ -62,11 +68,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $raw = file_get_contents("php://input");
 $data = json_decode($raw, true);
+if (!is_array($data)) {
+    $data = $_POST;
+}
 
-$email = isset($data['email']) ? trim($data['email']) : '';
+$email = isset($data['email']) ? trim((string)$data['email']) : '';
 $password = isset($data['password']) ? (string)$data['password'] : '';
 
 if (empty($email) || empty($password)) {
+    if (ob_get_length()) ob_clean();
     echo json_encode([
         "status" => false,
         "message" => "Email and password are required.",
@@ -75,49 +85,62 @@ if (empty($email) || empty($password)) {
     exit;
 }
 
-ensureUsersSchema($pdo);
-
-$stmt = $pdo->prepare("SELECT id, name, email, password_hash, role, status FROM users WHERE email = ? LIMIT 1");
-$stmt->execute([$email]);
-$user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$user) {
-    echo json_encode([
-        "status" => false,
-        "message" => "No account found with this email address.",
-        "user" => null
-    ]);
-    exit;
-}
-
-if (!password_verify($password, $user['password_hash'])) {
-    echo json_encode([
-        "status" => false,
-        "message" => "Incorrect password. Please try again.",
-        "user" => null
-    ]);
-    exit;
-}
-
-$apiToken = bin2hex(random_bytes(32));
-$updateStmt = $pdo->prepare("UPDATE users SET api_token = ? WHERE id = ?");
-$updateStmt->execute([$apiToken, $user['id']]);
-
-// Ensure physical database for this user exists
 try {
-    getAccountPdo($pdo, $user['id']);
-} catch (Exception $e) {
-    // Database creation will be attempted on next request
-}
+    ensureUsersSchema($pdo);
 
-echo json_encode([
-    "status" => true,
-    "message" => "Login successful!",
-    "user" => [
-        "id" => (string)$user['id'],
-        "name" => (string)$user['name'],
-        "email" => (string)$user['email'],
-        "api_token" => $apiToken
-    ]
-]);
-exit;
+    $stmt = $pdo->prepare("SELECT id, name, email, password_hash, role, status FROM users WHERE email = ? LIMIT 1");
+    $stmt->execute([$email]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$user) {
+        if (ob_get_length()) ob_clean();
+        echo json_encode([
+            "status" => false,
+            "message" => "No account found with this email address.",
+            "user" => null
+        ]);
+        exit;
+    }
+
+    if (!password_verify($password, $user['password_hash'])) {
+        if (ob_get_length()) ob_clean();
+        echo json_encode([
+            "status" => false,
+            "message" => "Incorrect password. Please try again.",
+            "user" => null
+        ]);
+        exit;
+    }
+
+    $apiToken = bin2hex(random_bytes(32));
+    $updateStmt = $pdo->prepare("UPDATE users SET api_token = ? WHERE id = ?");
+    $updateStmt->execute([$apiToken, $user['id']]);
+
+    // Ensure physical database for this user exists
+    try {
+        getAccountPdo($pdo, $user['id']);
+    } catch (Throwable $e) {
+        // Database creation will be attempted on next request
+    }
+
+    if (ob_get_length()) ob_clean();
+    echo json_encode([
+        "status" => true,
+        "message" => "Login successful!",
+        "user" => [
+            "id" => (string)$user['id'],
+            "name" => (string)$user['name'],
+            "email" => (string)$user['email'],
+            "api_token" => $apiToken
+        ]
+    ]);
+    exit;
+} catch (Throwable $e) {
+    if (ob_get_length()) ob_clean();
+    echo json_encode([
+        "status" => false,
+        "message" => "Server error during login. Please try again.",
+        "user" => null
+    ]);
+    exit;
+}

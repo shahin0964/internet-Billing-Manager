@@ -49,12 +49,35 @@ object ApiClient {
         response
     }
 
+    private val jsonSanitizingInterceptor = okhttp3.Interceptor { chain ->
+        val request = chain.request().newBuilder()
+            .header("Accept", "application/json")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) ISP-Billing-Manager/1.0")
+            .build()
+        val response = chain.proceed(request)
+        val body = response.body ?: return@Interceptor response
+        val rawBytes = try {
+            body.bytes()
+        } catch (_: Throwable) {
+            ByteArray(0)
+        }
+        val (sanitizedJson, _) = com.example.data.remote.ApiClient.sanitizeResponseBytes(rawBytes)
+        val mediaType = okhttp3.MediaType.Companion.run { "application/json; charset=utf-8".toMediaTypeOrNull() }
+        val newBody = okhttp3.ResponseBody.Companion.run { sanitizedJson.toResponseBody(mediaType) }
+        response.newBuilder()
+            .body(newBody)
+            .removeHeader("Content-Encoding")
+            .removeHeader("Content-Length")
+            .build()
+    }
+
     private val okHttpClient =
         OkHttpClient.Builder()
+            .retryOnConnectionFailure(true)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor(errorLoggingInterceptor)
+            .addInterceptor(jsonSanitizingInterceptor)
             .addInterceptor(loggingInterceptor)
             .build()
 
