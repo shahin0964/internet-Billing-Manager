@@ -48,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.util.SavedAccount
 import com.example.util.SavedAccountManager
@@ -77,15 +79,23 @@ fun LoginScreen(
     onNavigateToForgotPassword: (initialEmail: String) -> Unit,
     onContinueAsGuest: () -> Unit,
     onForgotPasswordClick: ((identifier: String, onError: (String) -> Unit, onSuccess: (String) -> Unit) -> Unit)? = null,
+    onQuickLoginClick: ((account: SavedAccount, onError: (String) -> Unit, onSuccess: () -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var savedAccounts by remember {
-        mutableStateOf(SavedAccountManager.getSavedAccounts(context))
+
+    // Load saved accounts immediately and observe updates reactively
+    val initialAccounts = remember { SavedAccountManager.getSavedAccounts(context) }
+    val observedAccounts by SavedAccountManager.accountsFlow.collectAsStateWithLifecycle()
+    val savedAccounts = if (observedAccounts.isNotEmpty()) observedAccounts else initialAccounts
+
+    LaunchedEffect(Unit) {
+        SavedAccountManager.getSavedAccounts(context)
     }
-    var showManualLogin by remember {
-        mutableStateOf(savedAccounts.isEmpty())
-    }
+
+    var userRequestedManualLogin by remember { mutableStateOf(false) }
+    val showSavedProfilesScreen = savedAccounts.isNotEmpty() && !userRequestedManualLogin
+
     var manageProfilesMode by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     var loggingInEmail by remember { mutableStateOf<String?>(null) }
@@ -98,10 +108,10 @@ fun LoginScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var successMessage by remember { mutableStateOf<String?>(null) }
 
-    if (showManualLogin && savedAccounts.isNotEmpty()) {
+    if (userRequestedManualLogin && savedAccounts.isNotEmpty()) {
         BackHandler(enabled = !isLoading) {
             errorMessage = null
-            showManualLogin = false
+            userRequestedManualLogin = false
         }
     }
 
@@ -109,7 +119,7 @@ fun LoginScreen(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        if (!showManualLogin && savedAccounts.isNotEmpty()) {
+        if (showSavedProfilesScreen) {
             // Facebook-style Saved Profiles One-Click Login Screen
             Column(
                 modifier = Modifier
@@ -212,28 +222,47 @@ fun LoginScreen(
                             successMessage = null
                             isLoading = true
                             loggingInEmail = account.email
-                            onLoginClick(
-                                account.email,
-                                account.password,
-                                true,
-                                { err ->
-                                    isLoading = false
-                                    loggingInEmail = null
-                                    errorMessage = err
-                                },
-                                {
-                                    isLoading = false
-                                    loggingInEmail = null
-                                }
-                            )
+                            if (onQuickLoginClick != null) {
+                                onQuickLoginClick(
+                                    account,
+                                    { err ->
+                                        isLoading = false
+                                        loggingInEmail = null
+                                        if (account.password.isBlank()) {
+                                            identifier = account.email
+                                            password = ""
+                                            userRequestedManualLogin = true
+                                        }
+                                        errorMessage = err
+                                    },
+                                    {
+                                        isLoading = false
+                                        loggingInEmail = null
+                                    }
+                                )
+                            } else {
+                                onLoginClick(
+                                    account.email,
+                                    account.password,
+                                    true,
+                                    { err ->
+                                        isLoading = false
+                                        loggingInEmail = null
+                                        errorMessage = err
+                                    },
+                                    {
+                                        isLoading = false
+                                        loggingInEmail = null
+                                    }
+                                )
+                            }
                         },
                         onRemoveClick = {
                             SavedAccountManager.removeAccount(context, account.email)
                             val updated = SavedAccountManager.getSavedAccounts(context)
-                            savedAccounts = updated
                             if (updated.isEmpty()) {
                                 manageProfilesMode = false
-                                showManualLogin = true
+                                userRequestedManualLogin = false
                             }
                         }
                     )
@@ -250,7 +279,7 @@ fun LoginScreen(
                         manageProfilesMode = false
                         identifier = ""
                         password = ""
-                        showManualLogin = true
+                        userRequestedManualLogin = true
                     },
                     enabled = !isLoading,
                     shape = RoundedCornerShape(26.dp),
@@ -334,7 +363,7 @@ fun LoginScreen(
                         TextButton(
                             onClick = {
                                 errorMessage = null
-                                showManualLogin = false
+                                userRequestedManualLogin = false
                             },
                             enabled = !isLoading,
                             modifier = Modifier.testTag("back_to_saved_profiles_button")
@@ -618,7 +647,8 @@ private fun SavedProfileCard(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                val initial = account.name.trim().firstOrNull()?.uppercaseChar()
+                val title = account.displayName
+                val initial = title.trim().firstOrNull()?.uppercaseChar()
                 if (initial != null && initial.isLetterOrDigit()) {
                     Text(
                         text = initial.toString(),
@@ -639,12 +669,12 @@ private fun SavedProfileCard(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Account Name & Email
+            // Account Name / ISP Name & Email
             Column(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = account.name,
+                    text = account.displayName,
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.SemiBold
                     ),

@@ -317,6 +317,11 @@ fun MainAppContent(
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(isAuthChosen, settings.ispName) {
+        if (isAuthChosen && !isGuestMode && com.example.IspApplication.isLoggedIn(context)) {
+            com.example.util.SavedAccountManager.syncActiveSession(context, settings.ispName)
+        }
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -530,16 +535,14 @@ fun MainAppContent(
                                         com.example.IspApplication.setUserName(context, response.user.name)
                                         com.example.IspApplication.setUserEmail(context, response.user.email)
                                         com.example.IspApplication.setAuthToken(context, response.user.apiToken)
-                                        if (rememberMe) {
-                                            com.example.util.SavedAccountManager.saveAccount(
-                                                context = context,
-                                                userId = newUserId,
-                                                name = response.user.name,
-                                                email = response.user.email.ifBlank { normalizedId },
-                                                password = pass,
-                                                apiToken = response.user.apiToken
-                                            )
-                                        }
+                                        com.example.util.SavedAccountManager.saveAccount(
+                                            context = context,
+                                            userId = newUserId,
+                                            name = response.user.name,
+                                            email = response.user.email.ifBlank { normalizedId },
+                                            password = pass,
+                                            apiToken = response.user.apiToken
+                                        )
                                         viewModel.switchUserSession(newUserId)
                                         com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(context)
                                         com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(context)
@@ -603,6 +606,105 @@ fun MainAppContent(
                             viewModel.switchUserSession(null)
                             isGuestMode = true
                             isAuthChosen = true
+                        }
+                    }
+                },
+                onQuickLoginClick = { account, onError, onSuccess ->
+                    coroutineScope.launch {
+                        try {
+                            val normalizedEmail = account.email.filter { !it.isWhitespace() && it != '\u200B' && it != '\uFEFF' && it != '\u00A0' }.trim()
+                            if (account.password.isNotBlank()) {
+                                val response = com.example.data.remote.ApiClient.apiService.login(
+                                    com.example.data.remote.LoginRequest(normalizedEmail, account.password)
+                                )
+                                if (response.status && response.user != null) {
+                                    val newUserId = response.user.id
+                                    val previousOwner = com.example.IspApplication.getLastAuthenticatedUserId(context)
+                                    viewModel.cancelAllSyncOperations()
+                                    if (previousOwner != newUserId) {
+                                        val sanitized = viewModel.clearAllLocalData()
+                                        if (!sanitized) {
+                                            onError("Failed to sanitize local database before login. Please try again.")
+                                            return@launch
+                                        }
+                                        if (previousOwner != null) {
+                                            com.example.data.database.IspDatabase.closeDatabase(previousOwner)
+                                            com.example.data.database.SmsDatabase.closeDatabase(previousOwner)
+                                        }
+                                    }
+                                    com.example.IspApplication.setLastAuthenticatedUserId(context, newUserId)
+                                    com.example.IspApplication.setLoggedIn(context, true)
+                                    com.example.IspApplication.setUserId(context, newUserId)
+                                    com.example.IspApplication.setUserName(context, response.user.name)
+                                    com.example.IspApplication.setUserEmail(context, response.user.email)
+                                    com.example.IspApplication.setAuthToken(context, response.user.apiToken)
+                                    com.example.util.SavedAccountManager.saveAccount(
+                                        context = context,
+                                        userId = newUserId,
+                                        name = response.user.name,
+                                        email = response.user.email.ifBlank { normalizedEmail },
+                                        password = account.password,
+                                        apiToken = response.user.apiToken,
+                                        ispName = account.ispName
+                                    )
+                                    viewModel.switchUserSession(newUserId)
+                                    com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(context)
+                                    com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(context)
+                                    com.example.util.SyncWorker.schedulePeriodicSync(context)
+                                    isGuestMode = false
+                                    isAuthChosen = true
+                                    viewModel.showToast(response.message ?: "Login successful!")
+                                    onSuccess()
+                                    return@launch
+                                } else {
+                                    onError(response.message?.takeIf { it.isNotBlank() } ?: "Please enter your password to continue.")
+                                    return@launch
+                                }
+                            } else if (account.userId.isNotBlank() && !account.apiToken.isNullOrBlank()) {
+                                val newUserId = account.userId
+                                val previousOwner = com.example.IspApplication.getLastAuthenticatedUserId(context)
+                                viewModel.cancelAllSyncOperations()
+                                if (previousOwner != newUserId) {
+                                    val sanitized = viewModel.clearAllLocalData()
+                                    if (!sanitized) {
+                                        onError("Failed to sanitize local database before login. Please try again.")
+                                        return@launch
+                                    }
+                                    if (previousOwner != null) {
+                                        com.example.data.database.IspDatabase.closeDatabase(previousOwner)
+                                        com.example.data.database.SmsDatabase.closeDatabase(previousOwner)
+                                    }
+                                }
+                                com.example.IspApplication.setLastAuthenticatedUserId(context, newUserId)
+                                com.example.IspApplication.setLoggedIn(context, true)
+                                com.example.IspApplication.setUserId(context, newUserId)
+                                com.example.IspApplication.setUserName(context, account.name)
+                                com.example.IspApplication.setUserEmail(context, normalizedEmail)
+                                com.example.IspApplication.setAuthToken(context, account.apiToken)
+                                com.example.util.SavedAccountManager.saveAccount(
+                                    context = context,
+                                    userId = newUserId,
+                                    name = account.name,
+                                    email = normalizedEmail,
+                                    password = account.password,
+                                    apiToken = account.apiToken,
+                                    ispName = account.ispName
+                                )
+                                viewModel.switchUserSession(newUserId)
+                                com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(context)
+                                com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(context)
+                                com.example.util.SyncWorker.schedulePeriodicSync(context)
+                                isGuestMode = false
+                                isAuthChosen = true
+                                viewModel.showToast("Login successful!")
+                                onSuccess()
+                                return@launch
+                            } else {
+                                onError("Please enter your password once to save this profile.")
+                            }
+                        } catch (e: Throwable) {
+                            val rawMsg = e.localizedMessage ?: e.message ?: ""
+                            onError(rawMsg.ifBlank { "Please check your internet connection and try again." })
                         }
                     }
                 }
@@ -975,6 +1077,9 @@ fun MainAppContent(
                         onSignOut = {
                             coroutineScope.launch {
                                 try {
+                                    // Preserve current account in SavedAccountManager before clearing session
+                                    com.example.util.SavedAccountManager.syncActiveSession(context, settings.ispName)
+
                                     // 1. Cancel all in-flight ViewModel and background sync operations
                                     viewModel.cancelAllSyncOperations()
                                     com.example.util.HostingSyncManager.stopPeriodicForegroundPolling()
