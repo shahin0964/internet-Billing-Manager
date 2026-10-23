@@ -456,6 +456,14 @@ fun MainAppContent(
                                     com.example.IspApplication.setUserName(context, response.user.name)
                                     com.example.IspApplication.setUserEmail(context, response.user.email)
                                     com.example.IspApplication.setAuthToken(context, response.user.apiToken)
+                                    com.example.util.SavedAccountManager.saveAccount(
+                                        context = context,
+                                        userId = newUserId,
+                                        name = response.user.name,
+                                        email = response.user.email.ifBlank { normalizedEmail },
+                                        password = pass,
+                                        apiToken = response.user.apiToken
+                                    )
                                     viewModel.switchUserSession(newUserId)
                                     com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(context)
                                     com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(context)
@@ -522,6 +530,16 @@ fun MainAppContent(
                                         com.example.IspApplication.setUserName(context, response.user.name)
                                         com.example.IspApplication.setUserEmail(context, response.user.email)
                                         com.example.IspApplication.setAuthToken(context, response.user.apiToken)
+                                        if (rememberMe) {
+                                            com.example.util.SavedAccountManager.saveAccount(
+                                                context = context,
+                                                userId = newUserId,
+                                                name = response.user.name,
+                                                email = response.user.email.ifBlank { normalizedId },
+                                                password = pass,
+                                                apiToken = response.user.apiToken
+                                            )
+                                        }
                                         viewModel.switchUserSession(newUserId)
                                         com.example.util.AutoBackupWorker.scheduleDailyAutoBackup(context)
                                         com.example.util.MonthlyAutoBillingWorker.scheduleMonthlyAutoBilling(context)
