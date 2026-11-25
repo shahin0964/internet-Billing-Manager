@@ -68,6 +68,11 @@ if ($method === 'POST') {
     $generatedDate = $data['generated_date'] ?? ($data['generatedDate'] ?? date('Y-m-d'));
     $updatedAt = isset($data['updated_at']) ? (int)$data['updated_at'] : (int)(microtime(true) * 1000);
 
+    if ($dueAmount <= 0.001) {
+        $status = 'PAID';
+        $dueAmount = 0.0;
+    }
+
     // 1. Check if bill exists by primary key ID in this user's database
     $checkStmt = $accountPdo->prepare("SELECT * FROM bills WHERE id = ?");
     $checkStmt->execute([$id]);

@@ -179,6 +179,14 @@ try {
                     $canonicalM = date('Y-m');
                 }
                 $upAt = isset($b['updated_at']) ? (int)$b['updated_at'] : $now;
+                $bAmt = (float)($b['amount'] ?? 0);
+                $bPaid = (float)($b['paid_amount'] ?? 0);
+                $bDue = (float)($b['due_amount'] ?? 0);
+                $bStatus = strtoupper(trim($b['status'] ?? 'UNPAID'));
+                if ($bDue <= 0.001) {
+                    $bStatus = 'PAID';
+                    $bDue = 0.0;
+                }
 
                 try {
                     $stmt->execute([
@@ -190,10 +198,10 @@ try {
                         $b['customer_code'] ?? null,
                         $canonicalM,
                         $canonicalM,
-                        (float)($b['amount'] ?? 0),
-                        (float)($b['paid_amount'] ?? 0),
-                        (float)($b['due_amount'] ?? 0),
-                        $b['status'] ?? 'UNPAID',
+                        $bAmt,
+                        $bPaid,
+                        $bDue,
+                        $bStatus,
                         $b['due_date'] ?? '',
                         $b['generated_date'] ?? null,
                         $upAt

@@ -99,6 +99,37 @@ if ($method === 'POST') {
             $amount, $paymentDate, $paymentMethod, $notes, $updatedAt
         ]);
 
+        // When payment is recorded, immediately update matching bill(s) in MySQL bills table
+        if (!empty($billId) && (int)$billId > 0) {
+            $billStmt = $accountPdo->prepare("UPDATE bills SET 
+                paid_amount = paid_amount + ?,
+                due_amount = GREATEST(0, due_amount - ?),
+                status = CASE WHEN (due_amount - ?) <= 0.001 THEN 'PAID' ELSE 'PARTIAL' END,
+                updated_at = ?
+                WHERE id = ?");
+            $billStmt->execute([(float)$amount, (float)$amount, (float)$amount, $updatedAt, (int)$billId]);
+        } else if (!empty($customerId) && (int)$customerId > 0) {
+            // Apply FIFO to oldest unpaid bills for this customer
+            $unpaidStmt = $accountPdo->prepare("SELECT id, due_amount, paid_amount FROM bills WHERE customer_id = ? AND due_amount > 0 ORDER BY month ASC, id ASC");
+            $unpaidStmt->execute([(int)$customerId]);
+            $unpaidList = $unpaidStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $rem = (float)$amount;
+            foreach ($unpaidList as $ub) {
+                if ($rem <= 0) break;
+                $due = (float)$ub['due_amount'];
+                $apply = min($rem, $due);
+                $newPaid = (float)$ub['paid_amount'] + $apply;
+                $newDue = max(0.0, $due - $apply);
+                $newStatus = ($newDue <= 0.001) ? 'PAID' : 'PARTIAL';
+
+                $upB = $accountPdo->prepare("UPDATE bills SET paid_amount = ?, due_amount = ?, status = ?, updated_at = ? WHERE id = ?");
+                $upB->execute([$newPaid, $newDue, $newStatus, $updatedAt, (int)$ub['id']]);
+
+                $rem -= $apply;
+            }
+        }
+
         echo json_encode(["status" => true, "message" => "Payment created successfully"]);
         exit;
     }

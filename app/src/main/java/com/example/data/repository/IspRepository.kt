@@ -1396,30 +1396,18 @@ class IspRepository(
                 val allocatedBills = mutableListOf<Pair<BillEntity, Double>>()
 
                 // 4. Apply total effective payment (cash + discount) using strict FIFO (Oldest Bill First)
-                val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH)
-                fun parseBillMonthTime(monthStr: String): Long {
-                    return try {
-                        monthFormat.parse(monthStr.trim())?.time ?: 0L
-                    } catch (e: Exception) {
-                        try {
-                            SimpleDateFormat("yyyy-MM", Locale.ENGLISH).parse(monthStr.trim())?.time ?: 0L
-                        } catch (e2: Exception) {
-                            0L
-                        }
-                    }
-                }
-
+                // Guarantees that previous unpaid months are cleared first, reducing dueAmount chronologically
                 if (effectiveCustId != 0L) {
                     val unpaidBills = allBills
                         .filter { it.customerId == effectiveCustId && it.dueAmount > 0 }
-                        .sortedWith(compareBy({ parseBillMonthTime(it.billingMonth) }, { it.id }))
+                        .sortedWith(compareBy({ com.example.util.BillingMonthUtils.normalizeMonthKey(it.billingMonth) }, { it.id }))
 
                     for (b in unpaidBills) {
                         if (remainingEffective <= 0.0) break
                         val due = b.dueAmount
                         val applyAmount = minOf(remainingEffective, due)
                         val newPaid = b.paidAmount + applyAmount
-                        val newDue = (b.amount - newPaid).coerceAtLeast(0.0)
+                        val newDue = (b.dueAmount - applyAmount).coerceAtLeast(0.0)
                         val newStatus = when {
                             newDue <= 0.0 -> "PAID"
                             newPaid > 0.0 -> "PARTIAL"
@@ -1434,7 +1422,7 @@ class IspRepository(
                         )
                         billDao.updateBill(updated)
                         if (applyAmount > 0.0) {
-                            allocatedBills.add(b to applyAmount)
+                            allocatedBills.add(updated to applyAmount)
                         }
                         remainingEffective -= applyAmount
                     }
@@ -1442,7 +1430,7 @@ class IspRepository(
                     val due = targetBill.dueAmount
                     val applyAmount = minOf(remainingEffective, due)
                     val newPaid = targetBill.paidAmount + applyAmount
-                    val newDue = (targetBill.amount - newPaid).coerceAtLeast(0.0)
+                    val newDue = (targetBill.dueAmount - applyAmount).coerceAtLeast(0.0)
                     val newStatus = when {
                         newDue <= 0.0 -> "PAID"
                         newPaid > 0.0 -> "PARTIAL"
@@ -1457,7 +1445,7 @@ class IspRepository(
                     )
                     billDao.updateBill(updated)
                     if (applyAmount > 0.0) {
-                        allocatedBills.add(targetBill to applyAmount)
+                        allocatedBills.add(updated to applyAmount)
                     }
                     remainingEffective -= applyAmount
                 }
@@ -1591,6 +1579,34 @@ class IspRepository(
                                 }
                             } catch (e: Exception) {
                                 Log.e("IspRepository", "Failed to save payment via Hosting API: ${e.message}")
+                            }
+
+                            // Immediately sync paid / updated bills to server so server bills table is updated
+                            for ((b, _) in allocatedBills) {
+                                try {
+                                    val billReq = BillRequest(
+                                        id = b.id.toString(),
+                                        userId = userId,
+                                        customerId = b.customerId.toString(),
+                                        amount = b.amount,
+                                        billMonth = b.billingMonth,
+                                        dueDate = b.dueDate,
+                                        status = b.status,
+                                        billNumber = b.billNumber,
+                                        customerName = b.customerName,
+                                        customerCode = b.customerCode,
+                                        paidAmount = b.paidAmount,
+                                        dueAmount = b.dueAmount,
+                                        generatedDate = b.generatedDate,
+                                        updatedAt = b.updatedAt
+                                    )
+                                    val billRes = ApiClient.apiService.saveBill(billReq)
+                                    if (billRes.status) {
+                                        billDao.markBillsSynced(listOf(b.id))
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w("IspRepository", "Failed to sync updated bill ${b.id}: ${e.message}")
+                                }
                             }
                         }
                     }
@@ -4181,8 +4197,9 @@ class IspRepository(
                 val month = remote.billMonth ?: existing?.billingMonth ?: ""
                 val amt = remote.amount
                 val paid = remote.paidAmount ?: existing?.paidAmount ?: (if (remote.status.equals("PAID", ignoreCase = true)) amt else 0.0)
-                val due = remote.dueAmount ?: existing?.dueAmount ?: (if (remote.status.equals("PAID", ignoreCase = true)) 0.0 else amt)
-                val st = remote.status.uppercase(Locale.ROOT)
+                val rawDue = remote.dueAmount ?: existing?.dueAmount ?: (if (remote.status.equals("PAID", ignoreCase = true)) 0.0 else amt)
+                val due = if (rawDue <= 0.001) 0.0 else rawDue
+                val st = if (due <= 0.001) "PAID" else remote.status.uppercase(Locale.ROOT)
                 val genDate = remote.generatedDate ?: existing?.generatedDate ?: ""
                 val dDate = remote.dueDate ?: existing?.dueDate ?: ""
                 val upAt = remote.updatedAt ?: existing?.updatedAt ?: System.currentTimeMillis()

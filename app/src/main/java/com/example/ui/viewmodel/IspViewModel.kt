@@ -271,10 +271,7 @@ class IspViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         
-        // Also add paid bills just in case they are needed? BillingScreen filters by UNPAID/PARTIAL
-        val paidBills = rawBills.filter { it.status == "PAID" }
-        displayBills.addAll(paidBills)
-        
+        // Only bills with remaining unpaid/due balances are displayed in Billing screen
         displayBills.sortedWith { b1, b2 ->
             com.example.util.CustomerSortUtils.compareCustomerNames(b1.customerName, b2.customerName)
         }
