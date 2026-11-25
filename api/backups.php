@@ -82,12 +82,14 @@ try {
             exit;
         } elseif ($action === 'delete') {
             $backupId = $_GET['id'] ?? null;
-            if ($backupId) {
-                $stmt = $accountPdo->prepare("DELETE FROM cloud_backups WHERE id = ?");
-                $stmt->execute([$backupId]);
-            } else {
-                $accountPdo->exec("DELETE FROM cloud_backups");
+            if (!$backupId) {
+                if (ob_get_length()) ob_clean();
+                http_response_code(400);
+                echo json_encode(["status" => false, "message" => "Backup ID is required for deletion."]);
+                exit;
             }
+            $stmt = $accountPdo->prepare("DELETE FROM cloud_backups WHERE id = ?");
+            $stmt->execute([$backupId]);
             if (ob_get_length()) ob_clean();
             echo json_encode(["status" => true, "message" => "Backup deleted successfully"]);
             exit;
@@ -101,12 +103,14 @@ try {
         $action = $data['action'] ?? ($_GET['action'] ?? null);
         if ($action === 'delete') {
             $backupId = $data['id'] ?? ($_GET['id'] ?? null);
-            if ($backupId) {
-                $stmt = $accountPdo->prepare("DELETE FROM cloud_backups WHERE id = ?");
-                $stmt->execute([$backupId]);
-            } else {
-                $accountPdo->exec("DELETE FROM cloud_backups");
+            if (!$backupId) {
+                if (ob_get_length()) ob_clean();
+                http_response_code(400);
+                echo json_encode(["status" => false, "message" => "Backup ID is required for deletion."]);
+                exit;
             }
+            $stmt = $accountPdo->prepare("DELETE FROM cloud_backups WHERE id = ?");
+            $stmt->execute([$backupId]);
             if (ob_get_length()) ob_clean();
             echo json_encode(["status" => true, "message" => "Backup deleted successfully"]);
             exit;

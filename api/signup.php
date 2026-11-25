@@ -77,6 +77,15 @@ if (empty($name) || empty($email) || empty($password)) {
     exit;
 }
 
+if (strlen($password) < 6) {
+    echo json_encode([
+        "status" => false,
+        "message" => "Password must be at least 6 characters long.",
+        "user" => null
+    ]);
+    exit;
+}
+
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     echo json_encode([
         "status" => false,

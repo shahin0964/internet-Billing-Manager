@@ -729,6 +729,26 @@ object HostingSyncManager {
             }
         }
 
+        // Proactive Deduplication Sweep: Ensure each customer has strictly 1 bill per canonical billing month
+        val allLocalBillsPost = db.billDao().getAllBillsList()
+        val billsByCustMonth = allLocalBillsPost.groupBy {
+            "${it.customerId}_${BillingMonthUtils.normalizeMonthKey(it.billingMonth)}"
+        }
+        billsByCustMonth.values.forEach { dupGroup ->
+            if (dupGroup.size > 1) {
+                val toKeep = dupGroup.maxWithOrNull(
+                    compareBy<BillEntity> { it.status.uppercase(java.util.Locale.ROOT) == "PAID" }
+                        .thenBy { it.id }
+                ) ?: dupGroup.first()
+
+                dupGroup.forEach { duplicate ->
+                    if (duplicate.id != toKeep.id) {
+                        db.billDao().deleteBill(duplicate)
+                    }
+                }
+            }
+        }
+
         // 4. Payments Reconciliation (Device B sees all payments recorded by Device A)
         if (!isSessionValid(context, operationUserId)) return
         val serverPayments = fullData.payments.orEmpty()

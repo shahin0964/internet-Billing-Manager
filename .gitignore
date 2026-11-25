@@ -14,3 +14,4 @@ local.properties
 debug.keystore
 *.jks
 *.keystore
+*.zip

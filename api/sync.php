@@ -33,7 +33,8 @@ function fetchFullDataset($pdo, $userId) {
     foreach ($packages as &$p) { $p['user_id'] = $userId; }
     $fullData['packages'] = $packages;
 
-    // Bills
+    // Bills (clean up any duplicate entries across canonical month formats before returning)
+    deduplicateDatabaseBills($pdo);
     $stmt = $pdo->prepare("SELECT id, customer_id, bill_number, customer_name, customer_code, month, bill_month, amount, paid_amount, due_amount, status, due_date, generated_date, updated_at, created_at FROM bills ORDER BY id DESC");
     $stmt->execute();
     $bills = $stmt->fetchAll(PDO::FETCH_ASSOC);

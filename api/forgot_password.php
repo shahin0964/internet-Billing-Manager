@@ -162,8 +162,7 @@ try {
         ob_clean();
         echo json_encode([
             "status" => true,
-            "message" => "Verification code sent to " . $email . ". Please check your inbox (and spam folder).",
-            "reset_token" => $token
+            "message" => "Verification code sent to " . $email . ". Please check your inbox (and spam folder)."
         ]);
         exit;
     }

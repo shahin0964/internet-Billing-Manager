@@ -110,15 +110,6 @@ function getAuthenticatedUser($systemPdo) {
     }
 
     if (empty($token)) {
-        // For backwards compatibility during transition or login/register
-        $userId = $_REQUEST['user_id'] ?? null;
-        if ($userId) {
-            $stmt = $systemPdo->prepare("SELECT id, name, email, role, status, api_token, db_name FROM users WHERE id = ? LIMIT 1");
-            $stmt->execute([$userId]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($user) return $user;
-        }
-
         http_response_code(401);
         echo json_encode(["status" => false, "message" => "Unauthorized: Missing authentication token."]);
         exit;
@@ -488,6 +479,63 @@ function normalizeCanonicalMonth($rawMonth) {
     }
 
     return $trimmed;
+}
+
+/**
+ * Deduplicates bills in the user's MySQL account database by customer_id and canonical month.
+ * Keeps the PAID bill if one exists; otherwise retains the highest ID and deletes the redundant duplicates.
+ */
+function deduplicateDatabaseBills($accountPdo) {
+    if (!$accountPdo) return 0;
+    try {
+        $stmt = $accountPdo->query("SELECT id, customer_id, month, bill_month, status FROM bills ORDER BY id DESC");
+        $allBills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($allBills)) return 0;
+
+        $grouped = [];
+        $toDeleteIds = [];
+
+        foreach ($allBills as $b) {
+            $cid = (string)($b['customer_id'] ?? '');
+            if ($cid === '') continue;
+
+            $rawM = !empty($b['month']) ? $b['month'] : (!empty($b['bill_month']) ? $b['bill_month'] : '');
+            $canonM = normalizeCanonicalMonth($rawM);
+            $key = $cid . '_' . $canonM;
+
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = $b;
+            } else {
+                $existing = $grouped[$key];
+                $existingPaid = (strtoupper(trim($existing['status'] ?? '')) === 'PAID');
+                $currPaid = (strtoupper(trim($b['status'] ?? '')) === 'PAID');
+
+                if (!$existingPaid && $currPaid) {
+                    $toDeleteIds[] = (int)$existing['id'];
+                    $grouped[$key] = $b;
+                } elseif ($existingPaid && !$currPaid) {
+                    $toDeleteIds[] = (int)$b['id'];
+                } else {
+                    if ((int)$b['id'] > (int)$existing['id']) {
+                        $toDeleteIds[] = (int)$existing['id'];
+                        $grouped[$key] = $b;
+                    } else {
+                        $toDeleteIds[] = (int)$b['id'];
+                    }
+                }
+            }
+        }
+
+        if (!empty($toDeleteIds)) {
+            $toDeleteIds = array_unique($toDeleteIds);
+            $idList = implode(',', $toDeleteIds);
+            $accountPdo->exec("DELETE FROM bills WHERE id IN ($idList)");
+            return count($toDeleteIds);
+        }
+    } catch (Exception $e) {
+        // Silently continue if error occurs
+    }
+    return 0;
 }
 
 // Global reference for legacy files that require 'db.php' directly

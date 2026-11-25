@@ -19,6 +19,9 @@ $accountPdo = getAccountPdo($systemPdo, $userId);
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
+    // Proactively clean up any duplicate bills for the same customer + canonical billing month
+    deduplicateDatabaseBills($accountPdo);
+
     $customerId = $_GET['customer_id'] ?? null;
     if ($customerId) {
         $stmt = $accountPdo->prepare("SELECT * FROM bills WHERE customer_id = ? ORDER BY id DESC");
@@ -97,10 +100,18 @@ if ($method === 'POST') {
     }
 
     // 2. Strict Business Rule: One Customer + One Billing Period = Exactly One Bill
-    // Check if a bill already exists for this customer and canonical billing month
-    $monthCheckStmt = $accountPdo->prepare("SELECT id, status, amount, paid_amount, due_amount FROM bills WHERE customer_id = ? AND (month = ? OR bill_month = ?) LIMIT 1");
-    $monthCheckStmt->execute([$customerId, $canonicalMonth, $canonicalMonth]);
-    $existingByMonth = $monthCheckStmt->fetch(PDO::FETCH_ASSOC);
+    // Check if a bill already exists for this customer across any month format (e.g. "November 2026" vs "2026-11")
+    $allCustBills = $accountPdo->prepare("SELECT id, status, amount, paid_amount, due_amount, month, bill_month FROM bills WHERE customer_id = ?");
+    $allCustBills->execute([$customerId]);
+    $existingRows = $allCustBills->fetchAll(PDO::FETCH_ASSOC);
+    $existingByMonth = null;
+    foreach ($existingRows as $row) {
+        $rm = normalizeCanonicalMonth($row['month'] ?? ($row['bill_month'] ?? ''));
+        if ($rm === $canonicalMonth) {
+            $existingByMonth = $row;
+            break;
+        }
+    }
 
     if ($existingByMonth) {
         // Idempotent return: do not generate duplicate bill for the same period
