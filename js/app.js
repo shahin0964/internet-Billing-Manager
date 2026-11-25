@@ -26,6 +26,9 @@ const AppState = {
     selectedCustomer: null,
     currentReceipt: null,
     receiptFormat: 'thermal', // 'thermal' or 'a4'
+    customerStatusFilter: 'ALL',
+    billingStatusFilter: 'ALL',
+    backups: [],
     isLoading: false
 };
 
@@ -382,6 +385,7 @@ function switchTab(tabId) {
         'packages': 'ইন্টারনেট প্যাকেজ',
         'expenses': 'খরচ হিসাব',
         'logs': 'অ্যাক্টিভিটি লগ',
+        'backups': 'ক্লাউড ব্যাকআপ',
         'settings': 'সিস্টেম সেটিংস'
     };
     const topTitle = document.getElementById('top-bar-title');
@@ -435,6 +439,7 @@ function renderCurrentTab() {
     else if (tabId === 'payments') renderPayments();
     else if (tabId === 'packages') renderPackages();
     else if (tabId === 'expenses') renderExpenses();
+    else if (tabId === 'backups') renderBackups();
     else if (tabId === 'settings') renderSettings();
     else if (tabId === 'logs') loadAuditLogs();
 }
@@ -522,7 +527,8 @@ async function loadInitialData() {
             fetchCustomers(),
             fetchBills(),
             fetchPayments(),
-            fetchExpenses()
+            fetchExpenses(),
+            fetchBackups()
         ]);
         renderDashboard();
         startAutoSync();
@@ -654,10 +660,22 @@ function renderDashboard() {
 // ==========================================
 // CUSTOMER MANAGEMENT
 // ==========================================
+function setCustomerStatusFilter(status) {
+    AppState.customerStatusFilter = status;
+    document.querySelectorAll('.cust-chip').forEach(el => {
+        el.className = 'cust-chip px-3 py-1.5 rounded-full font-semibold bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-200';
+    });
+    const activeChip = document.getElementById(`cust-chip-${status}`);
+    if (activeChip) {
+        activeChip.className = 'cust-chip px-3 py-1.5 rounded-full font-semibold bg-blue-600 text-white shadow-xs';
+    }
+    renderCustomers();
+}
+
 function renderCustomers() {
     const tbody = document.getElementById('customers-tbody');
     const searchVal = (document.getElementById('customer-search-input')?.value || '').toLowerCase().trim();
-    const statusVal = document.getElementById('customer-filter-status')?.value || 'ALL';
+    const statusVal = AppState.customerStatusFilter || 'ALL';
     const pkgVal = document.getElementById('customer-filter-pkg')?.value || 'ALL';
 
     // Populate package filter dropdown if not populated
@@ -676,6 +694,7 @@ function renderCustomers() {
             (c.name && c.name.toLowerCase().includes(searchVal)) ||
             (c.phone && c.phone.toLowerCase().includes(searchVal)) ||
             (c.customer_code && c.customer_code.toLowerCase().includes(searchVal)) ||
+            (c.address && c.address.toLowerCase().includes(searchVal)) ||
             (c.ip_address && c.ip_address.toLowerCase().includes(searchVal)) ||
             (c.pppoe_username && c.pppoe_username.toLowerCase().includes(searchVal));
 
@@ -688,7 +707,7 @@ function renderCustomers() {
     document.getElementById('customer-count-badge').innerText = `${filtered.length} of ${AppState.customers.length}`;
 
     if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-gray-400">No customers found matching filter.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-gray-400">কোনো গ্রাহক পাওয়া যায়নি।</td></tr>`;
         return;
     }
 
@@ -696,33 +715,79 @@ function renderCustomers() {
         const pkg = AppState.packages.find(p => String(p.id) === String(c.package_id));
         const pkgName = pkg ? `${pkg.name} (${formatCurrency(pkg.price)})` : (c.package_id || 'None');
         const isActive = (c.status || 'ACTIVE').toUpperCase() === 'ACTIVE';
+        const cleanPhone = (c.phone || '').replace(/[^0-9]/g, '');
+        const waNumber = cleanPhone.startsWith('880') ? cleanPhone : (cleanPhone.startsWith('0') ? '88' + cleanPhone : '880' + cleanPhone);
 
         return `
             <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition">
                 <td class="py-3 px-4 font-mono text-xs font-semibold text-gray-500">${c.customer_code || c.id}</td>
                 <td class="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">
-                    <div>${c.name}</div>
-                    <div class="text-xs text-gray-400">${c.phone || 'No phone'}</div>
+                    <div class="font-bold flex items-center space-x-1.5">
+                        <span>${c.name}</span>
+                        ${cleanPhone ? `
+                            <a href="tel:${c.phone}" class="text-blue-500 hover:text-blue-700 ml-1 inline-flex items-center" title="কল করুন">
+                                <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
+                            </a>
+                            <a href="https://wa.me/${waNumber}" target="_blank" class="text-emerald-500 hover:text-emerald-700 ml-1 inline-flex items-center" title="WhatsApp-এ চ্যাট করুন">
+                                <svg class="w-3.5 h-3.5 inline" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+                            </a>
+                        ` : ''}
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">${c.phone || 'মোবাইল নেই'}</div>
+                    ${c.address ? `<div class="text-[11px] text-gray-400 truncate max-w-xs">${c.address}</div>` : ''}
                 </td>
-                <td class="py-3 px-4 text-sm text-gray-600 dark:text-gray-300">
-                    <div>${pkgName}</div>
-                    <div class="text-xs text-blue-500 font-mono">${c.pppoe_username || c.ip_address || ''}</div>
+                <td class="py-3 px-4 text-xs text-gray-600 dark:text-gray-300">
+                    <div class="font-medium">${pkgName}</div>
+                    <div class="text-[11px] text-blue-500 font-mono">${c.pppoe_username ? 'PPPoE: ' + c.pppoe_username : (c.ip_address ? 'IP: ' + c.ip_address : '')}</div>
                 </td>
-                <td class="py-3 px-4 text-xs text-gray-500">Day ${c.billing_cycle_date || 1}</td>
+                <td class="py-3 px-4 text-xs text-gray-500">প্রতি মাসের ${c.billing_cycle_date || 1} তারিখ</td>
                 <td class="py-3 px-4">
-                    <span class="px-2 py-1 text-xs font-semibold rounded-full ${isActive ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200' : 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200'}">
+                    <span class="px-2.5 py-1 text-xs font-semibold rounded-full ${isActive ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200' : 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200'}">
                         ${c.status || 'ACTIVE'}
                     </span>
                 </td>
                 <td class="py-3 px-4 text-right space-x-1 whitespace-nowrap">
-                    <button onclick="openCustomerDetails('${c.id}')" class="px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 rounded dark:bg-slate-700 dark:text-blue-300">View</button>
-                    <button onclick="openCollectBillForCustomer('${c.id}')" class="px-2 py-1 text-xs bg-emerald-600 text-white hover:bg-emerald-700 rounded">Collect Bill</button>
-                    <button onclick="openEditCustomerModal('${c.id}')" class="px-2 py-1 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 rounded dark:bg-slate-700 dark:text-gray-200">Edit</button>
-                    <button onclick="deleteCustomer('${c.id}')" class="px-2 py-1 text-xs bg-rose-50 text-rose-600 hover:bg-rose-100 rounded dark:bg-slate-700 dark:text-rose-400">Del</button>
+                    <button onclick="openCustomerDetails('${c.id}')" class="px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 rounded dark:bg-slate-700 dark:text-blue-300">প্রোফাইল</button>
+                    <button onclick="openCollectBillForCustomer('${c.id}')" class="px-2.5 py-1 text-xs bg-emerald-600 text-white hover:bg-emerald-700 rounded font-medium">আদায়</button>
+                    <button onclick="openEditCustomerModal('${c.id}')" class="px-2 py-1 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 rounded dark:bg-slate-700 dark:text-gray-200">এডিট</button>
+                    <button onclick="deleteCustomer('${c.id}')" class="px-2 py-1 text-xs bg-rose-50 text-rose-600 hover:bg-rose-100 rounded dark:bg-slate-700 dark:text-rose-400">ডিলিট</button>
                 </td>
             </tr>
         `;
     }).join('');
+}
+
+function exportCustomersToCSV() {
+    if (!AppState.customers.length) {
+        showToast('এক্সপোর্ট করার মতো কোনো গ্রাহক নেই।', 'warning');
+        return;
+    }
+    const headers = ['ID', 'Customer Code', 'Name', 'Phone', 'Address', 'Package', 'PPPoE', 'IP Address', 'Status', 'Joining Date'];
+    const rows = AppState.customers.map(c => {
+        const pkg = AppState.packages.find(p => String(p.id) === String(c.package_id));
+        return [
+            c.id,
+            `"${(c.customer_code || '').replace(/"/g, '""')}"`,
+            `"${(c.name || '').replace(/"/g, '""')}"`,
+            `"${(c.phone || '').replace(/"/g, '""')}"`,
+            `"${(c.address || '').replace(/"/g, '""')}"`,
+            `"${(pkg ? pkg.name : '').replace(/"/g, '""')}"`,
+            `"${(c.pppoe_username || '').replace(/"/g, '""')}"`,
+            `"${(c.ip_address || '').replace(/"/g, '""')}"`,
+            c.status || 'ACTIVE',
+            c.joining_date || ''
+        ];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `customers_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('গ্রাহক তালিকা সফলভাবে CSV ফাইলে ডাউনলোড হয়েছে!', 'success');
 }
 
 function openAddCustomerModal() {
@@ -874,45 +939,279 @@ function openCustomerDetails(id) {
 // ==========================================
 // BILLING MANAGEMENT
 // ==========================================
+function setBillingStatusFilter(status) {
+    AppState.billingStatusFilter = status;
+    document.querySelectorAll('.bill-chip').forEach(el => {
+        el.className = 'bill-chip px-3 py-1.5 rounded-full font-semibold bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-200';
+    });
+    const activeChip = document.getElementById(`bill-chip-${status}`);
+    if (activeChip) {
+        activeChip.className = 'bill-chip px-3 py-1.5 rounded-full font-semibold bg-blue-600 text-white shadow-xs';
+    }
+    renderBilling();
+}
+
 function renderBilling() {
     const tbody = document.getElementById('billing-tbody');
     const selectedMonth = document.getElementById('billing-month-filter')?.value || AppState.activeMonth;
-    const statusFilter = document.getElementById('billing-status-filter')?.value || 'ALL';
+    const searchVal = (document.getElementById('billing-search-input')?.value || '').toLowerCase().trim();
+    const statusFilter = AppState.billingStatusFilter || 'ALL';
 
     const billsForMonth = AppState.bills.filter(b => {
         const matchesMonth = isSameMonth(b.month || b.bill_month, selectedMonth);
-        const matchesStatus = statusFilter === 'ALL' || (b.status || 'UNPAID').toUpperCase() === statusFilter;
-        return matchesMonth && matchesStatus;
+        if (!matchesMonth) return false;
+
+        const isPaid = (b.status || 'UNPAID').toUpperCase() === 'PAID';
+        const isPartial = (b.status || '').toUpperCase() === 'PARTIAL';
+        const isUnpaid = (b.status || 'UNPAID').toUpperCase() === 'UNPAID';
+
+        if (statusFilter === 'PAID' && !isPaid) return false;
+        if (statusFilter === 'UNPAID' && !isUnpaid) return false;
+        if (statusFilter === 'PARTIAL' && !isPartial) return false;
+
+        if (searchVal) {
+            const cust = AppState.customers.find(c => String(c.id) === String(b.customer_id));
+            const phone = cust ? (cust.phone || '').toLowerCase() : '';
+            const custName = (b.customer_name || (cust ? cust.name : '')).toLowerCase();
+            const custCode = (b.customer_code || (cust ? cust.customer_code : '')).toLowerCase();
+            const billNum = (b.bill_number || String(b.id)).toLowerCase();
+
+            const match = custName.includes(searchVal) ||
+                          phone.includes(searchVal) ||
+                          custCode.includes(searchVal) ||
+                          billNum.includes(searchVal);
+            if (!match) return false;
+        }
+
+        return true;
     });
 
-    document.getElementById('billing-count-badge').innerText = `${billsForMonth.length} bills`;
+    document.getElementById('billing-count-badge').innerText = `${billsForMonth.length} টি বিল`;
 
     if (billsForMonth.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-gray-400">No bills generated for ${formatMonthDisplay(selectedMonth)}.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-gray-400">কোনো বিল পাওয়া যায়নি (${formatMonthDisplay(selectedMonth)})।</td></tr>`;
         return;
     }
 
     tbody.innerHTML = billsForMonth.map(b => {
-        const isPaid = (b.status || 'UNPAID').toUpperCase() === 'PAID';
+        const statusUpper = (b.status || 'UNPAID').toUpperCase();
+        const isPaid = statusUpper === 'PAID';
+        const isPartial = statusUpper === 'PARTIAL';
+        const cust = AppState.customers.find(c => String(c.id) === String(b.customer_id));
+        const custName = b.customer_name || (cust ? cust.name : 'Customer #' + b.customer_id);
+        const custPhone = cust ? cust.phone : '';
+        const cleanPhone = custPhone ? custPhone.replace(/[^0-9]/g, '') : '';
+        const waNumber = cleanPhone.startsWith('880') ? cleanPhone : (cleanPhone.startsWith('0') ? '88' + cleanPhone : '880' + cleanPhone);
+
+        let badgeClass = 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200';
+        if (isPaid) badgeClass = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200';
+        else if (isPartial) badgeClass = 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200';
+
         return `
-            <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-slate-800">
+            <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition">
                 <td class="py-3 px-4 font-mono text-xs font-semibold text-gray-500">${b.bill_number || b.id}</td>
-                <td class="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">${b.customer_name || 'Customer #' + b.customer_id}</td>
+                <td class="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">
+                    <div class="font-bold flex items-center space-x-1.5">
+                        <span>${custName}</span>
+                        ${cleanPhone ? `
+                            <a href="tel:${custPhone}" class="text-blue-500 hover:text-blue-700 inline-flex items-center" title="কল করুন">
+                                <svg class="w-3.5 h-3.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
+                            </a>
+                            <a href="https://wa.me/${waNumber}" target="_blank" class="text-emerald-500 hover:text-emerald-700 inline-flex items-center" title="হোয়াটসঅ্যাপে চ্যাট">
+                                <svg class="w-3.5 h-3.5 inline" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981z"/></svg>
+                            </a>
+                        ` : ''}
+                    </div>
+                    <div class="text-xs text-gray-400 font-mono">${b.customer_code || (cust ? cust.customer_code : '') || ''} ${custPhone ? '• ' + custPhone : ''}</div>
+                </td>
                 <td class="py-3 px-4 font-bold text-gray-800 dark:text-gray-200">${formatCurrency(b.amount)}</td>
                 <td class="py-3 px-4 text-emerald-600 font-semibold">${formatCurrency(b.paid_amount)}</td>
                 <td class="py-3 px-4 text-rose-600 font-bold">${formatCurrency(b.due_amount)}</td>
                 <td class="py-3 px-4">
-                    <span class="px-2 py-1 text-xs font-semibold rounded-full ${isPaid ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200' : 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'}">
+                    <span class="px-2.5 py-1 text-xs font-semibold rounded-full ${badgeClass}">
                         ${b.status || 'UNPAID'}
                     </span>
                 </td>
-                <td class="py-3 px-4 text-right space-x-1">
-                    ${!isPaid ? `<button onclick="openCollectBillForBill(${b.id})" class="px-2 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded">Collect</button>` : ''}
-                    <button onclick="deleteBill(${b.id})" class="px-2 py-1 text-xs bg-rose-50 text-rose-600 hover:bg-rose-100 rounded">Delete</button>
+                <td class="py-3 px-4 text-right space-x-1 whitespace-nowrap">
+                    ${!isPaid ? `<button onclick="openCollectBillForBill(${b.id})" class="px-2.5 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium shadow-xs">আদায়</button>` : ''}
+                    <button onclick="sendWhatsAppReminder(${b.id})" class="px-2 py-1 text-xs bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded dark:bg-slate-700 dark:text-emerald-400 inline-flex items-center space-x-1" title="হোয়াটসঅ্যাপে বকেয়া রিমাইন্ডার পাঠান">
+                        <svg class="w-3 h-3 inline" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981z"/></svg>
+                        <span>রিমাইন্ডার</span>
+                    </button>
+                    <button onclick="openEditBillModal(${b.id})" class="px-2 py-1 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 rounded dark:bg-slate-700 dark:text-gray-200">এডিট</button>
+                    ${(isPaid || isPartial) ? `<button onclick="viewBillReceipt(${b.id})" class="px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 rounded dark:bg-slate-700 dark:text-blue-300">রিসিপ্ট</button>` : ''}
+                    <button onclick="deleteBill(${b.id})" class="px-2 py-1 text-xs bg-rose-50 text-rose-600 hover:bg-rose-100 rounded dark:bg-slate-700 dark:text-rose-400">ডিলিট</button>
                 </td>
             </tr>
         `;
     }).join('');
+}
+
+function sendWhatsAppReminder(billId) {
+    const bill = AppState.bills.find(b => String(b.id) === String(billId));
+    if (!bill) {
+        showToast('বিল পাওয়া যায়নি।', 'error');
+        return;
+    }
+
+    const cust = AppState.customers.find(c => String(c.id) === String(bill.customer_id));
+    const phone = cust ? (cust.phone || '').trim() : '';
+    if (!phone) {
+        showToast('গ্রাহকের কোনো ফোন নম্বর পাওয়া যায়নি।', 'warning');
+        return;
+    }
+
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const waNumber = cleanPhone.startsWith('880') ? cleanPhone : (cleanPhone.startsWith('0') ? '88' + cleanPhone : '880' + cleanPhone);
+
+    const custName = cust ? cust.name : (bill.customer_name || 'Customer');
+    const ispName = AppState.settings.isp_name || 'ISP Net';
+    const dueDate = bill.due_date || '';
+
+    // Find all unpaid / partial bills for this customer
+    const unpaidBills = AppState.bills.filter(b => 
+        String(b.customer_id) === String(bill.customer_id) &&
+        (b.status === 'UNPAID' || b.status === 'PARTIAL') &&
+        (parseFloat(b.due_amount) > 0)
+    );
+
+    let message = '';
+    if (unpaidBills.length === 0 || (bill.status === 'PAID')) {
+        message = `প্রিয় ${custName},\nআপনার ${formatMonthDisplay(bill.month || bill.bill_month)} মাসের বিল পরিশোধ সম্পন্ন হয়েছে। মোট বিল: ${formatCurrency(bill.amount)}।\nধন্যবাদ,\n${ispName}`;
+    } else {
+        const breakdownLines = unpaidBills.map(b => `- ${formatMonthDisplay(b.month || b.bill_month)}: ${formatCurrency(b.due_amount)}`).join('\n');
+        const totalDue = unpaidBills.reduce((sum, b) => sum + (parseFloat(b.due_amount) || 0), 0);
+
+        message = `প্রিয় ${custName},\nআপনার ইন্টারনেট বিলের মাসভিত্তিক বকেয়ার বিবরণ:\n\n${breakdownLines}\n\nমোট বকেয়া: ${formatCurrency(totalDue)}`;
+        if (dueDate) {
+            message += `\nপরিশোধের শেষ সময়: ${dueDate}`;
+        }
+        message += `\n\nসংযোগ সচল রাখতে অনুগ্রহ করে দ্রুত বিল পরিশোধ করুন।\nধন্যবাদ,\n${ispName}`;
+    }
+
+    const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank');
+}
+
+function openEditBillModal(billId) {
+    const bill = AppState.bills.find(b => String(b.id) === String(billId));
+    if (!bill) return;
+
+    const cust = AppState.customers.find(c => String(c.id) === String(bill.customer_id));
+
+    document.getElementById('edit-bill-id').value = bill.id;
+    document.getElementById('edit-bill-customer-id').value = bill.customer_id;
+    document.getElementById('edit-bill-cust-name').value = bill.customer_name || (cust ? cust.name : '');
+    document.getElementById('edit-bill-month').value = bill.month || bill.bill_month || '';
+    document.getElementById('edit-bill-amount').value = bill.amount || 0;
+    document.getElementById('edit-bill-due').value = (bill.due_amount !== undefined) ? bill.due_amount : bill.amount;
+    document.getElementById('edit-bill-due-date').value = bill.due_date || '';
+    document.getElementById('edit-bill-status').value = (bill.status || 'UNPAID').toUpperCase();
+
+    document.getElementById('edit-bill-modal').classList.remove('hidden');
+}
+
+async function handleSaveEditBill(e) {
+    e.preventDefault();
+    const id = document.getElementById('edit-bill-id').value;
+    const customerId = document.getElementById('edit-bill-customer-id').value;
+    const amount = parseFloat(document.getElementById('edit-bill-amount').value) || 0;
+    const dueAmount = parseFloat(document.getElementById('edit-bill-due').value) || 0;
+    const status = document.getElementById('edit-bill-status').value;
+    const dueDate = document.getElementById('edit-bill-due-date').value;
+    const month = document.getElementById('edit-bill-month').value;
+
+    const existingBill = AppState.bills.find(b => String(b.id) === String(id));
+    const paidAmount = Math.max(0, amount - dueAmount);
+
+    const payload = Object.assign({}, existingBill || {}, {
+        id: Number(id),
+        customer_id: customerId,
+        amount: amount,
+        paid_amount: status === 'PAID' ? amount : paidAmount,
+        due_amount: status === 'PAID' ? 0 : dueAmount,
+        status: status,
+        due_date: dueDate,
+        month: month,
+        bill_month: month,
+        updated_at: Date.now()
+    });
+
+    setLoading(true);
+    try {
+        const res = await apiCall('bills.php', 'POST', payload);
+        if (res.status) {
+            showToast('বিল সফলভাবে আপডেট করা হয়েছে!', 'success');
+            document.getElementById('edit-bill-modal').classList.add('hidden');
+            await fetchBills();
+            renderBilling();
+            renderDashboard();
+        } else {
+            showToast(res.message || 'বিল আপডেট ব্যর্থ হয়েছে।', 'error');
+        }
+    } catch (err) {
+        showToast(err.message || 'Error updating bill', 'error');
+    } finally {
+        setLoading(false);
+    }
+}
+
+function exportBillsToCSV() {
+    const selectedMonth = document.getElementById('billing-month-filter')?.value || AppState.activeMonth;
+    const billsForMonth = AppState.bills.filter(b => isSameMonth(b.month || b.bill_month, selectedMonth));
+
+    if (billsForMonth.length === 0) {
+        showToast('এক্সপোর্ট করার মতো কোনো বিল নেই।', 'warning');
+        return;
+    }
+
+    const headers = ['Bill No', 'Billing Month', 'Customer Name', 'Customer Code', 'Phone', 'Bill Amount', 'Paid Amount', 'Due Amount', 'Status', 'Due Date'];
+    const rows = billsForMonth.map(b => {
+        const cust = AppState.customers.find(c => String(c.id) === String(b.customer_id));
+        return [
+            `"${(b.bill_number || b.id || '').toString().replace(/"/g, '""')}"`,
+            `"${(b.month || b.bill_month || '').toString().replace(/"/g, '""')}"`,
+            `"${(b.customer_name || (cust ? cust.name : '') || '').replace(/"/g, '""')}"`,
+            `"${(b.customer_code || (cust ? cust.customer_code : '') || '').replace(/"/g, '""')}"`,
+            `"${(cust ? cust.phone : '') || ''}"`,
+            b.amount || 0,
+            b.paid_amount || 0,
+            b.due_amount || 0,
+            b.status || 'UNPAID',
+            b.due_date || ''
+        ];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `bills_${selectedMonth}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('বিল তালিকা সফলভাবে CSV ফাইলে ডাউনলোড হয়েছে!', 'success');
+}
+
+function viewBillReceipt(billId) {
+    const bill = AppState.bills.find(b => String(b.id) === String(billId));
+    if (!bill) return;
+
+    const cust = AppState.customers.find(c => String(c.id) === String(bill.customer_id));
+    const payment = AppState.payments.find(p => String(p.bill_id) === String(bill.id)) ||
+                    AppState.payments.find(p => String(p.customer_id) === String(bill.customer_id));
+
+    displayMoneyReceipt({
+        receipt_no: payment ? (payment.payment_receipt_no || `REC-${payment.id}`) : `REC-${bill.id}`,
+        customer_name: bill.customer_name || (cust ? cust.name : 'Customer'),
+        customer_code: bill.customer_code || (cust ? (cust.customer_code || cust.id) : ''),
+        phone: cust ? cust.phone : '',
+        amount: (bill.paid_amount > 0) ? bill.paid_amount : bill.amount,
+        payment_date: payment ? payment.payment_date : (bill.generated_date || new Date().toISOString().slice(0, 10)),
+        payment_method: payment ? payment.payment_method : 'Cash',
+        notes: payment ? payment.notes : `Payment for ${bill.month || bill.bill_month}`,
+        bill_month: bill.month || bill.bill_month
+    });
 }
 
 async function generateMonthlyBillsBulk() {
@@ -1193,6 +1492,38 @@ function printReceipt() {
     window.print();
 }
 
+function shareReceiptViaWhatsApp() {
+    const r = AppState.currentReceipt;
+    if (!r) {
+        showToast('রিসিপ্ট তথ্য পাওয়া যায়নি।', 'error');
+        return;
+    }
+
+    const phone = (r.phone || '').trim();
+    if (!phone) {
+        showToast('গ্রাহকের কোনো ফোন নম্বর পাওয়া যায়নি।', 'warning');
+        return;
+    }
+
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const waNumber = cleanPhone.startsWith('880') ? cleanPhone : (cleanPhone.startsWith('0') ? '88' + cleanPhone : '880' + cleanPhone);
+    const ispName = AppState.settings.isp_name || 'ISP Billing Management';
+
+    const msg = `প্রিয় ${r.customer_name},
+আপনার ইন্টারনেট বিল পরিশোধের মানি রিসিপ্ট:
+
+- মানি রিসিপ্ট নং: ${r.receipt_no}
+- তারিখ: ${r.payment_date}
+- বিল মাস: ${r.bill_month || formatMonthDisplay(AppState.activeMonth)}
+- পরিশোধিত টাকা: ${formatCurrency(r.amount)}
+- মাধ্যম: ${r.payment_method || 'Cash'}
+
+বিল পরিশোধের জন্য ধন্যবাদ!
+${ispName}`;
+
+    window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
 function printReceiptDirect(paymentId) {
     const payment = AppState.payments.find(p => String(p.id) === String(paymentId));
     if (!payment) return;
@@ -1341,23 +1672,53 @@ async function deletePackage(pkgId) {
 // ==========================================
 function renderExpenses() {
     const tbody = document.getElementById('expenses-tbody');
-    const totalExp = AppState.expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+    const searchVal = (document.getElementById('expense-search-input')?.value || '').toLowerCase().trim();
+    const catFilter = document.getElementById('expense-category-filter');
+    const catVal = catFilter?.value || 'ALL';
+
+    // Populate category filter dropdown dynamically if options are missing
+    if (catFilter && catFilter.children.length <= 1) {
+        const distinctCats = Array.from(new Set(AppState.expenses.map(e => e.category).filter(Boolean)));
+        distinctCats.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = c;
+            catFilter.appendChild(opt);
+        });
+    }
+
+    const filtered = AppState.expenses.filter(e => {
+        const matchesCat = (catVal === 'ALL') || (e.category === catVal);
+        if (!matchesCat) return false;
+
+        if (searchVal) {
+            const matchesSearch = (e.title && e.title.toLowerCase().includes(searchVal)) ||
+                                  (e.category && e.category.toLowerCase().includes(searchVal)) ||
+                                  (e.note && e.note.toLowerCase().includes(searchVal)) ||
+                                  (e.date && e.date.includes(searchVal));
+            if (!matchesSearch) return false;
+        }
+
+        return true;
+    });
+
+    const totalExp = filtered.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
     document.getElementById('total-expenses-display').innerText = formatCurrency(totalExp);
 
-    if (AppState.expenses.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-400">No expenses recorded.</td></tr>`;
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-gray-400">কোনো খরচের রেকর্ড পাওয়া যায়নি।</td></tr>`;
         return;
     }
 
-    tbody.innerHTML = AppState.expenses.map(e => `
-        <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-slate-800">
+    tbody.innerHTML = filtered.map(e => `
+        <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition">
             <td class="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">${e.title}</td>
-            <td class="py-3 px-4"><span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-800 dark:bg-slate-700 dark:text-gray-300 rounded">${e.category || 'General'}</span></td>
+            <td class="py-3 px-4"><span class="px-2.5 py-0.5 text-xs bg-gray-100 text-gray-800 dark:bg-slate-700 dark:text-gray-300 rounded font-medium">${e.category || 'General'}</span></td>
             <td class="py-3 px-4 font-bold text-rose-600">${formatCurrency(e.amount)}</td>
             <td class="py-3 px-4 text-xs text-gray-500">${e.date}</td>
             <td class="py-3 px-4 text-xs text-gray-500">${e.payment_method || 'Cash'}</td>
             <td class="py-3 px-4 text-right">
-                <button onclick="deleteExpense(${e.id})" class="px-2 py-1 text-xs text-rose-600 hover:underline">Delete</button>
+                <button onclick="deleteExpense(${e.id})" class="px-2 py-1 text-xs text-rose-600 hover:underline">ডিলিট</button>
             </td>
         </tr>
     `).join('');
@@ -1515,6 +1876,106 @@ async function loadAuditLogs() {
 }
 
 // ==========================================
+// CLOUD BACKUPS & RESTORE
+// ==========================================
+async function fetchBackups() {
+    try {
+        const res = await apiCall('backups.php?action=list');
+        if (res.status && Array.isArray(res.data)) {
+            AppState.backups = res.data;
+        }
+    } catch (e) {
+        console.warn('Backups load error:', e);
+    }
+}
+
+async function renderBackups() {
+    const tbody = document.getElementById('backups-tbody');
+    if (!tbody) return;
+
+    if (!AppState.backups || AppState.backups.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-gray-400">কোনো ব্যাকআপ ফাইল পাওয়া যায়নি। নতুন ব্যাকআপ তৈরি করতে উপরের বাটনে ক্লিক করুন।</td></tr>`;
+    } else {
+        tbody.innerHTML = AppState.backups.map(b => {
+            const sizeKB = b.backup_size ? (b.backup_size / 1024).toFixed(1) + ' KB' : 'N/A';
+            const dateStr = b.created_at ? new Date(b.created_at).toLocaleString('bn-BD') : 'N/A';
+            return `
+                <tr class="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition">
+                    <td class="py-3 px-4 font-mono text-xs font-semibold text-blue-600">${b.backup_name || 'Backup-' + b.id}</td>
+                    <td class="py-3 px-4 text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">${b.billing_month || 'N/A'}</td>
+                    <td class="py-3 px-4 text-xs font-mono text-gray-500">${sizeKB}</td>
+                    <td class="py-3 px-4 text-xs text-gray-500">${dateStr}</td>
+                    <td class="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                        <button onclick="downloadBackupFile('${b.id}')" class="px-2.5 py-1 text-xs bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded dark:bg-slate-700 dark:text-emerald-400 font-medium">ডাউনলোড</button>
+                        <button onclick="deleteBackupFile('${b.id}')" class="px-2 py-1 text-xs bg-rose-50 text-rose-600 hover:bg-rose-100 rounded dark:bg-slate-700 dark:text-rose-400">ডিলিট</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+}
+
+async function createInstantCloudBackup() {
+    setLoading(true);
+    try {
+        const bundle = {
+            customers: AppState.customers,
+            bills: AppState.bills,
+            payments: AppState.payments,
+            packages: AppState.packages,
+            expenses: AppState.expenses,
+            settings: AppState.settings,
+            exported_at: new Date().toISOString()
+        };
+
+        const backupName = `Backup_${AppState.activeMonth}_${new Date().toISOString().slice(0, 10)}`;
+        const payload = {
+            action: 'create',
+            backup_name: backupName,
+            billing_month: AppState.activeMonth,
+            backup_data: JSON.stringify(bundle)
+        };
+
+        const res = await apiCall('backups.php', 'POST', payload);
+        if (res.status) {
+            showToast('ক্লাউড ব্যাকআপ সফলভাবে তৈরি হয়েছে!', 'success');
+            await fetchBackups();
+            renderBackups();
+        } else {
+            showToast(res.message || 'ক্লাউড ব্যাকআপ ব্যর্থ হয়েছে।', 'error');
+        }
+    } catch (e) {
+        showToast(e.message || 'Failed to create backup', 'error');
+    } finally {
+        setLoading(false);
+    }
+}
+
+function downloadBackupFile(id) {
+    const url = `api/backups.php?action=download&id=${encodeURIComponent(id)}`;
+    window.open(url, '_blank');
+}
+
+async function deleteBackupFile(id) {
+    if (!confirm('আপনি কি এই ব্যাকআপ ফাইলটি ডিলিট করতে চান?')) return;
+    setLoading(true);
+    try {
+        const res = await apiCall(`backups.php?action=delete&id=${encodeURIComponent(id)}`);
+        if (res.status) {
+            showToast('ব্যাকআপ ফাইল ডিলিট হয়েছে।', 'info');
+            await fetchBackups();
+            renderBackups();
+        } else {
+            showToast(res.message || 'Error deleting backup', 'error');
+        }
+    } catch (e) {
+        showToast(e.message || 'Failed to delete backup', 'error');
+    } finally {
+        setLoading(false);
+    }
+}
+
+// ==========================================
 // INITIALIZATION
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -1551,5 +2012,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const custPkgFilter = document.getElementById('customer-filter-pkg');
     if (custPkgFilter) {
         custPkgFilter.addEventListener('change', () => renderCustomers());
+    }
+
+    // Billing search debounce
+    const billSearch = document.getElementById('billing-search-input');
+    if (billSearch) {
+        billSearch.addEventListener('input', () => renderBilling());
+    }
+
+    // Expense search & filter
+    const expSearch = document.getElementById('expense-search-input');
+    if (expSearch) {
+        expSearch.addEventListener('input', () => renderExpenses());
+    }
+
+    const expCatFilter = document.getElementById('expense-category-filter');
+    if (expCatFilter) {
+        expCatFilter.addEventListener('change', () => renderExpenses());
     }
 });

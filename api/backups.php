@@ -93,6 +93,28 @@ try {
             if (ob_get_length()) ob_clean();
             echo json_encode(["status" => true, "message" => "Backup deleted successfully"]);
             exit;
+        } elseif ($action === 'download') {
+            $backupId = $_GET['id'] ?? null;
+            if ($backupId) {
+                $stmt = $accountPdo->prepare("SELECT * FROM cloud_backups WHERE id = ?");
+                $stmt->execute([$backupId]);
+            } else {
+                $stmt = $accountPdo->query("SELECT * FROM cloud_backups ORDER BY created_at DESC LIMIT 1");
+            }
+            $b = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($b && !empty($b['backup_data'])) {
+                if (ob_get_length()) ob_clean();
+                $filename = ($b['backup_name'] ?: 'ISP-Backup') . '.json';
+                header('Content-Type: application/json; charset=utf-8');
+                header('Content-Disposition: attachment; filename="' . $filename . '"');
+                echo $b['backup_data'];
+                exit;
+            } else {
+                if (ob_get_length()) ob_clean();
+                http_response_code(404);
+                echo json_encode(["status" => false, "message" => "Backup data not found."]);
+                exit;
+            }
         }
     }
 
