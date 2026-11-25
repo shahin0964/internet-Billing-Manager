@@ -286,10 +286,6 @@ jobs:
           cat release_notes.md
           echo "==============================="
 
-      - name: Inject Google API Key into Environment
-        run: |
-          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" > .env
-
       - name: Clean Stale Build Outputs
         run: |
           rm -rf app/build/outputs/apk/
@@ -300,7 +296,6 @@ jobs:
         env:
           VERSION_NAME: ${{ env.VERSION_NAME }}
           VERSION_CODE: ${{ env.VERSION_CODE }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           BUILD_CMD="./gradlew :app:assembleRelease -PversionName=\"${VERSION_NAME}\" -PversionCode=\"${VERSION_CODE}\" --stacktrace"
           if [ ! -f "./gradlew" ]; then
